@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell } from 'electron';
 import { join } from 'node:path';
 import { registerIpcHandlers } from './ipc';
+import { attachContextMenu } from './context-menu';
 
 const isDev = !app.isPackaged;
 
@@ -18,8 +19,11 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      spellcheck: true,
     },
   });
+
+  attachContextMenu(win);
 
   win.once('ready-to-show', () => {
     win.show();

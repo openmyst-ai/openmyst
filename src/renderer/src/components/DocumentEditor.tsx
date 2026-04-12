@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Editor, rootCtx, defaultValueCtx } from '@milkdown/kit/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
@@ -9,6 +9,17 @@ import { cursor } from '@milkdown/kit/plugin/cursor';
 import { trailing } from '@milkdown/kit/plugin/trailing';
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react';
 import { bridge } from '../api/bridge';
+import { EditorToolbar } from './EditorToolbar';
+
+const FONT_SIZE_STORAGE_KEY = 'myst:font-size';
+const DEFAULT_FONT_SIZE = 18;
+
+function loadFontSize(): number {
+  if (typeof window === 'undefined') return DEFAULT_FONT_SIZE;
+  const raw = window.localStorage.getItem(FONT_SIZE_STORAGE_KEY);
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FONT_SIZE;
+}
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -55,8 +66,13 @@ export function DocumentEditor({ projectPath }: DocumentEditorProps): JSX.Elemen
   const [initialValue, setInitialValue] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>('idle');
+  const [fontSize, setFontSize] = useState<number>(loadFontSize);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>('');
+
+  useEffect(() => {
+    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize));
+  }, [fontSize]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,31 +114,40 @@ export function DocumentEditor({ projectPath }: DocumentEditorProps): JSX.Elemen
     }, AUTOSAVE_DELAY_MS);
   };
 
+  const surfaceStyle = { '--doc-font-size': `${fontSize}px` } as CSSProperties;
+
   if (loadError) {
     return (
-      <div className="document-error">
-        <p>Could not load document: {loadError}</p>
+      <div className="document-editor" style={surfaceStyle}>
+        <div className="document-error">
+          <p>Could not load document: {loadError}</p>
+        </div>
       </div>
     );
   }
 
   if (initialValue === null) {
-    return <div className="document-loading">Loading…</div>;
+    return (
+      <div className="document-editor" style={surfaceStyle}>
+        <div className="document-loading">Loading…</div>
+      </div>
+    );
   }
 
   return (
-    <div className="document-editor">
-      <div className="document-scroll">
-        <div className="document-page">
-          <MilkdownProvider>
+    <div className="document-editor" style={surfaceStyle}>
+      <MilkdownProvider>
+        <EditorToolbar fontSize={fontSize} onFontSize={setFontSize} />
+        <div className="document-scroll">
+          <div className="document-page">
             <EditorView
               key={projectPath}
               initialValue={initialValue}
               onChange={scheduleSave}
             />
-          </MilkdownProvider>
+          </div>
         </div>
-      </div>
+      </MilkdownProvider>
       <SaveIndicator status={status} />
     </div>
   );

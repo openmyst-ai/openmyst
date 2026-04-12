@@ -259,6 +259,104 @@ h3 {
   font-family: var(--font-serif);
 }
 
+/* ---- Editor toolbar (Notion-style) ---- */
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 14px;
+  background: rgba(18, 21, 29, 0.92);
+  backdrop-filter: saturate(140%) blur(8px);
+  -webkit-backdrop-filter: saturate(140%) blur(8px);
+  border-bottom: 1px solid var(--doc-rule);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  user-select: none;
+}
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--doc-rule);
+  margin: 0 6px;
+}
+.toolbar-spacer {
+  flex: 1;
+}
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--doc-fg-soft);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.toolbar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--doc-fg);
+  border-color: transparent;
+}
+.toolbar-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.toolbar-btn .label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.toolbar-btn .mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.toolbar-btn .strike {
+  text-decoration: line-through;
+  font-weight: 600;
+}
+.toolbar-btn strong,
+.toolbar-btn em {
+  font-size: 13px;
+}
+.font-size-group {
+  margin-left: 0;
+}
+.font-size-group .size-small {
+  font-size: 11px;
+  font-weight: 600;
+}
+.font-size-group .size-large {
+  font-size: 15px;
+  font-weight: 600;
+}
+.font-size-readout {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+}
+
 .save-indicator {
   position: absolute;
   right: 20px;
@@ -289,7 +387,7 @@ h3 {
 .milkdown {
   font-family: var(--font-serif);
   color: var(--doc-fg);
-  font-size: 18px;
+  font-size: var(--doc-font-size, 18px);
   line-height: 1.75;
   font-feature-settings: 'kern', 'liga', 'calt';
   -webkit-font-smoothing: antialiased;
