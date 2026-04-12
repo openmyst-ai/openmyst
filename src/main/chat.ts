@@ -133,7 +133,7 @@ function extractEdits(text: string): { edits: EditOp[]; chatContent: string } {
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text)) !== null) {
     try {
-      const raw = match[1].trim();
+      const raw = match[1]!.trim();
       const parsed = JSON.parse(raw) as { old_string?: string; new_string?: string };
       if (typeof parsed.old_string === 'string' && typeof parsed.new_string === 'string') {
         edits.push({
@@ -260,7 +260,7 @@ export async function sendMessage(userText: string): Promise<ChatMessage> {
     const failures: string[] = [];
 
     for (let i = 0; i < edits.length; i++) {
-      const edit = edits[i];
+      const edit = edits[i]!;
       console.log('[myst-chat] applying edit', i, 'old:', JSON.stringify(edit.old_string.slice(0, 100)));
       const result = applyEdit(doc, edit);
       if (result.ok) {
@@ -288,7 +288,7 @@ export async function sendMessage(userText: string): Promise<ChatMessage> {
       console.log('[myst-chat] retry response:\n', retryContent);
       const retryResult = extractEdits(retryContent);
       for (let i = 0; i < retryResult.edits.length; i++) {
-        const result = applyEdit(doc, retryResult.edits[i]);
+        const result = applyEdit(doc, retryResult.edits[i]!);
         if (result.ok) {
           doc = result.doc;
           madeChanges = true;

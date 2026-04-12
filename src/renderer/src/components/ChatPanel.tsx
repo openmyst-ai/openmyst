@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import MarkdownIt from 'markdown-it';
 import type { ChatMessage } from '@shared/types';
 import { useApp } from '../store/app';
 import { bridge } from '../api/bridge';
+
+const chatMd = new MarkdownIt({ html: false, linkify: true, breaks: true });
+
+function renderMarkdown(text: string): string {
+  return chatMd.render(text);
+}
+
+function MarkdownContent({ text }: { text: string }): JSX.Element {
+  const html = useMemo(() => renderMarkdown(text), [text]);
+  return <div className="chat-msg-content chat-md" dangerouslySetInnerHTML={{ __html: html }} />;
+}
 
 export function ChatPanel(): JSX.Element {
   const { settings, openSettings } = useApp();
@@ -136,7 +148,11 @@ function ChatView(): JSX.Element {
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-msg chat-msg-${msg.role}`}>
             <div className="chat-msg-role">{msg.role === 'user' ? 'You' : 'Myst'}</div>
-            <div className="chat-msg-content">{msg.content}</div>
+            {msg.role === 'assistant' ? (
+              <MarkdownContent text={msg.content} />
+            ) : (
+              <div className="chat-msg-content">{msg.content}</div>
+            )}
           </div>
         ))}
         {sending && (() => {
@@ -146,7 +162,7 @@ function ChatView(): JSX.Element {
           return (
             <div className="chat-msg chat-msg-assistant">
               <div className="chat-msg-role">Myst</div>
-              {stripped && <div className="chat-msg-content">{stripped}</div>}
+              {stripped && <MarkdownContent text={stripped} />}
               {isWritingEdit ? (
                 <div className="chat-msg-content chat-typing">
                   <span className="editing-indicator">
@@ -185,21 +201,13 @@ function ChatView(): JSX.Element {
         <textarea
           ref={inputRef}
           className="chat-input"
-          placeholder="Message…"
+          placeholder="Message… (Enter to send, Shift+Enter for newline)"
           rows={2}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={sending}
         />
-        <button
-          type="button"
-          className="chat-send-btn primary"
-          onClick={() => void handleSend()}
-          disabled={sending || !input.trim()}
-        >
-          {sending ? '…' : 'Send'}
-        </button>
       </div>
     </div>
   );

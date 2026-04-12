@@ -7,8 +7,8 @@ interface EditorToolbarProps {
   onFontSize: (size: number) => void;
 }
 
-const MIN_SIZE = 14;
-const MAX_SIZE = 24;
+const MIN_SIZE = 11;
+const MAX_SIZE = 18;
 const SIZE_STEP = 1;
 
 export function EditorToolbar({ editor, fontSize, onFontSize }: EditorToolbarProps): JSX.Element {

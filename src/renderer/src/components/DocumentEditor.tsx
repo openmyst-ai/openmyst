@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -135,10 +135,25 @@ export function DocumentEditor({ projectPath }: DocumentEditorProps): JSX.Elemen
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [fontSize, setFontSize] = useState<number>(loadFontSize);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [showFind, setShowFind] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>('');
   const { setHeadings, scrollToPos, clearScroll } = useHeadings();
   const prevHeadingsJson = useRef('');
+
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowFind((prev) => !prev);
+      }
+      if (e.key === 'Escape') {
+        setShowFind(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize));
@@ -257,6 +272,7 @@ export function DocumentEditor({ projectPath }: DocumentEditorProps): JSX.Elemen
   return (
     <div className="document-editor" style={surfaceStyle}>
       <EditorToolbar editor={editor} fontSize={fontSize} onFontSize={setFontSize} />
+      {showFind && <FindBar editor={editor} onClose={() => setShowFind(false)} />}
       <div className="document-scroll">
         <div className="document-page">
           <TiptapEditor
@@ -277,4 +293,122 @@ function SaveIndicator({ status }: { status: SaveStatus }): JSX.Element | null {
   const label =
     status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Save failed';
   return <div className={`save-indicator save-${status}`}>{label}</div>;
+}
+
+interface FindBarProps {
+  editor: Editor | null;
+  onClose: () => void;
+}
+
+function FindBar({ editor, onClose }: FindBarProps): JSX.Element {
+  const [query, setQuery] = useState('');
+  const [matchCount, setMatchCount] = useState(0);
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const findMatches = useCallback(
+    (q: string): Array<{ from: number; to: number }> => {
+      if (!editor || !q) return [];
+      const results: Array<{ from: number; to: number }> = [];
+      const lower = q.toLowerCase();
+      editor.state.doc.descendants((node, pos) => {
+        if (!node.isText || !node.text) return;
+        const text = node.text.toLowerCase();
+        let idx = text.indexOf(lower);
+        while (idx !== -1) {
+          results.push({ from: pos + idx, to: pos + idx + q.length });
+          idx = text.indexOf(lower, idx + 1);
+        }
+      });
+      return results;
+    },
+    [editor],
+  );
+
+  const highlightAndScroll = useCallback(
+    (q: string, index: number) => {
+      if (!editor) return;
+      const matches = findMatches(q);
+      setMatchCount(matches.length);
+      if (matches.length === 0) {
+        setCurrentMatch(0);
+        return;
+      }
+      const i = ((index % matches.length) + matches.length) % matches.length;
+      setCurrentMatch(i + 1);
+      const match = matches[i];
+      if (!match) return;
+      editor.commands.setTextSelection(match);
+      const view = editor.view;
+      const dom = view.domAtPos(match.from);
+      const el = dom.node instanceof HTMLElement ? dom.node : dom.node.parentElement;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+    [editor, findMatches],
+  );
+
+  const handleChange = useCallback(
+    (val: string) => {
+      setQuery(val);
+      if (val) {
+        highlightAndScroll(val, 0);
+      } else {
+        setMatchCount(0);
+        setCurrentMatch(0);
+      }
+    },
+    [highlightAndScroll],
+  );
+
+  const goNext = useCallback(() => {
+    if (query) highlightAndScroll(query, currentMatch);
+  }, [query, currentMatch, highlightAndScroll]);
+
+  const goPrev = useCallback(() => {
+    if (query) highlightAndScroll(query, currentMatch - 2);
+  }, [query, currentMatch, highlightAndScroll]);
+
+  const handleKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) goPrev();
+        else goNext();
+      }
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    },
+    [goNext, goPrev, onClose],
+  );
+
+  return (
+    <div className="find-bar">
+      <input
+        ref={inputRef}
+        type="text"
+        className="find-input"
+        placeholder="Find…"
+        value={query}
+        onChange={(e) => handleChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+      />
+      <span className="find-count">
+        {query ? `${currentMatch}/${matchCount}` : ''}
+      </span>
+      <button type="button" className="find-btn" onClick={goPrev} disabled={matchCount === 0} title="Previous (Shift+Enter)">
+        &#x25B2;
+      </button>
+      <button type="button" className="find-btn" onClick={goNext} disabled={matchCount === 0} title="Next (Enter)">
+        &#x25BC;
+      </button>
+      <button type="button" className="find-btn find-close" onClick={onClose} title="Close (Esc)">
+        &#x2715;
+      </button>
+    </div>
+  );
 }
