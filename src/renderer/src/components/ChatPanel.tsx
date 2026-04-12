@@ -24,6 +24,24 @@ export function ChatPanel(): JSX.Element {
   return <ChatView />;
 }
 
+function stripEditBlocks(text: string): string {
+  let result = text
+    .replace(/```myst_edit\s*\n[\s\S]*?```/g, '')
+    .trim();
+  const partial = result.indexOf('```myst_edit');
+  if (partial !== -1) {
+    result = result.slice(0, partial).trim();
+  }
+  result = result
+    .replace(/`myst_edit`/gi, '')
+    .replace(/myst_edit/gi, '')
+    .replace(/old_string/g, '')
+    .replace(/new_string/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return result;
+}
+
 function ChatView(): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -121,18 +139,37 @@ function ChatView(): JSX.Element {
             <div className="chat-msg-content">{msg.content}</div>
           </div>
         ))}
-        {sending && streamingText && (
-          <div className="chat-msg chat-msg-assistant">
-            <div className="chat-msg-role">Myst</div>
-            <div className="chat-msg-content">{streamingText}</div>
-          </div>
-        )}
-        {sending && !streamingText && (
-          <div className="chat-msg chat-msg-assistant">
-            <div className="chat-msg-role">Myst</div>
-            <div className="chat-msg-content chat-typing">Thinking…</div>
-          </div>
-        )}
+        {sending && (() => {
+          const stripped = streamingText ? stripEditBlocks(streamingText) : '';
+          const hasEdits = streamingText.includes('myst_edit');
+          const isWritingEdit = hasEdits && !streamingText.trimEnd().endsWith('```');
+          return (
+            <div className="chat-msg chat-msg-assistant">
+              <div className="chat-msg-role">Myst</div>
+              {stripped && <div className="chat-msg-content">{stripped}</div>}
+              {isWritingEdit ? (
+                <div className="chat-msg-content chat-typing">
+                  <span className="editing-indicator">
+                    <span className="generating-dots">
+                      <span className="dot" />
+                      <span className="dot" />
+                      <span className="dot" />
+                    </span>
+                    {' '}Editing your document…
+                  </span>
+                </div>
+              ) : !stripped ? (
+                <div className="chat-msg-content chat-typing">
+                  <span className="generating-dots">
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
       </div>
 
       {error && (

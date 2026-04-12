@@ -446,7 +446,10 @@ h3 {
 
 /* Paragraphs */
 .tiptap p {
-  margin: 0;
+  margin: 0.75em 0 0;
+}
+.tiptap > p:first-child {
+  margin-top: 0;
 }
 
 /* Inline */
@@ -654,6 +657,37 @@ h3 {
 .chat-typing {
   color: var(--fg-muted);
   font-style: italic;
+}
+.editing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-style: italic;
+}
+.generating-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  height: 1.55em;
+}
+.generating-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.3;
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.generating-dots .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.generating-dots .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
 }
 .chat-error {
   padding: 8px 16px;

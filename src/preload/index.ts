@@ -20,6 +20,15 @@ const api: MystApi = {
   document: {
     read: () => ipcRenderer.invoke(IpcChannels.Document.Read),
     write: (content) => ipcRenderer.invoke(IpcChannels.Document.Write, content),
+    onChanged: (callback) => {
+      const handler = (): void => {
+        callback();
+      };
+      ipcRenderer.on(IpcChannels.Document.Changed, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.Document.Changed, handler);
+      };
+    },
   },
   chat: {
     send: (message) => ipcRenderer.invoke(IpcChannels.Chat.Send, message),

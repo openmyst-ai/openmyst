@@ -16,6 +16,7 @@ export const IpcChannels = {
   Document: {
     Read: 'document:read',
     Write: 'document:write',
+    Changed: 'document:changed',
   },
   Chat: {
     Send: 'chat:send',

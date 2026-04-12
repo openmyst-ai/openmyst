@@ -18,6 +18,7 @@ export interface MystApi {
   document: {
     read: () => Promise<string>;
     write: (content: string) => Promise<void>;
+    onChanged: (callback: () => void) => () => void;
   };
   chat: {
     send: (message: string) => Promise<ChatMessage>;

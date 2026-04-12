@@ -49,38 +49,12 @@ function sendToRenderer(channel: string, ...args: unknown[]): void {
   }
 }
 
-export async function sendMessage(userText: string): Promise<ChatMessage> {
-  const apiKey = await getOpenRouterKey();
-  if (!apiKey) throw new Error('OpenRouter API key not set. Add it in Settings.');
-
-  const settings = await getSettings();
-  const model = settings.defaultModel;
-
-  const agentPrompt = await readProjectFile('agent.md');
-  const document = await readProjectFile('document.md');
-  const sourcesIndex = await readProjectFile('sources/index.md');
-
-  const userMsg: ChatMessage = {
-    id: randomUUID(),
-    role: 'user',
-    content: userText,
-    timestamp: new Date().toISOString(),
-  };
-  await appendMessage(userMsg);
-
-  const history = await loadHistory();
-
-  const systemContent = [
-    agentPrompt,
-    '\n\n---\n## Current Document\n\n' + document,
-    sourcesIndex.trim() ? '\n\n---\n## Sources Index\n\n' + sourcesIndex : '',
-  ].join('');
-
-  const messages = [
-    { role: 'system' as const, content: systemContent },
-    ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-  ];
-
+async function streamCompletion(
+  apiKey: string,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  emitChunks: boolean,
+): Promise<string> {
   const response = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
@@ -129,7 +103,7 @@ export async function sendMessage(userText: string): Promise<ChatMessage> {
         const chunk = parsed.choices?.[0]?.delta?.content;
         if (chunk) {
           fullContent += chunk;
-          sendToRenderer(IpcChannels.Chat.Chunk, chunk);
+          if (emitChunks) sendToRenderer(IpcChannels.Chat.Chunk, chunk);
         }
       } catch {
         // skip malformed chunks
@@ -137,12 +111,208 @@ export async function sendMessage(userText: string): Promise<ChatMessage> {
     }
   }
 
+  return fullContent;
+}
+
+interface EditOp {
+  old_string: string;
+  new_string: string;
+}
+
+interface ApplyResult {
+  ok: boolean;
+  error?: string;
+  index: number;
+}
+
+function extractEdits(text: string): { edits: EditOp[]; chatContent: string } {
+  const regex = /```myst_edit\s*\n([\s\S]*?)```/g;
+  const edits: EditOp[] = [];
+  let chatContent = text;
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    try {
+      const raw = match[1].trim();
+      const parsed = JSON.parse(raw) as { old_string?: string; new_string?: string };
+      if (typeof parsed.old_string === 'string' && typeof parsed.new_string === 'string') {
+        edits.push({
+          old_string: parsed.old_string,
+          new_string: parsed.new_string,
+        });
+      }
+    } catch {
+      console.log('[myst-chat] failed to parse myst_edit JSON:', match[1]);
+    }
+    chatContent = chatContent.replace(match[0], '');
+  }
+
+  chatContent = chatContent.replace(/\n{3,}/g, '\n\n').trim();
+  return { edits, chatContent };
+}
+
+function applyEdit(doc: string, edit: EditOp): ApplyResult & { doc: string } {
+  if (edit.old_string === '') {
+    const trimmed = doc.trimEnd();
+    return { ok: true, index: 0, doc: trimmed + '\n\n' + edit.new_string + '\n' };
+  }
+
+  const first = doc.indexOf(edit.old_string);
+  if (first === -1) {
+    return { ok: false, error: 'old_string not found in document', index: 0, doc };
+  }
+
+  const second = doc.indexOf(edit.old_string, first + 1);
+  if (second !== -1) {
+    return { ok: false, error: 'old_string matches multiple locations — make it more specific', index: 0, doc };
+  }
+
+  const newDoc = doc.slice(0, first) + edit.new_string + doc.slice(first + edit.old_string.length);
+  return { ok: true, index: first, doc: newDoc };
+}
+
+const CHANGE_WORDS = /\b(changed|updated|switched|swapped|renamed|replaced|tweaked|edited|modified|added|wrote|dropped|inserted|promotion|start|here'?s)\b/i;
+const REQUEST_WORDS = /\b(write|create|add|change|rename|edit|fix|rewrite|make|extend|continue|update|swap|replace|remove|delete)\b/i;
+
+function looksLikeDocumentRequest(userText: string, llmResponse: string): boolean {
+  return REQUEST_WORDS.test(userText) || CHANGE_WORDS.test(llmResponse);
+}
+
+function cleanChatContent(text: string): string {
+  return text
+    .replace(/```myst_edit\s*\n[\s\S]*?```/g, '')
+    .replace(/`myst_edit`/gi, '')
+    .replace(/myst_edit/gi, '')
+    .replace(/old_string/g, '')
+    .replace(/new_string/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+export async function sendMessage(userText: string): Promise<ChatMessage> {
+  const apiKey = await getOpenRouterKey();
+  if (!apiKey) throw new Error('OpenRouter API key not set. Add it in Settings.');
+
+  const settings = await getSettings();
+  const model = settings.defaultModel;
+
+  const agentPrompt = await readProjectFile('agent.md');
+  const document = await readProjectFile('document.md');
+  const sourcesIndex = await readProjectFile('sources/index.md');
+
+  const userMsg: ChatMessage = {
+    id: randomUUID(),
+    role: 'user',
+    content: userText,
+    timestamp: new Date().toISOString(),
+  };
+  await appendMessage(userMsg);
+
+  const history = await loadHistory();
+
+  const systemContent = [
+    agentPrompt,
+    '\n\n========== BEGIN document.md ==========\n' + document + '\n========== END document.md ==========',
+    sourcesIndex.trim()
+      ? '\n\n========== BEGIN sources/index.md (READ-ONLY, not part of the document) ==========\n' + sourcesIndex + '\n========== END sources/index.md =========='
+      : '',
+  ].join('');
+
+  const messages: Array<{ role: string; content: string }> = [
+    { role: 'system', content: systemContent },
+    ...history.map((m) => ({ role: m.role, content: m.content })),
+  ];
+
+  const fullContent = await streamCompletion(apiKey, model, messages, true);
   sendToRenderer(IpcChannels.Chat.ChunkDone);
+
+  console.log('[myst-chat] full LLM response:\n', fullContent);
+
+  let { edits, chatContent } = extractEdits(fullContent);
+  console.log('[myst-chat] extracted edits:', edits.length);
+
+  if (edits.length === 0 && looksLikeDocumentRequest(userText, fullContent)) {
+    console.log('[myst-chat] no edits found but looks like a document change — retrying');
+    const doc = await readProjectFile('document.md');
+    const retryMessages = [
+      ...messages,
+      { role: 'assistant', content: fullContent },
+      {
+        role: 'user',
+        content: `You forgot to include the myst_edit block. Here is the current document:\n\n${doc}\n\nPlease output the myst_edit block(s) now to make the change.`,
+      },
+    ];
+    const retryContent = await streamCompletion(apiKey, model, retryMessages, false);
+    console.log('[myst-chat] retry response:\n', retryContent);
+    const retryResult = extractEdits(retryContent);
+    if (retryResult.edits.length > 0) {
+      edits = retryResult.edits;
+      if (!chatContent) chatContent = retryResult.chatContent;
+    }
+  }
+
+  let madeChanges = false;
+
+  if (edits.length > 0) {
+    let doc = await readProjectFile('document.md');
+    console.log('[myst-chat] document before:', JSON.stringify(doc.slice(0, 300)));
+
+    const failures: string[] = [];
+
+    for (let i = 0; i < edits.length; i++) {
+      const edit = edits[i];
+      console.log('[myst-chat] applying edit', i, 'old:', JSON.stringify(edit.old_string.slice(0, 100)));
+      const result = applyEdit(doc, edit);
+      if (result.ok) {
+        doc = result.doc;
+        madeChanges = true;
+        console.log('[myst-chat] edit', i, 'applied successfully');
+      } else {
+        console.log('[myst-chat] edit', i, 'FAILED:', result.error);
+        failures.push(`Edit ${i}: ${result.error} (old_string: "${edit.old_string.slice(0, 60)}...")`);
+      }
+    }
+
+    if (failures.length > 0) {
+      console.log('[myst-chat] retrying failed edits...');
+      const freshDoc = madeChanges ? doc : await readProjectFile('document.md');
+      const retryMessages = [
+        ...messages,
+        { role: 'assistant', content: fullContent },
+        {
+          role: 'user',
+          content: `Some edits failed:\n${failures.join('\n')}\n\nHere is the current document:\n\n${freshDoc}\n\nPlease retry the failed edits with corrected old_string values that match exactly once.`,
+        },
+      ];
+      const retryContent = await streamCompletion(apiKey, model, retryMessages, false);
+      console.log('[myst-chat] retry response:\n', retryContent);
+      const retryResult = extractEdits(retryContent);
+      for (let i = 0; i < retryResult.edits.length; i++) {
+        const result = applyEdit(doc, retryResult.edits[i]);
+        if (result.ok) {
+          doc = result.doc;
+          madeChanges = true;
+          console.log('[myst-chat] retry edit', i, 'applied successfully');
+        } else {
+          console.log('[myst-chat] retry edit', i, 'FAILED again:', result.error);
+        }
+      }
+    }
+
+    if (madeChanges) {
+      console.log('[myst-chat] document after:', JSON.stringify(doc.slice(0, 300)));
+      await fs.writeFile(projectPath('document.md'), doc, 'utf-8');
+      sendToRenderer(IpcChannels.Document.Changed);
+    }
+  }
+
+  let finalChat = madeChanges ? (chatContent || 'Document updated.') : fullContent;
+  finalChat = cleanChatContent(finalChat);
 
   const assistantMsg: ChatMessage = {
     id: randomUUID(),
     role: 'assistant',
-    content: fullContent,
+    content: finalChat || 'Document updated.',
     timestamp: new Date().toISOString(),
   };
   await appendMessage(assistantMsg);

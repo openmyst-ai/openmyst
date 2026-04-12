@@ -167,6 +167,19 @@ export function DocumentEditor({ projectPath }: DocumentEditorProps): JSX.Elemen
     };
   }, [projectPath]);
 
+  const [contentVersion, setContentVersion] = useState(0);
+
+  useEffect(() => {
+    const off = bridge.document.onChanged(() => {
+      bridge.document.read().then((content) => {
+        lastSavedRef.current = content;
+        setInitialValue(content);
+        setContentVersion((v) => v + 1);
+      }).catch(console.error);
+    });
+    return off;
+  }, []);
+
   const syncHeadings = useCallback(() => {
     if (!editor) return;
     const headings = extractHeadings(editor);
@@ -247,7 +260,7 @@ export function DocumentEditor({ projectPath }: DocumentEditorProps): JSX.Elemen
       <div className="document-scroll">
         <div className="document-page">
           <TiptapEditor
-            key={projectPath}
+            key={`${projectPath}-${contentVersion}`}
             initialValue={initialValue}
             onMarkdownChange={scheduleSave}
             onEditorReady={handleEditorReady}
