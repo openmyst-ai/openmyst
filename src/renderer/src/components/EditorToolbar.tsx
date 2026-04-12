@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
 
 interface EditorToolbarProps {
@@ -16,6 +16,23 @@ export function EditorToolbar({ editor, fontSize, onFontSize }: EditorToolbarPro
     if (!editor) return;
     fn(editor);
   };
+
+  const addLink = useCallback(() => {
+    if (!editor) return;
+    const previousUrl = (editor.getAttributes('link')['href'] as string) || '';
+    const url = window.prompt('URL', previousUrl);
+    if (url === null) return;
+    if (url === '') {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    } else {
+      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    }
+  }, [editor]);
+
+  const insertTable = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  }, [editor]);
 
   return (
     <div className="editor-toolbar" role="toolbar">
@@ -81,6 +98,13 @@ export function EditorToolbar({ editor, fontSize, onFontSize }: EditorToolbarPro
         >
           <span className="mono">{'</>'}</span>
         </ToolbarButton>
+        <ToolbarButton
+          title="Link (⌘K)"
+          active={editor?.isActive('link')}
+          onClick={addLink}
+        >
+          <LinkIcon />
+        </ToolbarButton>
       </div>
 
       <Divider />
@@ -113,6 +137,12 @@ export function EditorToolbar({ editor, fontSize, onFontSize }: EditorToolbarPro
           onClick={() => run((e) => e.chain().focus().toggleCodeBlock().run())}
         >
           <CodeBlockIcon />
+        </ToolbarButton>
+        <ToolbarButton
+          title="Insert table"
+          onClick={insertTable}
+        >
+          <TableIcon />
         </ToolbarButton>
       </div>
 
@@ -212,6 +242,29 @@ function CodeBlockIcon(): JSX.Element {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function LinkIcon(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M6.5 9.5a3 3 0 004.24 0l2-2a3 3 0 00-4.24-4.24l-1 1M9.5 6.5a3 3 0 00-4.24 0l-2 2a3 3 0 004.24 4.24l1-1"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TableIcon(): JSX.Element {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M1.5 6.5h13M1.5 10.5h13M6 2.5v11" stroke="currentColor" strokeWidth="1.2" />
     </svg>
   );
 }

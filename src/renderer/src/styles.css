@@ -422,6 +422,11 @@ h3 {
   font-size: 2.1em;
   margin: 1.2em 0 0.5em;
 }
+.tiptap > h1:first-child,
+.tiptap > h2:first-child,
+.tiptap > h3:first-child {
+  margin-top: 0;
+}
 .tiptap h2 {
   font-size: 1.55em;
   margin: 1.8em 0 0.4em;
@@ -538,8 +543,8 @@ h3 {
 .tiptap hr {
   border: none;
   border-top: 1px solid var(--doc-rule);
-  margin: 2em auto;
-  width: 40%;
+  margin: 2em 0;
+  width: 100%;
 }
 
 /* Tables */

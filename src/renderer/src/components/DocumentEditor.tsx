@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
@@ -12,11 +13,54 @@ import TableHeader from '@tiptap/extension-table-header';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import { Markdown } from 'tiptap-markdown';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { DOMParser as PmDOMParser } from '@tiptap/pm/model';
 import { bridge } from '../api/bridge';
 import { EditorToolbar } from './EditorToolbar';
 import { useHeadings } from '../store/headings';
 import type { Heading } from '@shared/types';
 import type { Editor } from '@tiptap/core';
+
+const MarkdownBlockPaste = Extension.create({
+  name: 'markdownBlockPaste',
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    return [
+      new Plugin({
+        key: new PluginKey('markdownBlockPaste'),
+        props: {
+          handlePaste(view, event) {
+            const html = event.clipboardData?.getData('text/html');
+            if (html) return false;
+
+            const text = event.clipboardData?.getData('text/plain');
+            if (!text) return false;
+
+            const storage = editor.storage as unknown as Record<
+              string,
+              { parser?: { parse: (t: string, opts?: { inline?: boolean }) => string } }
+            >;
+            const parser = storage['markdown']?.parser;
+            if (!parser) return false;
+
+            const parsed = parser.parse(text);
+            const el = document.createElement('div');
+            el.innerHTML = parsed;
+
+            const slice = PmDOMParser.fromSchema(view.state.schema).parseSlice(el, {
+              preserveWhitespace: true,
+            });
+
+            const { tr } = view.state;
+            tr.replaceSelection(slice);
+            view.dispatch(tr);
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+});
 
 const FONT_SIZE_STORAGE_KEY = 'myst:font-size';
 const DEFAULT_FONT_SIZE = 18;
@@ -67,6 +111,7 @@ function TiptapEditor({ initialValue, onMarkdownChange, onEditorReady }: TiptapE
       TableHeader,
       Link.configure({ openOnClick: false }),
       Image,
+      MarkdownBlockPaste,
       Markdown.configure({
         html: false,
         transformPastedText: true,
