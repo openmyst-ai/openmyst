@@ -3,7 +3,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import type { PendingEdit } from '@shared/types';
-import { renderMarkdown } from '../utils/markdown';
+import { renderMarkdown, renderMarkdownInline } from '../utils/markdown';
 import { usePendingEdits } from '../store/pendingEdits';
 
 export const pendingEditsKey = new PluginKey<PendingEditsState>('pendingEdits');
@@ -55,6 +55,45 @@ function buildFlatText(doc: PmNode): FlatDoc {
   return { flat: parts.join(''), posMap };
 }
 
+function locateOccurrence(haystack: string, needle: string, occurrence: number): number | null {
+  if (needle.length === 0) return null;
+  let searchFrom = 0;
+  let hit = -1;
+  for (let n = 0; n < occurrence; n++) {
+    hit = haystack.indexOf(needle, searchFrom);
+    if (hit === -1) return null;
+    searchFrom = hit + needle.length;
+  }
+  return hit;
+}
+
+function rangeFromFlatHit(
+  startFlat: number,
+  needleLen: number,
+  posMap: number[],
+): PendingRange | null {
+  const endFlat = startFlat + needleLen - 1;
+  const fromPos = posMap[startFlat];
+  const lastPos = posMap[endFlat];
+  if (fromPos === undefined || lastPos === undefined) return null;
+  const toPos = lastPos + 1;
+  if (toPos <= fromPos) return null;
+  return { from: fromPos, to: toPos };
+}
+
+/**
+ * Strip leading markdown line markers (`#`, `##`, `-`, `*`, `1.`, `>`, etc.)
+ * from each line. Used as a fallback when the exact oldString doesn't match
+ * the PM flat text — because PM strips markdown syntax, so an LLM-emitted
+ * `# Heading` lives as `Heading` inside the heading node.
+ */
+function stripMarkdownLinePrefixes(s: string): string {
+  return s
+    .split('\n')
+    .map((line) => line.replace(/^(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s*)+/, ''))
+    .join('\n');
+}
+
 function findPendingEditRange(
   doc: PmNode,
   oldString: string,
@@ -66,22 +105,24 @@ function findPendingEditRange(
 
   // Walk the Nth occurrence in the flattened string — single-line or
   // multi-line — then map back to PM positions via posMap.
-  let searchFrom = 0;
-  let hit = -1;
-  for (let n = 0; n < occurrence; n++) {
-    hit = flat.indexOf(oldString, searchFrom);
-    if (hit === -1) return null;
-    searchFrom = hit + oldString.length;
+  const exact = locateOccurrence(flat, oldString, occurrence);
+  if (exact !== null) {
+    return rangeFromFlatHit(exact, oldString.length, posMap);
   }
 
-  const startFlat = hit;
-  const endFlat = hit + oldString.length - 1;
-  const fromPos = posMap[startFlat];
-  const lastPos = posMap[endFlat];
-  if (fromPos === undefined || lastPos === undefined) return null;
-  const toPos = lastPos + 1;
-  if (toPos <= fromPos) return null;
-  return { from: fromPos, to: toPos };
+  // Fallback: strip markdown line markers from the needle. Without this, a
+  // pending edit whose old_string is `# Physics Story` can't be located in a
+  // PM doc whose flat text is `Physics Story`, so the diff widget silently
+  // renders nothing — even though accept (which runs on the raw file on disk)
+  // succeeds. Covers the common heading/list/blockquote-prefix cases.
+  const normalized = stripMarkdownLinePrefixes(oldString);
+  if (normalized !== oldString && normalized.length > 0) {
+    const fuzzy = locateOccurrence(flat, normalized, occurrence);
+    if (fuzzy !== null) {
+      return rangeFromFlatHit(fuzzy, normalized.length, posMap);
+    }
+  }
+  return null;
 }
 
 function quickHash(s: string): string {
@@ -174,8 +215,16 @@ function buildInsertWidget(edit: PendingEdit, isAppend: boolean): HTMLElement {
     if (currentValue.length === 0) {
       body.textContent = '(empty — click to write a replacement)';
       body.dataset['empty'] = 'true';
-    } else {
+    } else if (isAppend) {
+      // Append widgets sit on their own block, so full block rendering is
+      // fine — headings, paragraphs, lists all flow naturally.
       body.innerHTML = renderMarkdown(currentValue);
+    } else {
+      // Inline replacement (e.g. "Dingle" → "Pingle" mid-paragraph). Block
+      // rendering would wrap in `<p>`, which forces line breaks inside the
+      // host paragraph and leaves the strikethrough range looking like it
+      // covers blank lines. renderInline skips the `<p>` wrap.
+      body.innerHTML = renderMarkdownInline(currentValue);
     }
     body.addEventListener('mousedown', (e) => {
       e.preventDefault();

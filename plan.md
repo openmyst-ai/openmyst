@@ -199,17 +199,10 @@ The document stays immutable until Accept — edits are layered on top as pendin
 - Edit proposal parsing, inline diff rendering, accept/reject/discuss.
 - `comments.json` persistence.
 
-**Phase 5 — Review Mode (week 7)**
-- Fullscreen workspace that reuses Phase 4 primitives.
-- Reply immediately / Reply when prompted toggle.
-- Batch run across all open comments.
+**Phase 5 — WIKI Deep Dive**
+- Will go further into the world of WIKI, each source inputted will be linked to similar sources creating a users "web of information"
 
-**Phase 6 — Source verification sidebar (week 8)**
-- Scoped sidebar chats anchored to a comment.
-- Ad-hoc file upload scoped to the sidebar session.
-- Verification comment type.
-
-**Phase 7 — Polish + packaging**
+**Phase 6 — Polish + packaging**
 - Theming, keyboard shortcuts, empty states, error handling around OpenRouter outages.
 - `electron-builder` configs, code signing, auto-update (Squirrel).
 - Web build experiment.

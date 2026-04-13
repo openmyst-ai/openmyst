@@ -147,11 +147,7 @@ function ChatView(): JSX.Element {
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-msg chat-msg-${msg.role}`}>
             <div className="chat-msg-role">{msg.role === 'user' ? 'You' : 'Myst'}</div>
-            {msg.role === 'assistant' ? (
-              <MarkdownContent text={msg.content} />
-            ) : (
-              <div className="chat-msg-content">{msg.content}</div>
-            )}
+            <MarkdownContent text={msg.content} />
           </div>
         ))}
         {sending && (() => {

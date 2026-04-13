@@ -41,6 +41,22 @@ export function renderMarkdown(source: string): string {
   }
 }
 
+/**
+ * Render markdown without block wrappers — the raw HTML won't contain a
+ * surrounding `<p>`, so it can be dropped inside an inline flow (e.g. the
+ * pending-edit widget replacing a word in the middle of a paragraph) without
+ * forcing a line break.
+ */
+export function renderMarkdownInline(source: string): string {
+  try {
+    return mystMarkdown.renderInline(source);
+  } catch (err) {
+    console.error('[myst] markdown renderInline failed', err);
+    const safe = source.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
+    return safe;
+  }
+}
+
 /** Render a standalone LaTeX expression (no $ delimiters needed). */
 export function renderLatex(source: string, displayMode: boolean): string {
   try {

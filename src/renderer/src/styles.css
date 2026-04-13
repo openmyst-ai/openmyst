@@ -1503,6 +1503,10 @@ h3 {
 .pending-insert-text {
   white-space: pre-wrap;
   cursor: text;
+  font-family: var(--font-serif);
+  font-size: var(--doc-font-size, 18px);
+  line-height: 1.25;
+  color: var(--doc-fg);
 }
 .pending-insert-text[data-empty='true'] {
   color: rgba(255, 171, 64, 0.9);
@@ -1534,7 +1538,10 @@ h3 {
   border-color: rgba(107, 212, 139, 1);
   box-shadow: 0 0 0 2px rgba(107, 212, 139, 0.25);
 }
-/* Rendered-markdown spacing hooks (both inline and append variants) */
+/* Rendered markdown inside the diff widget — mirror the main document's
+ * typography so the green preview looks identical to what the text will
+ * become once accepted. Sizes are em-based against the widget's own
+ * --doc-font-size root, matching the .tiptap rules above. */
 .pending-insert-text > :first-child {
   margin-top: 0;
 }
@@ -1542,23 +1549,57 @@ h3 {
   margin-bottom: 0;
 }
 .pending-insert-text p {
-  margin: 6px 0;
-  line-height: 1.55;
+  margin: 0.75em 0 0;
+}
+.pending-insert-text p:first-child {
+  margin-top: 0;
 }
 .pending-insert-text h1,
 .pending-insert-text h2,
-.pending-insert-text h3 {
+.pending-insert-text h3,
+.pending-insert-text h4 {
   font-family: var(--font-serif);
   font-weight: 600;
-  margin: 12px 0 6px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.pending-insert-text h1 {
+  font-size: 2.1em;
+  margin: 1.2em 0 0.5em;
+}
+.pending-insert-text h2 {
+  font-size: 1.55em;
+  margin: 1.8em 0 0.4em;
+}
+.pending-insert-text h3 {
+  font-size: 1.2em;
+  margin: 1.6em 0 0.3em;
+  color: var(--doc-fg-soft);
+}
+.pending-insert-text h4 {
+  font-size: 1em;
+  margin: 1.4em 0 0.3em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--doc-fg-soft);
 }
 .pending-insert-text ul,
 .pending-insert-text ol {
-  margin: 6px 0;
-  padding-left: 20px;
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.pending-insert-text li {
+  margin: 0.15em 0;
 }
 .pending-insert-text .katex-display {
-  margin: 8px 0;
+  margin: 0.5em 0;
+}
+/* Textarea edit-mode should also match document typography so switching
+ * between render and edit doesn't reflow. */
+.pending-insert-textarea {
+  font-family: var(--font-serif);
+  font-size: var(--doc-font-size, 18px);
+  line-height: 1.25;
 }
 /* Inline/display math rendered via KaTeX in the main document. The raw
  * `$...$` / `$$...$$` text is hidden with display:none while a widget span
@@ -1584,28 +1625,6 @@ h3 {
   border-left: 3px solid rgba(107, 212, 139, 0.7);
   border-bottom: none;
   background: rgba(107, 212, 139, 0.08);
-}
-.pending-insert-append .pending-insert-text > :first-child {
-  margin-top: 0;
-}
-.pending-insert-append .pending-insert-text > :last-child {
-  margin-bottom: 0;
-}
-.pending-insert-append .pending-insert-text h1,
-.pending-insert-append .pending-insert-text h2,
-.pending-insert-append .pending-insert-text h3 {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  margin: 12px 0 6px;
-}
-.pending-insert-append .pending-insert-text p {
-  margin: 6px 0;
-  line-height: 1.55;
-}
-.pending-insert-append .pending-insert-text ul,
-.pending-insert-append .pending-insert-text ol {
-  margin: 6px 0;
-  padding-left: 20px;
 }
 /* Comment highlights in the document */
 .comment-highlight {
