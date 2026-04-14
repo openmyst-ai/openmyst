@@ -181,6 +181,18 @@ function findPendingEditRange(
       return rangeFromFlatHit(fuzzy, fullyStripped.length, posMap);
     }
   }
+
+  // Fallback 3: collapse paragraph-break blank lines (`\n\n` → `\n`). PM's
+  // flat text only puts a single `\n` between textblocks, so any multi-
+  // paragraph old_string fails the exact match. This is the single biggest
+  // source of "empty diff but accept works" bug reports.
+  const collapsed = collapseBlankLines(fullyStripped);
+  if (collapsed !== fullyStripped && collapsed.length > 0) {
+    const fuzzy = locateOccurrence(flat, collapsed, occurrence);
+    if (fuzzy !== null) {
+      return rangeFromFlatHit(fuzzy, collapsed.length, posMap);
+    }
+  }
   return null;
 }
 
