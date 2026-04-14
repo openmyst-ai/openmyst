@@ -67,6 +67,7 @@ async function scaffoldProject(root: string, name: string): Promise<ProjectMeta>
   await fs.mkdir(join(root, '.myst', 'comments'), { recursive: true });
   await fs.mkdir(join(root, '.myst', 'pending'), { recursive: true });
   await fs.mkdir(join(root, '.myst', 'wiki'), { recursive: true });
+  await fs.mkdir(join(root, '.myst', 'deep-plan'), { recursive: true });
 
   const meta: ProjectMeta = {
     name,
@@ -112,6 +113,14 @@ export async function createNewProject(): Promise<Result<ProjectMeta>> {
   const meta = await scaffoldProject(root, name);
   currentProject = meta;
   await pushRecentProject(root);
+  // Brand-new projects drop the user into Deep Plan mode on first load.
+  // We write a marker file directly to avoid a circular import with the
+  // deepPlan feature; it's cleared on skip/handoff from inside that feature.
+  await fs.writeFile(
+    join(root, '.myst', 'deep-plan', 'pending.flag'),
+    new Date().toISOString(),
+    'utf-8',
+  );
   return { ok: true, value: meta };
 }
 

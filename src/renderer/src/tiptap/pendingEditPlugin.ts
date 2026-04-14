@@ -95,6 +95,23 @@ function stripMarkdownLinePrefixes(s: string): string {
 }
 
 /**
+ * Collapse blank-line paragraph breaks to single newlines. PM's flat text puts
+ * one `\n` between textblocks, but LLM-emitted old_strings virtually always
+ * separate paragraphs with `\n\n` (the canonical markdown form). Without this
+ * normalization any multi-paragraph edit silently fails to locate — no red/
+ * green decorations render — yet accept still works because it runs against
+ * the raw file on disk. Also trims trailing whitespace on each line so
+ * "  \n" doesn't block a match.
+ */
+function collapseBlankLines(s: string): string {
+  return s
+    .split('\n')
+    .map((line) => line.replace(/\s+$/, ''))
+    .join('\n')
+    .replace(/\n{2,}/g, '\n');
+}
+
+/**
  * Strip *inline* markdown markers so a paragraph containing `**bold**`,
  * `*italic*`, `` `code` ``, or `[text](url)` can still match PM's flat text,
  * which has all of those stripped to their visible form. Without this fallback,
@@ -162,6 +179,18 @@ function findPendingEditRange(
     const fuzzy = locateOccurrence(flat, fullyStripped, occurrence);
     if (fuzzy !== null) {
       return rangeFromFlatHit(fuzzy, fullyStripped.length, posMap);
+    }
+  }
+
+  // Fallback 3: collapse paragraph-break blank lines (`\n\n` → `\n`). PM's
+  // flat text only puts a single `\n` between textblocks, so any multi-
+  // paragraph old_string fails the exact match. This is the single biggest
+  // source of "empty diff but accept works" bug reports.
+  const collapsed = collapseBlankLines(fullyStripped);
+  if (collapsed !== fullyStripped && collapsed.length > 0) {
+    const fuzzy = locateOccurrence(flat, collapsed, occurrence);
+    if (fuzzy !== null) {
+      return rangeFromFlatHit(fuzzy, collapsed.length, posMap);
     }
   }
   return null;

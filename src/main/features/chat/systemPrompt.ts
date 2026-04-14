@@ -48,7 +48,14 @@ function buildWikiBlock(wikiIndex: string): string {
     '\n\n========== BEGIN research wiki index (.myst/wiki/index.md — your default memory surface) ==========\n' +
     wikiIndex +
     '\n========== END research wiki index ==========\n' +
-    'This index is loaded every turn. Treat it as the map of what you already know: consult it before answering, and open the source pages (sources/<slug>.md) it points at when you need the full text. Do not ask the user to attach sources that are already here.'
+    'This index is loaded every turn. Treat it as the map of what you already know: one line per source, with a short summary and a slug. Do not ask the user to attach sources that are already here.\n\n' +
+    '[Deep reference — two-step lookup]\n' +
+    'The index only shows summaries. When a source looks relevant, drill in with a `source_lookup` block. Two forms:\n\n' +
+    '1) **Open a source page** — slug only. Returns the full detailed summary plus the list of available anchors (definitions, rules, arguments, equations, findings, sections). Use this whenever you want to know more about a source than the one-liner.\n' +
+    '```source_lookup\n{"slug": "smith-2022"}\n```\n\n' +
+    '2) **Pull a verbatim anchor** — slug + anchor id, after you\'ve seen the anchor menu from step 1. Returns the exact raw text for quoting, citation, or definition-checking.\n' +
+    '```source_lookup\n{"slug": "smith-2022", "anchor": "law-1-2"}\n```\n\n' +
+    'You may emit multiple lookups in one response; each resolves independently and the results are injected back before your next turn. Lookups are cheap — use them liberally, and NEVER paraphrase quotes from memory.'
   );
 }
 

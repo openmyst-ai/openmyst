@@ -8,20 +8,32 @@ A desktop writing and research companion. You write in a markdown editor, an LLM
 
 > **Status: early.** The core writing → comment → propose → accept loop works end-to-end and is what we use day-to-day. Open-sourcing it now to find collaborators who want to push the "agent that knows your project" idea further.
 
-## What it does
+## Features
+
+### 1. Deep Plan
+
+A pre-writing phase that interviews you, shapes a rubric, runs autonomous web research through Tavily, and then one-shots a fully-cited first draft straight into the editor. Opinionated by design: every question comes with a default you confirm or push back on, so you're not staring at an empty form.
+
+![Deep Plan intro screen](res/agent_building_wiki.png)
+
+### 2. Building the Wiki
+
+Drop in a PDF, paste an article, or let Deep Plan pull sources from the web — each one gets summarised, anchor-indexed, and cross-linked into your project's research wiki. The wiki is plain files on disk (`.myst/wiki/`), loaded into every chat turn as the agent's default memory, and browsable as a force-directed graph.
+
+![The agent summarising and linking a new source into the wiki](res/graph.png)
+
+### 3. Grounded sources, no hallucination
+
+Every claim the agent makes is backed by a clickable citation that points at the exact source in your wiki. Under the hood, the agent pulls *verbatim* passages via a deterministic `source_lookup` protocol — it never paraphrases quotes from memory, so the citations you click through are the real text, not a plausible reconstruction.
+
+![Inline citation linking back to the source it came from](res/source_with_link.png)
+
+## What else it does
 
 - **Markdown editor** with comments anchored to selections. Commenting on a passage and asking *"can you tighten this?"* hands the agent the surrounding context.
 - **Inline edit proposals.** The agent emits `myst_edit` blocks; the editor renders them as red strike-throughs + green replacements you accept or reject without leaving the page.
 - **Per-document pending queue.** Edits are staged on disk (`.myst/pending/<doc>.json`) so a crash never loses an in-flight proposal, and you can iterate (*"make it shorter"*) against an unaccepted edit.
-- **Research wiki on disk.** Drop in a PDF or paste text → it gets summarised, cross-linked to existing sources, and added to `.myst/wiki/index.md`, which is loaded into every chat turn as the agent's default memory.
-
-  ![Dropping a source into the sources panel](res/source.png)
-
-  ![LLM-generated summary of a homeostasis paper](res/summary.png)
-
 - **Wiki graph.** Source-to-source links inferred from the summary text (no embeddings) render as a force-directed popup so you can see what your project knows.
-
-  ![Wiki graph showing linked sources](res/graph.png)
 - **Bring-your-own LLM.** All LLM calls go through OpenRouter, so you pick the model in Settings. Your API key is encrypted at rest via the OS keychain.
 
 ## Quick start

@@ -9,6 +9,10 @@ const api: MystApi = {
     hasOpenRouterKey: () => ipcRenderer.invoke(IpcChannels.Settings.HasOpenRouterKey),
     clearOpenRouterKey: () => ipcRenderer.invoke(IpcChannels.Settings.ClearOpenRouterKey),
     setDefaultModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDefaultModel, model),
+    setTavilyKey: (key) => ipcRenderer.invoke(IpcChannels.Settings.SetTavilyKey, key),
+    hasTavilyKey: () => ipcRenderer.invoke(IpcChannels.Settings.HasTavilyKey),
+    clearTavilyKey: () => ipcRenderer.invoke(IpcChannels.Settings.ClearTavilyKey),
+    setDeepPlanModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDeepPlanModel, model),
   },
   projects: {
     createNew: () => ipcRenderer.invoke(IpcChannels.Projects.CreateNew),
@@ -123,6 +127,43 @@ const api: MystApi = {
     submit: (input) => ipcRenderer.invoke(IpcChannels.BugReport.Submit, input),
     rendererLog: (scope, event, message) =>
       ipcRenderer.invoke(IpcChannels.BugReport.RendererLog, scope, event, message),
+  },
+  deepPlan: {
+    status: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Status),
+    start: (task) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task),
+    sendMessage: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.SendMessage, message),
+    advance: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Advance),
+    runResearch: () => ipcRenderer.invoke(IpcChannels.DeepPlan.RunResearch),
+    skip: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Skip),
+    oneShot: () => ipcRenderer.invoke(IpcChannels.DeepPlan.OneShot),
+    reset: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Reset),
+    onChanged: (callback) => {
+      const handler = (): void => {
+        callback();
+      };
+      ipcRenderer.on(IpcChannels.DeepPlan.Changed, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.DeepPlan.Changed, handler);
+      };
+    },
+    onChunk: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, chunk: string): void => {
+        callback(chunk);
+      };
+      ipcRenderer.on(IpcChannels.DeepPlan.Chunk, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.DeepPlan.Chunk, handler);
+      };
+    },
+    onChunkDone: (callback) => {
+      const handler = (): void => {
+        callback();
+      };
+      ipcRenderer.on(IpcChannels.DeepPlan.ChunkDone, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.DeepPlan.ChunkDone, handler);
+      };
+    },
   },
 };
 

@@ -4,7 +4,8 @@ import type { ChatMessage } from '@shared/types';
 import { broadcast, log, logError, readProjectFile } from '../../platform';
 import { getOpenRouterKey, getSettings } from '../settings';
 import { readDocument } from '../documents';
-import { readWikiIndex } from '../wiki';
+import { readWikiIndex, updateWikiIndex } from '../wiki';
+import { listSources } from '../sources';
 import { appendMessage, clearHistory, loadHistory } from './persistence';
 import { runTurn } from './turn';
 
@@ -43,6 +44,11 @@ export async function sendMessage(
 
   const agentPrompt = await readProjectFile('agent.md');
   const document = await readDocument(activeDocument);
+  // Refresh the wiki index from current sources before every turn. Cheap
+  // (just enumerates sources/*.meta.json and rewrites one file), and it
+  // guarantees the index reflects the latest format — important right now
+  // because we just slimmed it down to summaries-only.
+  await updateWikiIndex(await listSources());
   const wikiIndex = await readWikiIndex();
   const docLabel = activeDocument.replace(/\.md$/, '');
 

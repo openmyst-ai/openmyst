@@ -6,13 +6,18 @@ import { BugReportModal } from './BugReportModal';
 export function SettingsModal(): JSX.Element {
   const { settings, closeSettings, refreshSettings } = useApp();
   const [key, setKey] = useState('');
+  const [tavilyKey, setTavilyKey] = useState('');
   const [model, setModel] = useState(settings?.defaultModel ?? '');
+  const [deepPlanModel, setDeepPlanModel] = useState(settings?.deepPlanModel ?? '');
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [showBugReport, setShowBugReport] = useState(false);
 
   useEffect(() => {
-    if (settings) setModel(settings.defaultModel);
+    if (settings) {
+      setModel(settings.defaultModel);
+      setDeepPlanModel(settings.deepPlanModel);
+    }
   }, [settings]);
 
   const saveKey = async (): Promise<void> => {
@@ -44,6 +49,43 @@ export function SettingsModal(): JSX.Element {
     setSaving(true);
     try {
       await bridge.settings.setDefaultModel(model);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveTavilyKey = async (): Promise<void> => {
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setTavilyKey(tavilyKey);
+      setTavilyKey('');
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearTavilyKey = async (): Promise<void> => {
+    setSaving(true);
+    try {
+      await bridge.settings.clearTavilyKey();
+      await refreshSettings();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveDeepPlanModel = async (): Promise<void> => {
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setDeepPlanModel(deepPlanModel);
       await refreshSettings();
     } catch (err) {
       setLocalError((err as Error).message);
@@ -105,6 +147,58 @@ export function SettingsModal(): JSX.Element {
               placeholder="google/gemma-3-27b-it"
             />
             <button type="button" onClick={() => void saveModel()} disabled={saving}>
+              Save model
+            </button>
+          </div>
+        </section>
+
+        <section className="modal-section">
+          <h3>Tavily API key</h3>
+          <p className="muted">
+            Used by Deep Plan's research loop to search the web. Stored encrypted via your OS keychain.
+            Get a key at tavily.com.
+          </p>
+          {settings?.hasTavilyKey ? (
+            <div className="row">
+              <span className="status-ok">Key is set</span>
+              <button type="button" onClick={() => void clearTavilyKey()} disabled={saving}>
+                Clear key
+              </button>
+            </div>
+          ) : (
+            <div className="row">
+              <input
+                type="password"
+                placeholder="tvly-..."
+                value={tavilyKey}
+                onChange={(e) => setTavilyKey(e.target.value)}
+              />
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void saveTavilyKey()}
+                disabled={saving || tavilyKey.trim().length === 0}
+              >
+                Save key
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="modal-section">
+          <h3>Deep Plan model</h3>
+          <p className="muted">
+            OpenRouter model used by Deep Plan's planner and one-shot generator. Defaults to an
+            open-source model to keep the research loop cheap.
+          </p>
+          <div className="row">
+            <input
+              type="text"
+              value={deepPlanModel}
+              onChange={(e) => setDeepPlanModel(e.target.value)}
+              placeholder="deepseek/deepseek-chat"
+            />
+            <button type="button" onClick={() => void saveDeepPlanModel()} disabled={saving}>
               Save model
             </button>
           </div>

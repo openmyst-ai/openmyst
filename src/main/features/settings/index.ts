@@ -2,7 +2,7 @@ import { app, safeStorage } from 'electron';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings } from '@shared/types';
-import { DEFAULT_MODEL } from '@shared/types';
+import { DEFAULT_DEEP_PLAN_MODEL, DEFAULT_MODEL } from '@shared/types';
 
 /**
  * User-wide settings, stored outside any project. Lives at
@@ -16,13 +16,17 @@ import { DEFAULT_MODEL } from '@shared/types';
 
 interface StoredSettings {
   defaultModel: string;
+  deepPlanModel: string;
   openRouterKeyCipher: string | null;
+  tavilyKeyCipher: string | null;
   recentProjects: string[];
 }
 
 const DEFAULTS: StoredSettings = {
   defaultModel: DEFAULT_MODEL,
+  deepPlanModel: DEFAULT_DEEP_PLAN_MODEL,
   openRouterKeyCipher: null,
+  tavilyKeyCipher: null,
   recentProjects: [],
 };
 
@@ -53,7 +57,9 @@ export async function getSettings(): Promise<AppSettings> {
   const stored = await readStored();
   return {
     defaultModel: stored.defaultModel,
+    deepPlanModel: stored.deepPlanModel,
     hasOpenRouterKey: stored.openRouterKeyCipher !== null,
+    hasTavilyKey: stored.tavilyKeyCipher !== null,
     recentProjects: stored.recentProjects,
   };
 }
@@ -83,6 +89,38 @@ export async function clearOpenRouterKey(): Promise<void> {
 export async function setDefaultModel(model: string): Promise<void> {
   const stored = await readStored();
   await writeStored({ ...stored, defaultModel: model });
+}
+
+export async function setTavilyKey(key: string): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('OS keychain is not available; cannot store API key securely.');
+  }
+  const stored = await readStored();
+  const cipher = safeStorage.encryptString(key).toString('base64');
+  await writeStored({ ...stored, tavilyKeyCipher: cipher });
+}
+
+export async function getTavilyKey(): Promise<string | null> {
+  const stored = await readStored();
+  if (!stored.tavilyKeyCipher) return null;
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  const buf = Buffer.from(stored.tavilyKeyCipher, 'base64');
+  return safeStorage.decryptString(buf);
+}
+
+export async function clearTavilyKey(): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, tavilyKeyCipher: null });
+}
+
+export async function setDeepPlanModel(model: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, deepPlanModel: model });
+}
+
+export async function getDeepPlanModel(): Promise<string> {
+  const stored = await readStored();
+  return stored.deepPlanModel;
 }
 
 export async function pushRecentProject(path: string): Promise<void> {

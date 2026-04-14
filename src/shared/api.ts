@@ -2,6 +2,7 @@ import type {
   AppSettings,
   ChatMessage,
   Comment,
+  DeepPlanStatus,
   DocumentFile,
   PendingEdit,
   ProjectMeta,
@@ -17,6 +18,10 @@ export interface MystApi {
     hasOpenRouterKey: () => Promise<boolean>;
     clearOpenRouterKey: () => Promise<void>;
     setDefaultModel: (model: string) => Promise<void>;
+    setTavilyKey: (key: string) => Promise<void>;
+    hasTavilyKey: () => Promise<boolean>;
+    clearTavilyKey: () => Promise<void>;
+    setDeepPlanModel: (model: string) => Promise<void>;
   };
   projects: {
     createNew: () => Promise<Result<ProjectMeta>>;
@@ -75,5 +80,18 @@ export interface MystApi {
   bugReport: {
     submit: (input: { title: string; description: string }) => Promise<void>;
     rendererLog: (scope: string, event: string, message: string) => Promise<void>;
+  };
+  deepPlan: {
+    status: () => Promise<DeepPlanStatus>;
+    start: (task: string) => Promise<DeepPlanStatus>;
+    sendMessage: (message: string) => Promise<DeepPlanStatus>;
+    advance: () => Promise<DeepPlanStatus>;
+    runResearch: () => Promise<DeepPlanStatus>;
+    skip: () => Promise<DeepPlanStatus>;
+    oneShot: () => Promise<DeepPlanStatus>;
+    reset: () => Promise<DeepPlanStatus>;
+    onChanged: (callback: () => void) => () => void;
+    onChunk: (callback: (chunk: string) => void) => () => void;
+    onChunkDone: (callback: () => void) => () => void;
   };
 }

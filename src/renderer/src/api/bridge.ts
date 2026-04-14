@@ -11,6 +11,7 @@ const EXPECTED_NAMESPACES = [
   'pendingEdits',
   'wiki',
   'bugReport',
+  'deepPlan',
 ] as const;
 
 function getApi(): MystApi {
@@ -63,5 +64,8 @@ export const bridge: MystApi = {
   },
   get bugReport() {
     return getApi().bugReport;
+  },
+  get deepPlan() {
+    return getApi().deepPlan;
   },
 } as MystApi;

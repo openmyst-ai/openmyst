@@ -5,6 +5,10 @@ export const IpcChannels = {
     HasOpenRouterKey: 'settings:has-openrouter-key',
     ClearOpenRouterKey: 'settings:clear-openrouter-key',
     SetDefaultModel: 'settings:set-default-model',
+    SetTavilyKey: 'settings:set-tavily-key',
+    HasTavilyKey: 'settings:has-tavily-key',
+    ClearTavilyKey: 'settings:clear-tavily-key',
+    SetDeepPlanModel: 'settings:set-deep-plan-model',
   },
   Projects: {
     CreateNew: 'projects:create-new',
@@ -60,5 +64,18 @@ export const IpcChannels = {
   BugReport: {
     Submit: 'bug-report:submit',
     RendererLog: 'bug-report:renderer-log',
+  },
+  DeepPlan: {
+    Status: 'deep-plan:status',
+    Start: 'deep-plan:start',
+    SendMessage: 'deep-plan:send-message',
+    Advance: 'deep-plan:advance',
+    RunResearch: 'deep-plan:run-research',
+    Skip: 'deep-plan:skip',
+    OneShot: 'deep-plan:one-shot',
+    Reset: 'deep-plan:reset',
+    Changed: 'deep-plan:changed',
+    Chunk: 'deep-plan:chunk',
+    ChunkDone: 'deep-plan:chunk-done',
   },
 } as const;

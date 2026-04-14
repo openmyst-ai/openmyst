@@ -1,7 +1,13 @@
+import { useMemo } from 'react';
 import { useSourcePreview } from '../store/sourcePreview';
+import { renderMarkdown } from '../utils/markdown';
 
 export function SourcePreviewPopup(): JSX.Element | null {
   const { source, close } = useSourcePreview();
+  const html = useMemo(
+    () => (source ? renderMarkdown(source.summary) : ''),
+    [source],
+  );
   if (!source) return null;
 
   return (
@@ -13,9 +19,10 @@ export function SourcePreviewPopup(): JSX.Element | null {
             &#x2715;
           </button>
         </div>
-        <div className="source-preview-body">
-          {source.summary}
-        </div>
+        <div
+          className="source-preview-body dp-md"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
         {source.sourcePath && (
           <div className="source-preview-path">{source.sourcePath}</div>
         )}

@@ -10,6 +10,11 @@ import {
 } from '../pendingEdits';
 import { readDocument } from '../documents';
 import {
+  formatLookupReply,
+  parseSourceLookups,
+  resolveSourceLookups,
+} from '../sources/sourceLookup';
+import {
   cleanChatContent,
   looksLikeDocumentRequest,
   parseEditBlocks,
@@ -19,6 +24,8 @@ import {
 } from './editLogic';
 import { buildSystemPrompt } from './systemPrompt';
 import { appendMessage, loadHistory } from './persistence';
+
+const MAX_LOOKUP_ROUNDS = 3;
 
 /**
  * A single chat turn, end-to-end. This is the orchestration loop — it calls
@@ -176,13 +183,39 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
 
   log('chat', 'turn.systemPrompt', { chars: systemContent.length });
 
-  const fullContent = await streamChat({
+  let fullContent = await streamChat({
     apiKey,
     model,
     messages,
     logScope: 'chat',
     onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
   });
+
+  // Deep reference: if the LLM emitted source_lookup blocks, resolve them
+  // deterministically from disk, inject the results, and re-stream. We cap
+  // rounds so a buggy model can't loop us forever.
+  for (let round = 0; round < MAX_LOOKUP_ROUNDS; round++) {
+    const { requests } = parseSourceLookups(fullContent);
+    if (requests.length === 0) break;
+    log('chat', 'sourceLookup.round', { round, count: requests.length });
+    const resolved = await resolveSourceLookups(requests);
+    const followUp = formatLookupReply(resolved);
+    const replayMessages: LlmMessage[] = [
+      ...messages,
+      { role: 'assistant', content: fullContent },
+      { role: 'user', content: followUp },
+    ];
+    fullContent = await streamChat({
+      apiKey,
+      model,
+      messages: replayMessages,
+      logScope: 'chat',
+      onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
+    });
+  }
+
+  // Strip any residual source_lookup fences before handing to edit parsing.
+  fullContent = parseSourceLookups(fullContent).stripped || fullContent;
 
   let { edits, chatContent } = parseEditBlocks(fullContent);
   log('chat', 'turn.parsed', {

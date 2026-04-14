@@ -7,6 +7,7 @@ import { registerPendingEditsIpc } from './pendingEdits';
 import { registerSourcesIpc } from './sources';
 import { registerWikiIpc } from './wiki';
 import { registerBugReportIpc } from './bugReport';
+import { registerDeepPlanIpc } from './deepPlan';
 
 /**
  * IPC registration entry point. Each feature owns one file under ipc/ that
@@ -27,4 +28,5 @@ export function registerIpcHandlers(): void {
   registerSourcesIpc();
   registerWikiIpc();
   registerBugReportIpc();
+  registerDeepPlanIpc();
 }

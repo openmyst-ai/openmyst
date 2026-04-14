@@ -2,11 +2,11 @@ import { promises as fs } from 'node:fs';
 import { basename } from 'node:path';
 import { dialog } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
-import type { SourceMeta } from '@shared/types';
+import type { SourceAnchorSummary, SourceIndex, SourceMeta } from '@shared/types';
 import { projectPath, pathExists, broadcast } from '../../platform';
 import { updateWikiIndex, appendWikiLog } from '../wiki';
 import { extractText } from './extract';
-import { generateDigest, type SourceDigest } from './digest';
+import { generateDigest, MAX_PREVIEW_CHARS, type SourceDigest } from './digest';
 import { updateSourcesIndex } from './indexMd';
 
 /**
@@ -53,9 +53,30 @@ async function saveSource(
   digest: SourceDigest,
   type: SourceMeta['type'],
   originalName: string,
+  rawText: string,
   sourcePath?: string,
 ): Promise<SourceMeta> {
   await fs.writeFile(projectPath('sources', `${slug}.md`), digest.summary, 'utf-8');
+
+  // Persist the exact prefix the digest/anchor pass saw. Anchor offsets are
+  // into this file; it must not be rewritten later.
+  const rawForAnchors = rawText.slice(0, MAX_PREVIEW_CHARS);
+  await fs.writeFile(projectPath('sources', `${slug}.raw.txt`), rawForAnchors, 'utf-8');
+
+  if (digest.anchors.length > 0) {
+    const index: SourceIndex = { version: 1, anchors: digest.anchors };
+    await fs.writeFile(
+      projectPath('sources', `${slug}.index.json`),
+      JSON.stringify(index, null, 2),
+      'utf-8',
+    );
+  }
+
+  const anchorSummaries: SourceAnchorSummary[] = digest.anchors.map((a) => ({
+    id: a.id,
+    type: a.type,
+    label: a.label,
+  }));
 
   const meta: SourceMeta = {
     slug,
@@ -66,6 +87,7 @@ async function saveSource(
     summary: digest.summary,
     indexSummary: digest.indexSummary,
     sourcePath,
+    anchors: anchorSummaries,
   };
   await fs.writeFile(
     projectPath('sources', `${slug}.meta.json`),
@@ -84,7 +106,7 @@ export async function ingestSources(filePaths: string[]): Promise<SourceMeta[]> 
     const { text, type } = await extractText(filePath);
     const digest = await generateDigest(text, originalName, existing);
     const slug = await uniqueSlugFor(slugify(digest.name || originalName));
-    const meta = await saveSource(slug, digest, type, originalName, filePath);
+    const meta = await saveSource(slug, digest, type, originalName, text, filePath);
     results.push(meta);
   }
 
@@ -98,11 +120,22 @@ export async function ingestSources(filePaths: string[]): Promise<SourceMeta[]> 
   return results;
 }
 
+function extractSourceUrl(text: string): string | undefined {
+  // Preferred: explicit "Source URL: …" prefix we add for Tavily ingests.
+  const explicit = text.match(/Source URL:\s*(\S+)/i);
+  if (explicit) return explicit[1];
+  // Fallback: first bare http(s) URL anywhere in the text. Covers older
+  // Tavily sources where the URL only survived in the LLM summary body.
+  const bare = text.match(/https?:\/\/[^\s)>\]]+/);
+  return bare ? bare[0] : undefined;
+}
+
 export async function ingestText(text: string, title: string): Promise<SourceMeta> {
   const existing = await listSources();
   const digest = await generateDigest(text, title, existing);
   const slug = await uniqueSlugFor(slugify(digest.name || title));
-  const meta = await saveSource(slug, digest, 'pasted', title);
+  const sourcePath = extractSourceUrl(text);
+  const meta = await saveSource(slug, digest, 'pasted', title, text, sourcePath);
 
   const all = await listSources();
   await updateSourcesIndex(all);
@@ -140,7 +173,38 @@ export async function listSources(): Promise<SourceMeta[]> {
   for (const metaFile of metaFiles) {
     try {
       const raw = await fs.readFile(projectPath('sources', metaFile), 'utf-8');
-      results.push(JSON.parse(raw) as SourceMeta);
+      const meta = JSON.parse(raw) as SourceMeta;
+      // If the meta has no sourcePath but raw.txt opens with "Source URL: …"
+      // (how we save Tavily results), lift that URL up so the preview can
+      // show it. Covers sources ingested before we started storing it.
+      if (!meta.sourcePath) {
+        // Try raw.txt first (has the literal "Source URL: …" prefix we write
+        // for Tavily ingests), then fall back to summary.md for older
+        // sources that predate raw.txt storage.
+        let url: string | undefined;
+        try {
+          const rawText = await fs.readFile(
+            projectPath('sources', `${meta.slug}.raw.txt`),
+            'utf-8',
+          );
+          url = extractSourceUrl(rawText);
+        } catch {
+          // no raw.txt — fine
+        }
+        if (!url) {
+          try {
+            const summaryText = await fs.readFile(
+              projectPath('sources', `${meta.slug}.md`),
+              'utf-8',
+            );
+            url = extractSourceUrl(summaryText);
+          } catch {
+            // no summary — give up
+          }
+        }
+        if (url) meta.sourcePath = url;
+      }
+      results.push(meta);
     } catch {
       // skip corrupt meta files
     }
@@ -157,6 +221,8 @@ export async function readSource(slug: string): Promise<string> {
 export async function deleteSource(slug: string): Promise<void> {
   await fs.unlink(projectPath('sources', `${slug}.md`)).catch(() => {});
   await fs.unlink(projectPath('sources', `${slug}.meta.json`)).catch(() => {});
+  await fs.unlink(projectPath('sources', `${slug}.raw.txt`)).catch(() => {});
+  await fs.unlink(projectPath('sources', `${slug}.index.json`)).catch(() => {});
 
   const all = await listSources();
   await updateSourcesIndex(all);
