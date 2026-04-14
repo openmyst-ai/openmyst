@@ -97,14 +97,14 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   runResearch: async () => {
-    set({ busy: true, error: null });
+    set({ busy: true, error: null, streaming: true, streamingBuffer: '' });
     try {
       const status = await bridge.deepPlan.runResearch();
       set({ status });
     } catch (err) {
       set({ error: (err as Error).message });
     } finally {
-      set({ busy: false });
+      set({ busy: false, streaming: false, streamingBuffer: '' });
     }
   },
 

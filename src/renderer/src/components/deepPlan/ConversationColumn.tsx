@@ -44,7 +44,8 @@ const STAGE_HINTS: Record<DeepPlanStage, { continueLabel: string; helper: string
 };
 
 export function ConversationColumn({ session }: Props): JSX.Element {
-  const { streaming, streamingBuffer, busy, sendMessage, advance, oneShot } = useDeepPlan();
+  const { streaming, streamingBuffer, busy, sendMessage, advance, oneShot, runResearch } =
+    useDeepPlan();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +66,7 @@ export function ConversationColumn({ session }: Props): JSX.Element {
 
   const stage = session.stage;
   const hint = STAGE_HINTS[stage];
+  const isResearchStage = stage === 'research';
   const isReviewStage = stage === 'review';
   const isDone = stage === 'done';
 
@@ -91,7 +93,12 @@ export function ConversationColumn({ session }: Props): JSX.Element {
                       <span className="dot" />
                     </span>
                     <span className="dp-muted">
-                      {' '}{isWriting ? 'Planning…' : 'Thinking…'}
+                      {' '}
+                      {isWriting
+                        ? 'Planning…'
+                        : isResearchStage
+                          ? 'Researching…'
+                          : 'Thinking…'}
                     </span>
                   </div>
                 )}
@@ -129,6 +136,16 @@ export function ConversationColumn({ session }: Props): JSX.Element {
         </form>
 
         <div className="dp-chat-actions">
+          {isResearchStage && (
+            <button
+              type="button"
+              className="dp-btn dp-btn-secondary"
+              onClick={() => void runResearch()}
+              disabled={busy}
+            >
+              Keep researching
+            </button>
+          )}
           {isReviewStage ? (
             <button
               type="button"
@@ -167,7 +184,6 @@ function MessageBubble({ message }: { message: DeepPlanMessage }): JSX.Element {
   if (message.kind === 'research-note') {
     return (
       <div className="dp-research-note">
-        <div className="dp-research-note-icon">🔍</div>
         <div className="dp-research-note-body">
           <Markdown text={message.content} />
         </div>

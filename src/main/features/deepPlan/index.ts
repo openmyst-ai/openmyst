@@ -41,7 +41,8 @@ import {
 } from '../sources/sourceLookup';
 
 const MAX_LOOKUP_ROUNDS = 3;
-const MAX_RESEARCH_ROUNDS = 4;
+const MAX_RESEARCH_ROUNDS = 1;
+const MAX_QUERIES_PER_ROUND = 5;
 
 async function streamWithLookupResolution(
   args: {
@@ -362,22 +363,23 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
   const key = await requireKey();
   const model = await getDeepPlanModel();
 
+  const priorRounds = session.researchQueries.length > 0;
   await updateSession((s) =>
     appendMessage(
       s,
       'assistant',
-      'Starting autonomous research — this will take a couple of minutes.',
+      priorRounds
+        ? 'Running another round of research…'
+        : 'Running a round of autonomous research — this takes a minute or two.',
       'research-note',
     ),
   );
   notifyChanged();
 
   let tokensThisLoop = 0;
-  let rounds = 0;
   let converged = false;
 
   for (let round = 0; round < MAX_RESEARCH_ROUNDS; round++) {
-    rounds = round + 1;
     const current = await readSession();
     if (!current) break;
     const sources = await listSources();
@@ -408,7 +410,7 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
       break;
     }
 
-    for (const proposal of plan.slice(0, 3)) {
+    for (const proposal of plan.slice(0, MAX_QUERIES_PER_ROUND)) {
       const ingested = await runOneQuery(proposal, tavilyKey);
       tokensThisLoop += estimateTokensK(
         ingested.reduce((sum, r) => sum + r.content.length + (r.rawContent?.length ?? 0), 0),
@@ -446,8 +448,8 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
   }
 
   const summary = converged
-    ? `Research complete after ${rounds} round${rounds === 1 ? '' : 's'} — coverage looks good. Hit Continue to move on.`
-    : `Research wrapped after ${rounds} round${rounds === 1 ? '' : 's'}. Hit Continue when you're ready.`;
+    ? 'Coverage looks good — hit Continue to move on, or "Keep researching" if you want more.'
+    : 'Round done. Hit Continue to move on, or "Keep researching" if you want another pass.';
   await updateSession((s) => ({
     ...appendMessage(s, 'assistant', summary, 'research-note'),
     tokensUsedK: s.tokensUsedK + tokensThisLoop,
