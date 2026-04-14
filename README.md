@@ -14,13 +14,13 @@ A desktop writing and research companion. You write in a markdown editor, an LLM
 
 A pre-writing phase that interviews you, shapes a rubric, runs autonomous web research through Tavily, and then one-shots a fully-cited first draft straight into the editor. Opinionated by design: every question comes with a default you confirm or push back on, so you're not staring at an empty form.
 
-![Deep Plan intro screen](res/deep_plan_intro.png)
+![Deep Plan intro screen](res/agent_building_wiki.png)
 
 ### 2. Building the Wiki
 
 Drop in a PDF, paste an article, or let Deep Plan pull sources from the web — each one gets summarised, anchor-indexed, and cross-linked into your project's research wiki. The wiki is plain files on disk (`.myst/wiki/`), loaded into every chat turn as the agent's default memory, and browsable as a force-directed graph.
 
-![The agent summarising and linking a new source into the wiki](res/agent_building_wiki.png)
+![The agent summarising and linking a new source into the wiki](res/graph.png)
 
 ### 3. Grounded sources, no hallucination
 
@@ -34,8 +34,6 @@ Every claim the agent makes is backed by a clickable citation that points at the
 - **Inline edit proposals.** The agent emits `myst_edit` blocks; the editor renders them as red strike-throughs + green replacements you accept or reject without leaving the page.
 - **Per-document pending queue.** Edits are staged on disk (`.myst/pending/<doc>.json`) so a crash never loses an in-flight proposal, and you can iterate (*"make it shorter"*) against an unaccepted edit.
 - **Wiki graph.** Source-to-source links inferred from the summary text (no embeddings) render as a force-directed popup so you can see what your project knows.
-
-  ![Wiki graph showing linked sources](res/graph.png)
 - **Bring-your-own LLM.** All LLM calls go through OpenRouter, so you pick the model in Settings. Your API key is encrypted at rest via the OS keychain.
 
 ## Quick start

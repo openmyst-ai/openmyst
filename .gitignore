@@ -22,3 +22,5 @@ app/dist/
 
 # Test coverage
 coverage/
+plan.md
+features.md
