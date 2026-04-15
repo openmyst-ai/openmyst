@@ -412,16 +412,6 @@ export function ResearchGraph({ events, rootLabel, running }: Props): JSX.Elemen
                       r={active ? 11 : 8.5}
                       className="rg-query"
                     />
-                    {active && (
-                      <text
-                        x={n.x}
-                        y={n.y + 23}
-                        textAnchor="middle"
-                        className="rg-label rg-label-hover"
-                      >
-                        {truncate(n.label, 36)}
-                      </text>
-                    )}
                   </g>
                 );
               }
@@ -453,16 +443,6 @@ export function ResearchGraph({ events, rootLabel, running }: Props): JSX.Elemen
                       clickable ? ' rg-result-clickable' : ''
                     }`}
                   />
-                  {active && (
-                    <text
-                      x={n.x}
-                      y={n.y + 18}
-                      textAnchor="middle"
-                      className="rg-label rg-label-hover"
-                    >
-                      {truncate(n.label, 36)}
-                    </text>
-                  )}
                 </g>
               );
             })}
