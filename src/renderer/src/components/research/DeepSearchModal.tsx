@@ -109,7 +109,7 @@ export function DeepSearchModal(): JSX.Element | null {
             <form className="ds-start-form" onSubmit={(e) => void handleStart(e)}>
               <textarea
                 autoFocus
-                rows={3}
+                rows={2}
                 className="ds-start-input"
                 placeholder="e.g. recent empirical work on remote work productivity in knowledge sectors"
                 value={taskDraft}
