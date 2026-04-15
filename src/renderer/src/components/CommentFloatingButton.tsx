@@ -176,6 +176,19 @@ export function CommentFloatingButton({
     }
   }, [snapshot, busy, existingId, deleteComment, createComment, message, closeAll]);
 
+  const handleDelete = useCallback(async () => {
+    if (!existingId || busy) return;
+    setBusy(true);
+    try {
+      await deleteComment(existingId);
+      closeAll();
+    } catch (err) {
+      console.error('delete comment failed', err);
+    } finally {
+      setBusy(false);
+    }
+  }, [existingId, busy, deleteComment, closeAll]);
+
   const handleAskMyst = useCallback(async () => {
     if (!snapshot || !message.trim() || busy) return;
     setBusy(true);
@@ -247,12 +260,29 @@ export function CommentFloatingButton({
   };
 
   if (composing) {
+    const preview = snapshot.text.replace(/\s+/g, ' ').trim();
+    const truncated = preview.length > 140 ? `${preview.slice(0, 140)}…` : preview;
     return (
       <div ref={composerRef} className="comment-composer" style={style}>
+        <div className="comment-composer-header">
+          <span className="comment-composer-label">
+            {existingId ? 'Comment' : 'New comment'}
+          </span>
+          <button
+            type="button"
+            className="comment-composer-close"
+            onClick={closeAll}
+            title="Close"
+            aria-label="Close"
+          >
+            &#x2715;
+          </button>
+        </div>
+        <blockquote className="comment-composer-quote">{truncated}</blockquote>
         <textarea
           ref={textareaRef}
           className="comment-composer-input"
-          placeholder="Add a comment…"
+          placeholder={existingId ? 'Edit your note…' : 'Add a note, or ask Myst…'}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {
@@ -268,6 +298,16 @@ export function CommentFloatingButton({
           rows={3}
         />
         <div className="comment-composer-actions">
+          {existingId && (
+            <button
+              type="button"
+              className="comment-action danger comment-action-delete"
+              onClick={() => void handleDelete()}
+              disabled={busy}
+            >
+              Delete
+            </button>
+          )}
           <button
             type="button"
             className="comment-action"
