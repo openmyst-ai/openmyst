@@ -203,6 +203,13 @@ const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 1.25;
 
+// Hit radii for the transparent hover/click targets. Sized to comfortably
+// contain the grown-on-hover visible circle PLUS any stroke/drop-shadow
+// glow (fresh ingests), so the hit zone matches what the user actually
+// sees, not the underlying 6/8-px disc.
+const QUERY_HIT_R = 14;
+const RESULT_HIT_R = 12;
+
 export function ResearchGraph({
   events,
   rootLabel,
@@ -650,29 +657,45 @@ export function ResearchGraph({
               const active = hoverId === n.id;
               if (n.kind === 'root') {
                 return (
-                  <g key={n.id}>
-                    <circle cx={n.x} cy={n.y} r={14} className="rg-root" />
-                  </g>
+                  <circle
+                    key={n.id}
+                    cx={n.x}
+                    cy={n.y}
+                    r={14}
+                    className="rg-root"
+                  />
                 );
               }
+              // Hit target is a separate transparent circle with a fixed,
+              // generous radius. It owns the pointer events so the visible
+              // circle can grow/shrink/glow freely without the hover zone
+              // changing underneath the cursor — fixes the edge-flicker bug
+              // you get when the sim ticks move a node by fractions of a
+              // px and the cursor keeps crossing a small visible boundary.
+              // Also makes fresh nodes' drop-shadow glow clickable.
               if (n.kind === 'query') {
                 return (
-                  <g
-                    key={n.id}
-                    onMouseEnter={() => {
-                      hoverRef.current = n.id;
-                      setHoverId(n.id);
-                    }}
-                    onMouseLeave={() => {
-                      hoverRef.current = null;
-                      setHoverId(null);
-                    }}
-                  >
+                  <g key={n.id}>
                     <circle
                       cx={n.x}
                       cy={n.y}
                       r={active ? 11 : 8.5}
                       className="rg-query"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                    <circle
+                      cx={n.x}
+                      cy={n.y}
+                      r={QUERY_HIT_R}
+                      className="rg-hit"
+                      onMouseEnter={() => {
+                        hoverRef.current = n.id;
+                        setHoverId(n.id);
+                      }}
+                      onMouseLeave={() => {
+                        hoverRef.current = null;
+                        setHoverId(null);
+                      }}
                     />
                   </g>
                 );
@@ -680,24 +703,7 @@ export function ResearchGraph({
               const clickable = n.status === 'ingested' && !!n.slug;
               const fresh = clickable && n.freshThisRun === true;
               return (
-                <g
-                  key={n.id}
-                  onMouseEnter={() => {
-                    hoverRef.current = n.id;
-                    setHoverId(n.id);
-                  }}
-                  onMouseLeave={() => {
-                    hoverRef.current = null;
-                    setHoverId(null);
-                  }}
-                  onClick={(e) => {
-                    if (!clickable) return;
-                    if (suppressClickRef.current) return;
-                    e.stopPropagation();
-                    openIngestedNode(n.slug!);
-                  }}
-                  style={clickable ? { cursor: 'pointer' } : undefined}
-                >
+                <g key={n.id}>
                   <circle
                     cx={n.x}
                     cy={n.y}
@@ -706,6 +712,28 @@ export function ResearchGraph({
                     className={`rg-result rg-result-${n.status ?? 'pending'}${
                       clickable ? ' rg-result-clickable' : ''
                     }${fresh ? ' rg-result-fresh' : ''}`}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  <circle
+                    cx={n.x}
+                    cy={n.y}
+                    r={RESULT_HIT_R}
+                    className="rg-hit"
+                    style={clickable ? { cursor: 'pointer' } : undefined}
+                    onMouseEnter={() => {
+                      hoverRef.current = n.id;
+                      setHoverId(n.id);
+                    }}
+                    onMouseLeave={() => {
+                      hoverRef.current = null;
+                      setHoverId(null);
+                    }}
+                    onClick={(e) => {
+                      if (!clickable) return;
+                      if (suppressClickRef.current) return;
+                      e.stopPropagation();
+                      openIngestedNode(n.slug!);
+                    }}
                   />
                 </g>
               );

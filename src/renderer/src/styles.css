@@ -3058,6 +3058,15 @@ h3 {
   stroke-width: 1;
   opacity: 0.55;
 }
+/* Invisible hit target that sits on top of each node and owns the hover
+ * + click events. Radius is fixed so the hover zone doesn't flicker as
+ * the visible circle grows/shrinks on hover or drifts a subpixel from
+ * the force-sim tick. */
+.rg-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
 .rg-root {
   fill: #ffffff;
   stroke: rgba(255, 255, 255, 0.85);
@@ -3111,18 +3120,26 @@ h3 {
 .research-graph-tooltip {
   font-size: 12px;
   color: var(--muted);
-  min-height: 34px;
+  /* Fixed height, not min-height — otherwise hovering a result with a URL
+   * grows the tooltip by a line, which compresses the flex-sized SVG above
+   * and lifts every node by a few px. The cursor then falls off the node,
+   * mouseLeave fires, the tooltip shrinks back, the nodes drop, mouseEnter
+   * fires, ad infinitum — a glitch loop. Locking the tooltip height stops
+   * the layout from ever moving on hover. */
+  height: 40px;
   padding: 2px 2px 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  overflow: hidden;
 }
 .rg-tooltip-headline {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  flex-wrap: wrap;
   line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .rg-tooltip-kind {
   color: var(--fg);
@@ -3138,14 +3155,17 @@ h3 {
 .rg-tooltip-label {
   color: var(--fg);
   font-size: 12px;
-  overflow-wrap: anywhere;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rg-tooltip-url {
   font-family: var(--font-mono, monospace);
   font-size: 10px;
   color: var(--muted);
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rg-tooltip-hint {
   font-style: italic;
