@@ -2508,3 +2508,247 @@ h3 {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ---- Deep Search / Research graph ---- */
+
+.dp-btn-danger {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.dp-btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+}
+.dp-btn-small {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.dp-hint-form {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 0;
+}
+.dp-hint-input {
+  flex: 1;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--fg);
+}
+.dp-hint-input:focus {
+  outline: none;
+  border-color: #4f9eff;
+}
+
+.dp-research-graph-wrap {
+  padding: 12px 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.research-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  --rg-query: #4ade80;
+  --rg-result: #60a5fa;
+  --rg-skipped: #525252;
+}
+.research-graph-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 2px 6px;
+}
+.rg-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.rg-status-label {
+  font-weight: 600;
+}
+.rg-status-phrase {
+  color: var(--muted);
+  font-style: italic;
+  transition: opacity 180ms ease;
+}
+.rg-status-sub {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+.research-graph-empty {
+  padding: 30px 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+.research-graph-svg {
+  width: 100%;
+  height: 280px;
+  background: rgba(255, 255, 255, 0.015);
+  border-radius: 6px;
+}
+.research-graph-edge {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+.rg-root {
+  fill: #ffffff;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 2;
+}
+.rg-query {
+  fill: var(--rg-query);
+  stroke: rgba(74, 222, 128, 0.9);
+  stroke-width: 1.5;
+  cursor: pointer;
+}
+.rg-result {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1;
+}
+.rg-result-clickable {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.5;
+}
+.rg-result-skipped {
+  opacity: 0.55;
+}
+.rg-label {
+  font-size: 10px;
+  fill: #ffffff;
+  font-family: var(--font-ui);
+  pointer-events: none;
+}
+.rg-label-hover {
+  font-size: 11px;
+  fill: #ffffff;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.research-graph-tooltip {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 56px;
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rg-tooltip-kind {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rg-tooltip-label {
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.rg-tooltip-url {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--muted);
+  word-break: break-all;
+}
+.rg-tooltip-hint {
+  font-style: italic;
+}
+
+/* Deep Search modal */
+.ds-modal {
+  max-width: 820px;
+  width: 90vw;
+}
+.ds-modal-sub {
+  margin-top: 4px;
+  max-width: 520px;
+}
+.ds-start-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ds-start-input {
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--fg);
+  resize: vertical;
+}
+.ds-task-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+.ds-task-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.ds-task-text {
+  font-size: 14px;
+  margin-top: 2px;
+}
+.ds-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ds-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  display: inline-block;
+}
+.ds-dot-running {
+  animation: ds-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ds-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.ds-graph-section {
+  padding-top: 4px;
+}
+.ds-hints-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ds-hint-chip {
+  background: rgba(79, 158, 255, 0.1);
+  border: 1px solid rgba(79, 158, 255, 0.3);
+  color: #7fb8ff;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+.ds-actions {
+  display: flex;
+  justify-content: flex-end;
+}

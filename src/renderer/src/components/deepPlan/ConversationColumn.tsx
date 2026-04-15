@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DeepPlanMessage, DeepPlanSession, DeepPlanStage } from '@shared/types';
 import { useDeepPlan } from '../../store/deepPlan';
+import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
 import { stripDeepPlanFences } from './stripFences';
+import { ResearchGraph } from '../research/ResearchGraph';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -44,25 +46,26 @@ const STAGE_HINTS: Record<DeepPlanStage, { continueLabel: string; helper: string
 };
 
 export function ConversationColumn({ session }: Props): JSX.Element {
-  const { streaming, streamingBuffer, busy, sendMessage, advance, oneShot, runResearch } =
-    useDeepPlan();
+  const {
+    status,
+    streaming,
+    streamingBuffer,
+    busy,
+    sendMessage,
+    advance,
+    oneShot,
+    runResearch,
+    stopResearch,
+    addResearchHint,
+  } = useDeepPlan();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const researchEvents = useResearchEvents((s) => s.events);
+  const researchRunning = status?.researchRunning ?? false;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [session.messages.length, streamingBuffer]);
-
-  const handleSend = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      const text = draft.trim();
-      if (!text || busy) return;
-      setDraft('');
-      await sendMessage(text);
-    },
-    [draft, busy, sendMessage],
-  );
 
   const stage = session.stage;
   const hint = STAGE_HINTS[stage];
@@ -70,8 +73,38 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   const isReviewStage = stage === 'review';
   const isDone = stage === 'done';
 
+  // During the research stage the single chat input becomes the steering
+  // channel — submit it and it's added as a mid-run hint rather than a
+  // normal chat turn.
+  const handleSend = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const text = draft.trim();
+      if (!text) return;
+      if (isResearchStage) {
+        if (!researchRunning) return;
+        setDraft('');
+        await addResearchHint(text);
+        return;
+      }
+      if (busy) return;
+      setDraft('');
+      await sendMessage(text);
+    },
+    [draft, busy, isResearchStage, researchRunning, sendMessage, addResearchHint],
+  );
+
   return (
     <div className="dp-chat">
+      {isResearchStage && (
+        <div className="dp-research-graph-wrap">
+          <ResearchGraph
+            events={researchEvents}
+            rootLabel={session.task}
+            running={researchRunning}
+          />
+        </div>
+      )}
       <div className="dp-chat-scroll" ref={scrollRef}>
         {session.messages.length === 0 && !streaming && (
           <div className="dp-empty">Starting the Deep Plan conversation…</div>
@@ -114,7 +147,13 @@ export function ConversationColumn({ session }: Props): JSX.Element {
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
           <textarea
             className="dp-chat-input"
-            placeholder={isDone ? 'Deep Plan complete.' : 'Write a reply…'}
+            placeholder={
+              isDone
+                ? 'Deep Plan complete.'
+                : isResearchStage
+                  ? 'Steer research…'
+                  : 'Write a reply…'
+            }
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -123,20 +162,35 @@ export function ConversationColumn({ session }: Props): JSX.Element {
                 void handleSend(e);
               }
             }}
-            disabled={busy || isDone}
+            disabled={
+              isDone || (isResearchStage ? !researchRunning : busy)
+            }
             rows={2}
           />
           <button
             type="submit"
             className="dp-btn"
-            disabled={busy || isDone || draft.trim().length === 0}
+            disabled={
+              isDone ||
+              draft.trim().length === 0 ||
+              (isResearchStage ? !researchRunning : busy)
+            }
           >
-            Send
+            {isResearchStage ? 'Steer' : 'Send'}
           </button>
         </form>
 
         <div className="dp-chat-actions">
-          {isResearchStage && (
+          {isResearchStage && researchRunning && (
+            <button
+              type="button"
+              className="dp-btn dp-btn-danger"
+              onClick={() => void stopResearch()}
+            >
+              Stop research
+            </button>
+          )}
+          {isResearchStage && !researchRunning && (
             <button
               type="button"
               className="dp-btn dp-btn-secondary"
@@ -161,7 +215,7 @@ export function ConversationColumn({ session }: Props): JSX.Element {
                 type="button"
                 className="dp-btn dp-btn-primary"
                 onClick={() => void advance()}
-                disabled={busy}
+                disabled={busy || (isResearchStage && researchRunning)}
               >
                 {hint.continueLabel}
               </button>

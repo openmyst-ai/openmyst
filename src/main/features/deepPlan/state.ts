@@ -72,7 +72,11 @@ export async function shouldAutoStart(): Promise<boolean> {
 export async function readSession(): Promise<DeepPlanSession | null> {
   try {
     const raw = await fs.readFile(sessionPath(), 'utf-8');
-    return JSON.parse(raw) as DeepPlanSession;
+    const parsed = JSON.parse(raw) as DeepPlanSession;
+    // Backfill for sessions written before researchHints existed, so old
+    // on-disk sessions keep working without a migration pass.
+    if (!Array.isArray(parsed.researchHints)) parsed.researchHints = [];
+    return parsed;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -104,6 +108,7 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
     rubric: emptyRubric(),
     messages: [],
     researchQueries: [],
+    researchHints: [],
     tokensUsedK: 0,
     createdAt: now,
     updatedAt: now,
@@ -142,12 +147,15 @@ export function nextStage(stage: DeepPlanStage): DeepPlanStage {
   return order[i + 1]!;
 }
 
-export async function buildStatus(): Promise<DeepPlanStatus> {
+export async function buildStatus(
+  researchRunning: boolean = false,
+): Promise<DeepPlanStatus> {
   const session = await readSession();
   const auto = await shouldAutoStart();
   return {
     active: session !== null && !session.completed && !session.skipped,
     shouldAutoStart: auto,
     session,
+    researchRunning,
   };
 }

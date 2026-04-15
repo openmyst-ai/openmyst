@@ -27,6 +27,8 @@ interface DeepPlanState {
   sendMessage: (message: string) => Promise<void>;
   advance: () => Promise<void>;
   runResearch: () => Promise<void>;
+  stopResearch: () => Promise<void>;
+  addResearchHint: (hint: string) => Promise<void>;
   skip: () => Promise<void>;
   oneShot: () => Promise<void>;
   reset: () => Promise<void>;
@@ -97,14 +99,33 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   runResearch: async () => {
-    set({ busy: true, error: null, streaming: true, streamingBuffer: '' });
+    // Don't block the UI on the long-running research call — research is
+    // cancellable now, so the user needs to keep interacting with the store
+    // (stop, addHint) while the engine is churning.
+    set({ error: null });
     try {
       const status = await bridge.deepPlan.runResearch();
       set({ status });
     } catch (err) {
       set({ error: (err as Error).message });
-    } finally {
-      set({ busy: false, streaming: false, streamingBuffer: '' });
+    }
+  },
+
+  stopResearch: async () => {
+    try {
+      const status = await bridge.deepPlan.stopResearch();
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
+  },
+
+  addResearchHint: async (hint) => {
+    try {
+      const status = await bridge.deepPlan.addResearchHint(hint);
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
     }
   },
 

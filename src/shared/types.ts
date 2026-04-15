@@ -179,6 +179,7 @@ export interface DeepPlanSession {
   rubric: DeepPlanRubric;
   messages: DeepPlanMessage[];
   researchQueries: DeepPlanResearchQuery[];
+  researchHints: string[];
   tokensUsedK: number;
   createdAt: string;
   updatedAt: string;
@@ -190,4 +191,83 @@ export interface DeepPlanStatus {
   active: boolean;
   shouldAutoStart: boolean;
   session: DeepPlanSession | null;
+  researchRunning: boolean;
+}
+
+/**
+ * Events broadcast from the research engine while it's looping so the
+ * renderer can animate a live graph of the agent's exploration. Both Deep
+ * Plan and Deep Search subscribe to the same event stream. Each event
+ * carries a `runId` that ties it to a single invocation of the engine so
+ * consumers can reset their state when a new run starts.
+ */
+export type DeepPlanResearchEvent =
+  | { kind: 'run-start'; runId: string; source: 'deepPlan' | 'deepSearch' }
+  | {
+      kind: 'query-start';
+      runId: string;
+      queryId: string;
+      query: string;
+      rationale: string;
+    }
+  | {
+      kind: 'result-seen';
+      runId: string;
+      queryId: string;
+      resultId: string;
+      url: string;
+      title: string;
+    }
+  | {
+      kind: 'result-ingested';
+      runId: string;
+      queryId: string;
+      resultId: string;
+      slug: string;
+      name: string;
+    }
+  | {
+      kind: 'result-skipped';
+      runId: string;
+      queryId: string;
+      resultId: string;
+      reason: 'duplicate' | 'too-short' | 'bot-block' | 'ingest-failed';
+    }
+  | {
+      kind: 'query-done';
+      runId: string;
+      queryId: string;
+      ingestedCount: number;
+    }
+  | {
+      kind: 'run-done';
+      runId: string;
+      totalIngested: number;
+      totalQueries: number;
+      reason: 'target-reached' | 'converged' | 'cancelled' | 'query-cap' | 'error';
+    }
+  | {
+      kind: 'hint-added';
+      runId: string;
+      hint: string;
+    };
+
+export interface DeepSearchQueryRecord {
+  queryId: string;
+  query: string;
+  rationale: string;
+  ingestedCount: number;
+  timestamp: string;
+}
+
+export interface DeepSearchStatus {
+  running: boolean;
+  runId: string | null;
+  task: string | null;
+  hints: string[];
+  queries: DeepSearchQueryRecord[];
+  totalIngested: number;
+  lastError: string | null;
+  /** ISO timestamp of the most recent state mutation, for UI ordering. */
+  updatedAt: string;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { bridge } from '../api/bridge';
 import { useApp } from '../store/app';
 import { useDeepPlan } from '../store/deepPlan';
+import { useResearchEvents } from '../store/researchEvents';
 import { StageBar } from './deepPlan/StageBar';
 import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
@@ -40,6 +41,8 @@ export function DeepPlanMode(): JSX.Element {
 
   const [intentDraft, setIntentDraft] = useState('');
 
+  const pushResearchEvent = useResearchEvents((s) => s.push);
+
   useEffect(() => {
     void refresh();
     const offChanged = bridge.deepPlan.onChanged(() => {
@@ -47,12 +50,14 @@ export function DeepPlanMode(): JSX.Element {
     });
     const offChunk = bridge.deepPlan.onChunk(ingestChunk);
     const offDone = bridge.deepPlan.onChunkDone(finishStream);
+    const offEvent = bridge.deepPlan.onResearchEvent(pushResearchEvent);
     return () => {
       offChanged();
       offChunk();
       offDone();
+      offEvent();
     };
-  }, [refresh, ingestChunk, finishStream]);
+  }, [refresh, ingestChunk, finishStream, pushResearchEvent]);
 
   const handleStart = useCallback(
     async (e: React.FormEvent) => {

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
 import {
+  addResearchHint,
   advanceStage,
   buildStatus,
   resetSession,
@@ -9,6 +10,7 @@ import {
   sendUserMessage,
   skipSession,
   startSession,
+  stopResearch,
 } from '../features/deepPlan';
 
 export function registerDeepPlanIpc(): void {
@@ -28,6 +30,14 @@ export function registerDeepPlanIpc(): void {
 
   ipcMain.handle(IpcChannels.DeepPlan.Advance, () => advanceStage());
   ipcMain.handle(IpcChannels.DeepPlan.RunResearch, () => runResearchLoop());
+  ipcMain.handle(IpcChannels.DeepPlan.StopResearch, () => {
+    stopResearch();
+    return buildStatus();
+  });
+  ipcMain.handle(IpcChannels.DeepPlan.AddResearchHint, async (_event, hint: unknown) => {
+    if (typeof hint !== 'string') throw new Error('Hint must be a string.');
+    return addResearchHint(hint);
+  });
   ipcMain.handle(IpcChannels.DeepPlan.Skip, () => skipSession());
   ipcMain.handle(IpcChannels.DeepPlan.OneShot, () => runOneShot());
   ipcMain.handle(IpcChannels.DeepPlan.Reset, () => resetSession());

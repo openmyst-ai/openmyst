@@ -8,6 +8,7 @@ import { registerSourcesIpc } from './sources';
 import { registerWikiIpc } from './wiki';
 import { registerBugReportIpc } from './bugReport';
 import { registerDeepPlanIpc } from './deepPlan';
+import { registerDeepSearchIpc } from './deepSearch';
 
 /**
  * IPC registration entry point. Each feature owns one file under ipc/ that
@@ -29,4 +30,5 @@ export function registerIpcHandlers(): void {
   registerWikiIpc();
   registerBugReportIpc();
   registerDeepPlanIpc();
+  registerDeepSearchIpc();
 }

@@ -114,6 +114,15 @@ Use the keys: title, form, audience, lengthTarget, thesis, mustCover (array), mu
 }
 
 export function gapsPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
+  const hasSources = sources.length > 0;
+  const sourcesSection = hasSources
+    ? `Sources already in wiki:\n${sourcesBlock(sources)}\n\n`
+    : '';
+
+  const sourcesGuidance = hasSources
+    ? `If the existing sources matter to the gaps (they cover some angle well, or they pull in a direction the rubric hasn't accounted for), bring that up — it's fair game to open a short conversation about them.`
+    : `Do not ask the user to upload sources — research is about to run and will gather them. Focus the conversation on the rubric itself.`;
+
   return `${PERSONA}
 
 STAGE: Gap analysis.
@@ -123,15 +132,25 @@ The user's task: "${session.task}"
 Rubric so far:
 ${rubricBlock(session.rubric)}
 
-Sources in wiki:
-${sourcesBlock(sources)}
+${sourcesSection}Your job: look at the rubric and the task and point out what's thin or missing *before research runs*. Think about angle/thesis, must-covers, audience, specific figures or events or tensions that a strong draft would need. Be opinionated — suggest a default framing if the angle is vague, name specific must-covers you think should be in scope. Ask the user to confirm or redirect.
 
-Your job: compare the rubric against the sources. In 2-4 short sentences, tell the user what's missing — what research we'd need before a confident draft. Be specific ("you're arguing X but nothing in sources covers the counter-argument from Y"). If the sources already cover enough, say so and recommend moving on.
+${sourcesGuidance}
 
-End with a one-line recommendation: either "I'll go find that" (if gaps exist) or "I think we can proceed" (if coverage is good). Do not emit a rubric_update in this stage.`;
+Keep it to 3-5 short bullets or sentences, each tied to a specific gap. End with a one-line recommendation: either "I'll go find that" (if research is needed) or "I think we can proceed" (if the rubric is already tight). Do not emit a rubric_update in this stage.`;
 }
 
-export function researchPlannerPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
+export function researchPlannerPrompt(
+  session: DeepPlanSession,
+  sources: SourceMeta[],
+  hints: string[] = [],
+): string {
+  const hintsBlock =
+    hints.length === 0
+      ? ''
+      : `\n\nUser steering hints (treat as high-priority directions — bend the next queries toward these):\n${hints
+          .map((h, i) => `${i + 1}. ${h}`)
+          .join('\n')}`;
+
   return `You are the research query generator for Myst's Deep Plan. Your ONLY job is to emit the next batch of web searches — no prose, no questions, no chat.
 
 The user's task: "${session.task}"
@@ -143,9 +162,9 @@ Sources already in wiki:
 ${sourcesBlock(sources)}
 
 Queries already run:
-${session.researchQueries.length === 0 ? '(none yet)' : session.researchQueries.map((q) => `- "${q.query}" → ${q.ingestedSlugs.length} sources added`).join('\n')}
+${session.researchQueries.length === 0 ? '(none yet)' : session.researchQueries.map((q) => `- "${q.query}" → ${q.ingestedSlugs.length} sources added`).join('\n')}${hintsBlock}
 
-Propose the next 1-3 web searches to fill gaps in the rubric. Prefer queries that surface primary sources (original papers, official docs, court opinions, firsthand accounts) over secondary commentary. Do NOT repeat queries already run. Be precise — queries should be specific enough to return substantive results.
+Propose the next 3-5 web searches to fill gaps in the rubric. Prefer queries that surface primary sources (original papers, official docs, court opinions, firsthand accounts) over secondary commentary. Do NOT repeat queries already run. Be precise — queries should be specific enough to return substantive results.
 
 Output ONLY a fenced \`research_plan\` block. No text before or after.
 
@@ -156,6 +175,50 @@ Output ONLY a fenced \`research_plan\` block. No text before or after.
 \`\`\`
 
 If you believe the rubric is adequately covered and no more research is needed, emit an empty array \`[]\`.`;
+}
+
+/**
+ * Lightweight planner prompt for Deep Search — the research-only slice.
+ * No rubric, no session messages, just a task + existing wiki + hints.
+ */
+export function deepSearchPlannerPrompt(
+  task: string,
+  sources: SourceMeta[],
+  priorQueries: string[],
+  hints: string[],
+): string {
+  const hintsBlock =
+    hints.length === 0
+      ? ''
+      : `\n\nUser steering hints (high-priority directions — bend the next queries toward these):\n${hints
+          .map((h, i) => `${i + 1}. ${h}`)
+          .join('\n')}`;
+  const priorBlock =
+    priorQueries.length === 0
+      ? '(none yet)'
+      : priorQueries.map((q) => `- "${q}"`).join('\n');
+
+  return `You are the research query generator for Myst's Deep Search — a research-only mode that finds and ingests sources into the user's wiki without touching what they're writing. Your ONLY job is to emit the next batch of web searches — no prose, no chat.
+
+Research task: "${task}"
+
+Sources already in wiki:
+${sourcesBlock(sources)}
+
+Queries already run:
+${priorBlock}${hintsBlock}
+
+Propose the next 3-5 web searches. Prefer primary sources (papers, official docs, firsthand accounts) over secondary commentary. Do NOT repeat queries already run. Be specific.
+
+Output ONLY a fenced \`research_plan\` block. No text before or after.
+
+\`\`\`research_plan
+[
+  {"query": "...", "rationale": "why this matters"}
+]
+\`\`\`
+
+If the wiki already covers the task, emit an empty array \`[]\`.`;
 }
 
 export function clarifyPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {

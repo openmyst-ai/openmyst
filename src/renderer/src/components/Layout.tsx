@@ -1,16 +1,19 @@
 import { useEffect } from 'react';
 import { useApp } from '../store/app';
 import { useDocuments } from '../store/documents';
+import { useDeepSearch } from '../store/deepSearch';
 import { SourcesPanel } from './SourcesPanel';
 import { DocumentFiles } from './DocumentFiles';
 import { DocumentPanel } from './DocumentPanel';
 import { ChatPanel } from './ChatPanel';
 import { TableOfContents } from './TableOfContents';
 import { SourcePreviewPopup } from './SourcePreview';
+import { DeepSearchModal } from './research/DeepSearchModal';
 
 export function Layout(): JSX.Element {
   const { project, openSettings, closeProject } = useApp();
   const loadFiles = useDocuments((s) => s.loadFiles);
+  const openDeepSearch = useDeepSearch((s) => s.open);
 
   useEffect(() => {
     loadFiles().catch(console.error);
@@ -24,6 +27,9 @@ export function Layout(): JSX.Element {
           {project && <span className="project-name">· {project.name}</span>}
         </div>
         <div className="titlebar-right">
+          <button type="button" className="link" onClick={openDeepSearch}>
+            Deep Search
+          </button>
           <button type="button" className="link" onClick={openSettings}>
             Settings
           </button>
@@ -46,6 +52,7 @@ export function Layout(): JSX.Element {
         </aside>
       </main>
       <SourcePreviewPopup />
+      <DeepSearchModal />
     </div>
   );
 }
