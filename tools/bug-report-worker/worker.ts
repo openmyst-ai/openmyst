@@ -25,7 +25,7 @@
  * or via `wrangler secret put`:
  *   GITHUB_TOKEN   — fine-grained PAT with `Issues: write` on the target repo
  *                     (or a GitHub App installation token)
- *   GITHUB_REPO    — `owner/repo`, e.g. `arshchawla21/openmyst`
+ *   GITHUB_REPO    — `owner/repo`, e.g. `openmyst-ai/openmyst`
  *   SHARED_SECRET  — optional. If set, the app must include a matching
  *                     `clientToken` in the request. Raises the bar for spam;
  *                     doesn't stop a determined attacker who reads the binary.

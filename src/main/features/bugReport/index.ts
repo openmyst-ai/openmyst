@@ -24,7 +24,7 @@ import { getRecentLogsText, log, logError, logFromRenderer } from '../../platfor
  * Repository that receives bug reports. Used for the browser-fallback URL
  * and shown to the user on success. Worker uses its own `GITHUB_REPO` var.
  */
-const GITHUB_REPO = 'arshchawla21/openmyst';
+const GITHUB_REPO = 'openmyst-ai/openmyst';
 
 /**
  * Cloudflare Worker endpoint that relays reports to the GitHub API. Leave

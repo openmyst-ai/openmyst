@@ -8,4 +8,4 @@ compatibility_date = "2025-01-01"
 #
 # Non-secret config goes under [vars] so it shows up in the dashboard.
 [vars]
-GITHUB_REPO = "arshchawla21/openmyst"
+GITHUB_REPO = "openmyst-ai/openmyst"
