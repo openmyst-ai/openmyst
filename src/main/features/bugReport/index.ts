@@ -31,7 +31,7 @@ const GITHUB_REPO = 'openmyst-ai/openmyst';
  * blank to disable the worker path and fall straight through to the browser
  * flow (useful for local dev before the worker is deployed).
  */
-const WORKER_URL = '';
+const WORKER_URL = 'https://openmyst-bug-report.chawla-arsh.workers.dev';
 
 /**
  * Optional shared secret. Must match the worker's `SHARED_SECRET` env var.
@@ -179,7 +179,9 @@ export function previewBugReport(input: BugReportInput): BugReportPreview {
 }
 
 async function submitViaWorker(title: string, body: string): Promise<BugReportResult> {
-  const resp = await fetch(WORKER_URL, {
+  // Worker exposes the create-issue handler at `/report`; the bare root 404s.
+  const endpoint = WORKER_URL.replace(/\/+$/, '') + '/report';
+  const resp = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
