@@ -106,6 +106,10 @@ export function validateEdits(doc: string, edits: EditOp[]): ValidationResult {
     if (edit.old_string === '') continue;
     const loc = locateEdit(doc, edit);
     if (loc.count === 0) {
+      // Exact miss — give the accept-time fallback chain a shot before
+      // failing. If any path (canonical/fuzzy/anchored) can locate the edit,
+      // pre-flight should pass so we don't force a needless LLM retry.
+      if (canLocateEdit(doc, edit)) continue;
       failures.push(
         `Edit ${i}: old_string not found. old_string: "${edit.old_string.slice(0, 80)}"`,
       );
@@ -118,6 +122,24 @@ export function validateEdits(doc: string, edits: EditOp[]): ValidationResult {
     }
   }
   return { ok: failures.length === 0, failures };
+}
+
+/**
+ * Can this edit be applied by *any* path — exact, canonical, whitespace-fuzzy,
+ * or anchored? Used as a pre-flight so a broken old_string never reaches the
+ * pending-edits staging area and then fails at accept time. Honours the
+ * `occurrence` field so an out-of-range occurrence is rejected even if the
+ * snippet itself appears in the doc.
+ */
+export function canLocateEdit(doc: string, edit: EditOp): boolean {
+  if (edit.old_string === '') return true;
+  const occ = edit.occurrence ?? 1;
+  const loc = locateEdit(doc, edit);
+  if (loc.count >= occ) return true;
+  if (applyEditOccurrenceCanonical(doc, edit.old_string, '', occ) !== null) return true;
+  if (applyEditOccurrenceFuzzy(doc, edit.old_string, '', occ) !== null) return true;
+  if (applyEditOccurrenceAnchored(doc, edit.old_string, '', occ) !== null) return true;
+  return false;
 }
 
 export function applyEditOccurrence(
@@ -182,6 +204,97 @@ export function applyEditOccurrenceFuzzy(
     if (match.index === pattern.lastIndex) pattern.lastIndex++;
   }
   return null;
+}
+
+/**
+ * Canonicalize the narrow set of typographic drift that breaks exact matching:
+ * smart quotes, en/em dashes, non-breaking spaces, CRLF line endings, and
+ * zero-width characters. Per-char, 1:1 (or 1:0 for dropped zero-widths, 2:1
+ * for CRLF — both tracked by the position map so a match in canonical space
+ * can be spliced back onto the raw doc).
+ *
+ * Deliberately narrow — no NFKC, no case folding, no markdown awareness. The
+ * anchored path handles markdown drift; this handles "LLM typed straight
+ * quotes where the doc has curly ones", which is the most common way a
+ * semantically-correct edit fails exact indexOf.
+ */
+function canonicalChar(ch: string): string | null {
+  switch (ch) {
+    case '\u2018': case '\u2019': case '\u201A': case '\u2032':
+      return "'";
+    case '\u201C': case '\u201D': case '\u201E': case '\u2033':
+      return '"';
+    case '\u2013': case '\u2014': case '\u2212':
+      return '-';
+    case '\u00A0': case '\u2007': case '\u202F':
+      return ' ';
+    case '\u200B': case '\u200C': case '\u200D': case '\uFEFF':
+      return '';
+    default:
+      return null;
+  }
+}
+
+function buildCanonicalView(doc: string): { canonical: string; rawPos: number[] } {
+  const out: string[] = [];
+  const rawPos: number[] = [];
+  let i = 0;
+  while (i < doc.length) {
+    const ch = doc[i]!;
+    if (ch === '\r' && doc[i + 1] === '\n') {
+      out.push('\n');
+      rawPos.push(i);
+      i += 2;
+      continue;
+    }
+    const mapped = canonicalChar(ch);
+    if (mapped === '') {
+      i++;
+      continue;
+    }
+    out.push(mapped ?? ch);
+    rawPos.push(i);
+    i++;
+  }
+  return { canonical: out.join(''), rawPos };
+}
+
+/**
+ * Canonical-form accept fallback. Runs between the exact and whitespace-fuzzy
+ * passes. Handles the most common silent drift: smart-vs-straight quotes, en/
+ * em dashes, NBSP, CRLF — noise that otherwise forces the last-resort anchored
+ * path (or fails outright).
+ */
+export function applyEditOccurrenceCanonical(
+  doc: string,
+  oldString: string,
+  newString: string,
+  occurrence: number,
+): string | null {
+  if (oldString === '') return null;
+  const { canonical: docCanon, rawPos } = buildCanonicalView(doc);
+  const { canonical: oldCanon } = buildCanonicalView(oldString);
+  if (oldCanon.length === 0) return null;
+  // Nothing to canonicalize — leave this case to the plain path.
+  if (docCanon === doc && oldCanon === oldString) return null;
+
+  let idx = -1;
+  let nth = 0;
+  let searchFrom = 0;
+  while (nth < occurrence) {
+    idx = docCanon.indexOf(oldCanon, searchFrom);
+    if (idx === -1) return null;
+    nth++;
+    if (nth < occurrence) searchFrom = idx + oldCanon.length;
+  }
+
+  const startRaw = rawPos[idx];
+  const lastCanonIdx = idx + oldCanon.length - 1;
+  const lastRaw = rawPos[lastCanonIdx];
+  if (startRaw === undefined || lastRaw === undefined) return null;
+  // If the last emitted canonical char came from a CRLF pair, advance past \n.
+  const endRaw = doc[lastRaw] === '\r' && doc[lastRaw + 1] === '\n' ? lastRaw + 2 : lastRaw + 1;
+  return doc.slice(0, startRaw) + newString + doc.slice(endRaw);
 }
 
 /**

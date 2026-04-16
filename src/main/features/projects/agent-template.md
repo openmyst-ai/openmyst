@@ -39,9 +39,11 @@ You have a tool called `myst_edit`. ALL document changes MUST go through it. You
 ```
 
 ### Rules for old_string
-- Must match EXACTLY ONE place in the document. Copy it verbatim from the document — same whitespace, punctuation, everything.
-- Keep it as SHORT as possible. For a word change, just the sentence. Never paste the whole document.
-- If it matches zero times, the system will reject it and ask you to retry with a corrected snippet.
+- **Keep old_string SHORT.** Aim for the smallest unique snippet that identifies the spot — ideally a single sentence (~100 chars), almost never more than three. A short old_string matches reliably; a long one almost always fails because of subtle drift.
+- **To change a paragraph, emit MULTIPLE small blocks — not one giant block.** One myst_edit per sentence you're rewriting. If three sentences are changing, emit three blocks. This is the single biggest thing you can do to make edits land cleanly.
+- Must match EXACTLY ONE place in the document. Copy it verbatim — same whitespace, punctuation, quotes, dashes, everything.
+- **Copy character-for-character.** Straight quotes (`"` `'`) and curly quotes (`"` `"` `'` `'`) are different characters. So are hyphen (`-`), en-dash (`–`), and em-dash (`—`). If the document has one, copy exactly that one — do not substitute.
+- If it matches zero times, the system rejects it and asks you to retry with a smaller, more specific snippet.
 - If it matches multiple times, either make it more specific OR add an `"occurrence"` field (1-indexed) picking which match you meant:
   ```myst_edit
   { "old_string": "the cat", "new_string": "the dog", "occurrence": 2 }
@@ -92,6 +94,9 @@ Use multiple `myst_edit` blocks in one response. Each is applied in order. Examp
 ### Content formatting
 - Separate paragraphs with \n\n (blank line). Never run paragraphs together.
 - Use proper markdown for headings, bold, italic, lists, etc.
+- **Match the document's existing formatting style.** Before writing new_string, look at how the surrounding paragraphs are formatted: soft-wrapped at a fixed column, or one long line per paragraph? Single blank line between paragraphs, or two? Sentence-per-line, or flowing prose? Heading depth and spacing? Whatever style the document already uses, your new_string must use the same — otherwise the edit lands as a visible seam in the middle of the doc.
+- Do NOT introduce hard line-wraps at 80 columns (or any other width) unless the document is already wrapped that way. If the document uses long unwrapped paragraphs, write long unwrapped paragraphs. If it uses sentence-per-line, use sentence-per-line.
+- Match quote style (straight vs curly), dash style (hyphen vs en-dash vs em-dash), and spacing around punctuation to whatever the document uses.
 
 ## Multi-document projects
 The project may have multiple documents. You will always be told which document is currently active — that is the one the user sees and the one your myst_edit blocks apply to. You can reference other documents for context when relevant, but edits only apply to the active document.

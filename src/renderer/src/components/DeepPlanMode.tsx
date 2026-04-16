@@ -3,6 +3,7 @@ import { bridge } from '../api/bridge';
 import { useApp } from '../store/app';
 import { useDeepPlan } from '../store/deepPlan';
 import { useResearchEvents } from '../store/researchEvents';
+import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
 import { StageBar } from './deepPlan/StageBar';
 import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
@@ -42,6 +43,13 @@ export function DeepPlanMode(): JSX.Element {
   const [intentDraft, setIntentDraft] = useState('');
 
   const pushResearchEvent = useResearchEvents((s) => s.push);
+
+  // Without this, clicking an internal markdown link inside the source
+  // preview popup (e.g. `[...](four_different_types_of_attention.md)`) falls
+  // through to the browser's default anchor handling, which reloads the tab —
+  // wiping the researchEvents store mid-run so the graph snaps back to
+  // "Waiting for the first query…" while the background engine keeps going.
+  useMystLinkHandler();
 
   useEffect(() => {
     void refresh();

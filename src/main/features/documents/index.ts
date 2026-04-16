@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import type { DocumentFile } from '@shared/types';
 import { projectPath } from '../../platform';
 
@@ -55,7 +56,19 @@ export async function readDocument(filename: string): Promise<string> {
 
 export async function writeDocument(filename: string, content: string): Promise<void> {
   const filePath = projectPath('documents', filename);
-  const tmp = `${filePath}.tmp`;
-  await fs.writeFile(tmp, content, 'utf-8');
-  await fs.rename(tmp, filePath);
+  // Unique tmp per call so concurrent writers (autosave + pending-edit accept)
+  // don't race on the same path — previously the second rename would hit
+  // ENOENT after the first one consumed the shared tmp.
+  const tmp = `${filePath}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmp, content, 'utf-8');
+    await fs.rename(tmp, filePath);
+  } catch (err) {
+    try {
+      await fs.unlink(tmp);
+    } catch {
+      /* orphan cleanup best-effort */
+    }
+    throw err;
+  }
 }

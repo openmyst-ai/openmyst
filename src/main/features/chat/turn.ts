@@ -292,7 +292,9 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
         { role: 'assistant', content: fullContent },
         {
           role: 'user',
-          content: `Some edits could not be located unambiguously:\n${validation.failures.join('\n\n')}\n\nRe-emit the failed myst_edit blocks with a more specific old_string, or add an "occurrence" field to pick which match you meant.`,
+          content:
+            `Some edits could not be located in the document:\n${validation.failures.join('\n\n')}\n\n` +
+            `Re-emit the failed myst_edit blocks. Keep old_string SHORT — one sentence ideally, never more than a few. Copy the exact snippet from the document character-for-character (quotes, dashes, whitespace). For ambiguous matches, add an "occurrence" field (1-indexed).`,
         },
       ];
       const retryContent = await streamChat({
@@ -302,10 +304,26 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
         logScope: 'chat',
       });
       const retryResult = parseEditBlocks(retryContent);
+      let resolved = false;
       if (retryResult.edits.length > 0) {
         const retryValidation = validateEdits(document, retryResult.edits);
         if (retryValidation.ok) {
           edits = retryResult.edits;
+          resolved = true;
+        }
+      }
+      if (!resolved) {
+        // Pre-flight failed twice. Drop the broken edits so we never stage
+        // something that will blow up at accept time, and surface a chat note
+        // so the user knows nothing landed and can re-phrase.
+        log('chat', 'validation.dropped', {
+          failures: validation.failures,
+          retryEdits: retryResult.edits.length,
+        });
+        edits = [];
+        if (!chatContent) {
+          chatContent =
+            "I couldn't locate the exact passage I wanted to change. Could you paste the snippet you'd like me to edit, or re-phrase the request?";
         }
       }
     }

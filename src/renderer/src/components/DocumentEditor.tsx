@@ -328,17 +328,22 @@ export function DocumentEditor({ projectPath, activeFile }: DocumentEditorProps)
     };
   }, []);
 
-  const prevActiveKeyRef = useRef<string | null>(null);
+  const prevDispatchRef = useRef<{ editor: Editor | null; activeKey: string | null }>({
+    editor: null,
+    activeKey: null,
+  });
   useEffect(() => {
     if (!editor) return;
-    // Rebuild the widget when the active edit identity OR its newString
-    // changes. The plugin's own key hashes newString, so a no-op dispatch is
-    // cheap-ish but we still gate here to avoid redundant transactions.
-    // Typing inside the textarea does NOT update the store until blur, so this
-    // doesn't fire mid-keystroke.
+    // Dispatch when either the editor instance OR the active-edit key changes.
+    // Tracking editor identity matters because a Document.Changed broadcast
+    // remounts TiptapEditor (bumped contentVersion → new editor instance); if
+    // we only gated on activeKey, a fresh editor whose activeKey happened to
+    // match the previous dispatch would never receive its pending-edit meta
+    // and the second edit in a batch would land undecorated.
     const nextKey = activeEdit ? `${activeEdit.id}|${activeEdit.newString}` : null;
-    if (prevActiveKeyRef.current === nextKey) return;
-    prevActiveKeyRef.current = nextKey;
+    const prev = prevDispatchRef.current;
+    if (prev.editor === editor && prev.activeKey === nextKey) return;
+    prevDispatchRef.current = { editor, activeKey: nextKey };
     const tr = editor.state.tr.setMeta(pendingEditsKey, activeEdit ? [activeEdit] : []);
     editor.view.dispatch(tr);
   }, [editor, activeEdit, contentVersion]);
@@ -442,6 +447,17 @@ export function DocumentEditor({ projectPath, activeFile }: DocumentEditorProps)
 
   const handleEditorReady = useCallback((ed: Editor) => {
     setEditor(ed);
+    // tiptap-markdown's serializer isn't a perfect inverse of markdown-it's
+    // parser — it escapes characters markdown-it passes through unchanged
+    // (e.g. brackets inside plain text). Seed the baseline with tiptap's own
+    // re-serialized form so the first stray onUpdate doesn't flush the
+    // re-normalized document to disk, which previously caused backslashes to
+    // accumulate across every load-save round trip.
+    const storage = ed.storage as unknown as Record<string, { getMarkdown?: () => string }>;
+    const serialized = storage['markdown']?.getMarkdown?.();
+    if (serialized !== undefined) {
+      lastSavedRef.current = serialized;
+    }
   }, []);
 
   const surfaceStyle = { '--doc-font-size': `${fontSize}px` } as CSSProperties;

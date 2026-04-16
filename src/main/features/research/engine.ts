@@ -105,7 +105,11 @@ function looksLikeBotBlock(text: string): boolean {
   return false;
 }
 
-function emit(event: DeepPlanResearchEvent): void {
+function emit(ctx: ResearchEngineContext, event: DeepPlanResearchEvent): void {
+  // Cancellation squelches emits so a stopped run stops painting the graph
+  // the instant the user clicks — in-flight network calls may still drain
+  // in the background, but the UI stays frozen at the moment of stop.
+  if (ctx.isCancelled()) return;
   broadcast(IpcChannels.DeepPlan.ResearchEvent, event);
 }
 
@@ -113,7 +117,7 @@ export async function runResearchEngine(
   ctx: ResearchEngineContext,
   seedUrls: Set<string>,
 ): Promise<ResearchEngineResult> {
-  emit({ kind: 'run-start', runId: ctx.runId, source: ctx.source });
+  emit(ctx, { kind: 'run-start', runId: ctx.runId, source: ctx.source });
 
   const seen = seedUrls;
   let totalIngested = 0;
@@ -154,7 +158,7 @@ export async function runResearchEngine(
       const queryId = randomUUID();
       totalQueries++;
 
-      emit({
+      emit(ctx, {
         kind: 'query-start',
         runId: ctx.runId,
         queryId,
@@ -166,7 +170,7 @@ export async function runResearchEngine(
       const ingested = await runOneQuery(ctx, proposal, queryId, seen);
       totalIngested += ingested.length;
 
-      emit({
+      emit(ctx, {
         kind: 'query-done',
         runId: ctx.runId,
         queryId,
@@ -183,7 +187,7 @@ export async function runResearchEngine(
     reason = 'query-cap';
   }
 
-  emit({
+  emit(ctx, {
     kind: 'run-done',
     runId: ctx.runId,
     totalIngested,
@@ -213,7 +217,7 @@ async function runOneQuery(
     if (ingested.length >= MAX_INGEST_PER_QUERY) break;
 
     const resultId = randomUUID();
-    emit({
+    emit(ctx, {
       kind: 'result-seen',
       runId: ctx.runId,
       queryId,
@@ -225,7 +229,7 @@ async function runOneQuery(
     const canonical = canonicalUrl(result.url);
     if (seen.has(canonical)) {
       log('research', 'dedupSkip', { url: result.url });
-      emit({
+      emit(ctx, {
         kind: 'result-skipped',
         runId: ctx.runId,
         queryId,
@@ -238,7 +242,7 @@ async function runOneQuery(
     const body = result.rawContent || result.content;
     if (!body || body.length < MIN_CONTENT_CHARS) {
       log('research', 'skipTooShort', { url: result.url, len: body?.length ?? 0 });
-      emit({
+      emit(ctx, {
         kind: 'result-skipped',
         runId: ctx.runId,
         queryId,
@@ -249,7 +253,7 @@ async function runOneQuery(
     }
     if (looksLikeBotBlock(body)) {
       log('research', 'skipBotBlock', { url: result.url });
-      emit({
+      emit(ctx, {
         kind: 'result-skipped',
         runId: ctx.runId,
         queryId,
@@ -264,7 +268,7 @@ async function runOneQuery(
       const meta = await ingestText(`Source URL: ${result.url}\n\n${body}`, title);
       seen.add(canonical);
       ingested.push(result);
-      emit({
+      emit(ctx, {
         kind: 'result-ingested',
         runId: ctx.runId,
         queryId,
@@ -274,7 +278,7 @@ async function runOneQuery(
       });
     } catch (err) {
       logError('research', 'ingestFailed', err, { url: result.url });
-      emit({
+      emit(ctx, {
         kind: 'result-skipped',
         runId: ctx.runId,
         queryId,

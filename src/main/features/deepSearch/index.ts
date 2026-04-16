@@ -34,7 +34,6 @@ interface DeepSearchState {
   totalIngested: number;
   lastError: string | null;
   updatedAt: string;
-  cancelled: boolean;
 }
 
 function freshState(): DeepSearchState {
@@ -47,11 +46,22 @@ function freshState(): DeepSearchState {
     totalIngested: 0,
     lastError: null,
     updatedAt: new Date().toISOString(),
-    cancelled: false,
   };
 }
 
+/**
+ * Per-run handle. Cancellation is tracked here instead of on the top-level
+ * state so that "stop" on an old run doesn't bleed into a fresh run started
+ * before the old engine's finally has fired — each run owns its own flag and
+ * the finally only touches state when its run is still the active one.
+ */
+interface ActiveRun {
+  runId: string;
+  cancelled: boolean;
+}
+
 let state: DeepSearchState = freshState();
+let activeRun: ActiveRun | null = null;
 
 function touch(): void {
   state.updatedAt = new Date().toISOString();
@@ -74,7 +84,12 @@ export function getStatus(): DeepSearchStatus {
 export function stopSearch(): DeepSearchStatus {
   if (!state.running) return getStatus();
   log('deep-search', 'stop.requested', {});
-  state.cancelled = true;
+  if (activeRun) activeRun.cancelled = true;
+  // Flip running off immediately so the UI updates on click instead of
+  // waiting for the in-flight planner/search/ingest to drain. The engine
+  // notices cancellation between awaits and bails shortly after; any
+  // straggling events are squelched by the cancellation-guarded emit.
+  state.running = false;
   touch();
   return getStatus();
 }
@@ -105,10 +120,13 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
   const model = await getDeepPlanModel();
 
   // Reset state for a new run.
+  const runId = randomUUID();
+  const run: ActiveRun = { runId, cancelled: false };
+  activeRun = run;
   state = {
     ...freshState(),
     running: true,
-    runId: randomUUID(),
+    runId,
     task: trimmed,
   };
   touch();
@@ -132,16 +150,21 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
   // Fire-and-forget: the engine runs in the background, state mutates live,
   // and `running` flips off in the finally block. The IPC caller gets the
   // initial running status back immediately.
+  //
+  // The finally block only writes when `run` is still the active run —
+  // otherwise a stopped-then-restarted sequence would let the old engine's
+  // late finally clobber the new run's state.
   void (async () => {
     try {
       await runResearchEngine(
         {
-          runId: state.runId!,
+          runId,
           source: 'deepSearch',
           jinaKey,
           getHints: () => state.hints.slice(),
-          isCancelled: () => state.cancelled,
+          isCancelled: () => run.cancelled,
           getNextPlan: async (hints) => {
+            if (run.cancelled) return [];
             const sources = await listSources();
             const priorQueries = state.queries.map((q) => q.query);
             const prompt = deepSearchPlannerPrompt(trimmed, sources, priorQueries, hints);
@@ -161,6 +184,7 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
             return parsePlannerReply(raw).researchPlan ?? [];
           },
           onQueryComplete: async (proposal, queryId, ingested) => {
+            if (run.cancelled) return;
             state.queries = [
               ...state.queries,
               {
@@ -179,11 +203,15 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
       );
     } catch (err) {
       logError('deep-search', 'run.failed', err);
-      state.lastError = (err as Error).message;
+      if (activeRun === run) {
+        state.lastError = (err as Error).message;
+      }
     } finally {
-      state.running = false;
-      state.cancelled = false;
-      touch();
+      if (activeRun === run) {
+        activeRun = null;
+        state.running = false;
+        touch();
+      }
     }
   })();
 

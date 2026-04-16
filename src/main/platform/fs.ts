@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { getCurrentProject } from '../features/projects';
 
 /**
@@ -54,10 +55,20 @@ export async function writeProjectFile(relativePath: string, content: string): P
   await fs.writeFile(projectPath(relativePath), content, 'utf-8');
 }
 
-/** Atomic write: write to <path>.tmp then rename. Use for the main document. */
+/** Atomic write: write to a unique tmp then rename. Concurrent calls can't
+ *  race on a shared tmp path. */
 export async function writeProjectFileAtomic(relativePath: string, content: string): Promise<void> {
   const target = projectPath(relativePath);
-  const tmp = `${target}.tmp`;
-  await fs.writeFile(tmp, content, 'utf-8');
-  await fs.rename(tmp, target);
+  const tmp = `${target}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmp, content, 'utf-8');
+    await fs.rename(tmp, target);
+  } catch (err) {
+    try {
+      await fs.unlink(tmp);
+    } catch {
+      /* orphan cleanup best-effort */
+    }
+    throw err;
+  }
 }

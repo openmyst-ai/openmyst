@@ -155,6 +155,7 @@ export function DeepSearchModal(): JSX.Element | null {
             running={running}
             onNodeOpen={handleNodeOpen}
             seedGraph={wikiSeed}
+            onStopResearch={() => void stop()}
           />
         </section>
 
@@ -210,28 +211,18 @@ export function DeepSearchModal(): JSX.Element | null {
           </section>
         )}
 
-        {(running || status?.task) && (
+        {!running && status?.task && (
           <section className="modal-section ds-actions">
-            {running ? (
-              <button
-                type="button"
-                className="dp-btn dp-btn-danger"
-                onClick={() => void stop()}
-              >
-                Stop research
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="dp-btn dp-btn-secondary"
-                onClick={() => {
-                  setTaskDraft('');
-                  void useDeepSearch.getState().refresh();
-                }}
-              >
-                Start another run
-              </button>
-            )}
+            <button
+              type="button"
+              className="dp-btn dp-btn-secondary"
+              onClick={() => {
+                setTaskDraft('');
+                void useDeepSearch.getState().refresh();
+              }}
+            >
+              Start another run
+            </button>
           </section>
         )}
         </div>

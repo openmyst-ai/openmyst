@@ -20,7 +20,9 @@ import type { PendingEdit } from '@shared/types';
  */
 
 const TWEAK_ETIQUETTE =
-  '\n\n[Revision etiquette] After proposing any myst_edit, end your chat with a short invitation like "Want me to tweak anything?" so the user can iterate naturally. To revise an existing pending edit, reuse the same old_string — never create a parallel pending entry.';
+  '\n\n[Revision etiquette] After proposing any myst_edit, end your chat with a short invitation like "Want me to tweak anything?" so the user can iterate naturally. To revise an existing pending edit, reuse the same old_string — never create a parallel pending entry.' +
+  '\n\n[Edit sizing — critical] Keep every myst_edit old_string SHORT: one sentence ideally, never more than a few. To rewrite a paragraph, emit MULTIPLE small edits (one per sentence), not one giant block. Copy the snippet verbatim from the document — straight quotes vs curly quotes (\' vs \u2019, " vs \u201C/\u201D) and hyphen vs en-dash vs em-dash (- vs \u2013 vs \u2014) are different characters; match whichever one the document uses. Long old_strings fail to match far more often than short ones.' +
+  '\n\n[Formatting parity — critical] Your new_string MUST match the document\'s existing formatting style exactly. Before writing, look at the surrounding text: Is it soft-wrapped at a fixed column, or one long line per paragraph? How many blank lines between paragraphs? Sentence-per-line or flowing? Which quote style (straight vs curly) and dash style (hyphen vs en-dash vs em-dash) does the doc use? Whatever the document does, do the same — never introduce a new line-wrap width, never switch quote/dash style mid-document. An edit that wraps differently from the surrounding prose lands as a visible seam and is a bug, not a feature.';
 
 function buildPendingBlock(pending: PendingEdit[]): string {
   if (pending.length === 0) return '';

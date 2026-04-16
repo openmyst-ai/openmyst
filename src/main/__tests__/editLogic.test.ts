@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   applyEditOccurrence,
   applyEditOccurrenceAnchored,
+  applyEditOccurrenceCanonical,
   applyEditOccurrenceFuzzy,
+  canLocateEdit,
   cleanChatContent,
   locateEdit,
   looksLikeDocumentRequest,
@@ -542,5 +544,150 @@ describe('applyEditOccurrenceAnchored', () => {
     const oldString = 'completely different content that is long enough to be a paragraph in any document by human standards';
     const result = applyEditOccurrenceAnchored(doc, oldString, 'new', 1);
     expect(result).toBeNull();
+  });
+});
+
+describe('applyEditOccurrenceCanonical', () => {
+  // These are the typographic drift cases that silently break exact match:
+  // the user bug from 2026-04-15 was a 628-char old_string that failed every
+  // fallback; short edits with quote/dash drift are what this tier catches.
+  it('matches a curly-quoted doc against a straight-quoted oldString', () => {
+    const doc = 'She said \u201chello\u201d and smiled.';
+    const result = applyEditOccurrenceCanonical(doc, 'She said "hello"', 'She whispered "hi"', 1);
+    expect(result).toBe('She whispered "hi" and smiled.');
+  });
+
+  it('matches a straight-quoted doc against a curly-quoted oldString', () => {
+    const doc = 'He said "go" and left.';
+    const result = applyEditOccurrenceCanonical(
+      doc,
+      '\u201cgo\u201d and left',
+      '"stay" and sat',
+      1,
+    );
+    expect(result).toBe('He said "stay" and sat.');
+  });
+
+  it('matches em-dash in doc against hyphen in oldString', () => {
+    const doc = 'The body \u2014 a thermostat \u2014 maintains equilibrium.';
+    const result = applyEditOccurrenceCanonical(doc, 'body - a thermostat -', 'mind - a mirror -', 1);
+    expect(result).toBe('The mind - a mirror - maintains equilibrium.');
+  });
+
+  it('matches en-dash in doc against hyphen in oldString', () => {
+    const doc = 'Pages 12\u201315 cover this.';
+    const result = applyEditOccurrenceCanonical(doc, 'Pages 12-15', 'Pages 14-17', 1);
+    expect(result).toBe('Pages 14-17 cover this.');
+  });
+
+  it('matches NBSP in doc against regular space in oldString', () => {
+    const doc = 'Once\u00a0upon\u00a0a\u00a0time.';
+    const result = applyEditOccurrenceCanonical(doc, 'Once upon a time.', 'Long ago.', 1);
+    expect(result).toBe('Long ago.');
+  });
+
+  it('matches CRLF line endings against LF in oldString', () => {
+    const doc = 'line one\r\nline two\r\nline three';
+    const result = applyEditOccurrenceCanonical(doc, 'line one\nline two', 'replaced', 1);
+    expect(result).toBe('replaced\r\nline three');
+  });
+
+  it('drops zero-width characters when matching', () => {
+    const doc = 'hello\u200bworld';
+    const result = applyEditOccurrenceCanonical(doc, 'helloworld', 'HI', 1);
+    expect(result).toBe('HI');
+  });
+
+  it('honors occurrence for canonical matches', () => {
+    const doc = '\u201cone\u201d and \u201cone\u201d again';
+    const result = applyEditOccurrenceCanonical(doc, '"one"', 'X', 2);
+    expect(result).toBe('\u201cone\u201d and X again');
+  });
+
+  it('returns null when there is nothing to canonicalize and exact fails', () => {
+    // Early exit: pure ASCII on both sides, no drift to fix.
+    expect(applyEditOccurrenceCanonical('hello world', 'missing', 'X', 1)).toBeNull();
+  });
+
+  it('returns null for empty oldString (append has no canonical mode)', () => {
+    expect(applyEditOccurrenceCanonical('anything', '', 'X', 1)).toBeNull();
+  });
+
+  it('preserves original doc characters outside the matched range', () => {
+    // Make sure the splice-back uses raw doc chars, not canonical ones — the
+    // untouched tail still has its curly quote.
+    const doc = 'She said "hi" then \u201cbye\u201d forever.';
+    const result = applyEditOccurrenceCanonical(doc, '"hi"', '"hello"', 1);
+    expect(result).toBe('She said "hello" then \u201cbye\u201d forever.');
+  });
+});
+
+describe('canLocateEdit', () => {
+  it('returns true for empty old_string (append is always locatable)', () => {
+    expect(canLocateEdit('anything', { old_string: '', new_string: 'X' })).toBe(true);
+  });
+
+  it('returns true for an exact match', () => {
+    expect(canLocateEdit('hello world', { old_string: 'hello', new_string: 'hi' })).toBe(true);
+  });
+
+  it('returns true when only canonical matching can find it', () => {
+    const doc = 'She said \u201chello\u201d and smiled.';
+    expect(
+      canLocateEdit(doc, { old_string: 'She said "hello"', new_string: 'X' }),
+    ).toBe(true);
+  });
+
+  it('returns true when only the whitespace-fuzzy path can find it', () => {
+    const doc = 'The body is a thermostat.\nIt maintains equilibrium.';
+    expect(
+      canLocateEdit(doc, {
+        old_string: 'thermostat. It maintains',
+        new_string: 'X',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns false when no path can locate it', () => {
+    expect(
+      canLocateEdit('abc def ghi', { old_string: 'xyz', new_string: 'X' }),
+    ).toBe(false);
+  });
+
+  it('honors occurrence (no 5th "foo" to locate)', () => {
+    expect(
+      canLocateEdit('foo foo', { old_string: 'foo', new_string: 'X', occurrence: 5 }),
+    ).toBe(false);
+  });
+});
+
+describe('validateEdits — fallback integration', () => {
+  // validateEdits now defers "not found" to canLocateEdit, so semantically
+  // correct edits with typographic drift pass pre-flight instead of forcing
+  // a needless LLM retry.
+  it('passes an edit that only canonical matching can locate', () => {
+    const doc = 'The report said \u201cship it\u201d today.';
+    const result = validateEdits(doc, [
+      { old_string: '"ship it"', new_string: '"hold it"' },
+    ]);
+    expect(result.ok).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('still fails when no locator works', () => {
+    const result = validateEdits('short doc content', [
+      { old_string: 'nonexistent phrase', new_string: 'X' },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]).toContain('not found');
+  });
+
+  it('still fails on exact ambiguous match without occurrence', () => {
+    // Ambiguity detection still runs at the exact-match layer.
+    const result = validateEdits('foo foo foo', [
+      { old_string: 'foo', new_string: 'bar' },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.failures[0]).toContain('matches 3 places');
   });
 });

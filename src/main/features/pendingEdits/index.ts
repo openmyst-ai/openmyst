@@ -7,6 +7,7 @@ import { readDocument, writeDocument } from '../documents';
 import {
   applyEditOccurrence,
   applyEditOccurrenceAnchored,
+  applyEditOccurrenceCanonical,
   applyEditOccurrenceFuzzy,
   mergePendingEdits,
 } from '../chat/editLogic';
@@ -156,9 +157,28 @@ export async function acceptPendingEdit(id: string, overrideNewString?: string):
   });
   let newDoc = applyEditOccurrence(doc, edit.oldString, effectiveNewString, edit.occurrence);
   if (newDoc === null) {
-    // Exact match failed — try whitespace-tolerant fallback. Handles the most
-    // common failure mode: LLM's old_string has subtly different whitespace
-    // (space vs newline, single vs double space) than the on-disk markdown.
+    // Exact match failed — try typographic-canonical fallback first. Handles
+    // the narrow but common case where the LLM typed straight quotes, ASCII
+    // dashes, or LF line endings while the doc has curly quotes, em-dashes,
+    // NBSP, or CRLF. Cheaper and more targeted than the whitespace-fuzzy pass.
+    const canonical = applyEditOccurrenceCanonical(
+      doc,
+      edit.oldString,
+      effectiveNewString,
+      edit.occurrence,
+    );
+    if (canonical !== null) {
+      log('pending', 'accept.canonicalMatch', {
+        id,
+        doc: docFilename,
+        oldStringPreview: edit.oldString.slice(0, 120),
+      });
+      newDoc = canonical;
+    }
+  }
+  if (newDoc === null) {
+    // Canonical failed — try whitespace-tolerant fallback. Handles drift
+    // between space and newline, single vs double space, etc.
     const fuzzy = applyEditOccurrenceFuzzy(doc, edit.oldString, effectiveNewString, edit.occurrence);
     if (fuzzy !== null) {
       log('pending', 'accept.fuzzyMatch', {
