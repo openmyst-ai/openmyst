@@ -1,0 +1,11 @@
+name = "openmyst-bug-report"
+main = "worker.ts"
+compatibility_date = "2025-01-01"
+
+# Set these via `wrangler secret put` — do NOT commit them.
+#   wrangler secret put GITHUB_TOKEN
+#   wrangler secret put SHARED_SECRET    # optional, raises the spam bar
+#
+# Non-secret config goes under [vars] so it shows up in the dashboard.
+[vars]
+GITHUB_REPO = "openmyst-ai/openmyst"

@@ -62,6 +62,7 @@ export const IpcChannels = {
     Graph: 'wiki:graph',
   },
   BugReport: {
+    Preview: 'bug-report:preview',
     Submit: 'bug-report:submit',
     RendererLog: 'bug-report:renderer-log',
   },

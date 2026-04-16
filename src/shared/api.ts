@@ -80,7 +80,17 @@ export interface MystApi {
     graph: () => Promise<WikiGraph>;
   };
   bugReport: {
-    submit: (input: { title: string; description: string }) => Promise<void>;
+    preview: (input: { title: string; description: string }) => Promise<{
+      title: string;
+      body: string;
+      deliveryMode: 'worker' | 'browser';
+    }>;
+    submit: (input: { title: string; description: string }) => Promise<{
+      issueUrl: string;
+      issueNumber: number | null;
+      delivered: 'worker' | 'browser';
+      workerError?: string;
+    }>;
     rendererLog: (scope: string, event: string, message: string) => Promise<void>;
   };
   deepPlan: {

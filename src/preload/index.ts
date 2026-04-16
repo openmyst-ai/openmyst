@@ -125,6 +125,7 @@ const api: MystApi = {
     graph: () => ipcRenderer.invoke(IpcChannels.Wiki.Graph),
   },
   bugReport: {
+    preview: (input) => ipcRenderer.invoke(IpcChannels.BugReport.Preview, input),
     submit: (input) => ipcRenderer.invoke(IpcChannels.BugReport.Submit, input),
     rendererLog: (scope, event, message) =>
       ipcRenderer.invoke(IpcChannels.BugReport.RendererLog, scope, event, message),

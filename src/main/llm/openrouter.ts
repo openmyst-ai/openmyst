@@ -23,7 +23,7 @@ import type { LlmMessage, StreamChatOptions } from './types';
 export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 const DEFAULT_HEADERS = {
-  'HTTP-Referer': 'https://github.com/arshchawla21/openmyst',
+  'HTTP-Referer': 'https://github.com/openmyst-ai/openmyst',
   'X-Title': 'Open Myst',
 } as const;
 

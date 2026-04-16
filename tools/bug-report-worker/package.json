@@ -1,0 +1,14 @@
+{
+  "name": "openmyst-bug-report-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker relay that files GitHub issues on behalf of Open Myst users.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "wrangler": "^3.100.0"
+  }
+}

@@ -1,31 +1,69 @@
 import { useState } from 'react';
 import { bridge } from '../api/bridge';
 
+/**
+ * Bug report flow:
+ *   compose → preview (with full logs visible) → submit.
+ *
+ * Submit tries the relay worker first — that creates the GitHub issue on
+ * behalf of a bot account so the user doesn't need a GitHub account of
+ * their own. If the worker is unreachable/unconfigured, main falls back to
+ * opening a pre-filled `issues/new` URL in the browser. The result tells
+ * us which path won so the success copy can match.
+ */
+
 interface Props {
   onClose: () => void;
+}
+
+type Stage = 'compose' | 'preview' | 'submitting' | 'done';
+
+interface Preview {
+  title: string;
+  body: string;
+  deliveryMode: 'worker' | 'browser';
+}
+
+interface SubmitResult {
+  issueUrl: string;
+  issueNumber: number | null;
+  delivered: 'worker' | 'browser';
+  workerError?: string;
 }
 
 export function BugReportModal({ onClose }: Props): JSX.Element {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [stage, setStage] = useState<Stage>('compose');
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [result, setResult] = useState<SubmitResult | null>(null);
 
-  const submit = async (): Promise<void> => {
+  const goPreview = async (): Promise<void> => {
     if (title.trim().length === 0) {
       setError('Please enter a title.');
       return;
     }
     setError(null);
-    setSubmitting(true);
     try {
-      await bridge.bugReport.submit({ title, description });
-      setSubmitted(true);
+      const p = await bridge.bugReport.preview({ title, description });
+      setPreview(p);
+      setStage('preview');
     } catch (err) {
       setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
+    }
+  };
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    setStage('submitting');
+    try {
+      const r = await bridge.bugReport.submit({ title, description });
+      setResult(r);
+      setStage('done');
+    } catch (err) {
+      setError((err as Error).message);
+      setStage('preview');
     }
   };
 
@@ -39,26 +77,13 @@ export function BugReportModal({ onClose }: Props): JSX.Element {
           </button>
         </header>
 
-        {submitted ? (
-          <section className="modal-section">
-            <p>
-              A pre-filled GitHub issue has opened in your browser. Review the details —
-              including the attached logs — and click <strong>Submit new issue</strong> on
-              GitHub to post it. Thanks for the report!
-            </p>
-            <div className="row">
-              <button type="button" className="primary" onClick={onClose}>
-                Done
-              </button>
-            </div>
-          </section>
-        ) : (
+        {stage === 'compose' && (
           <>
             <section className="modal-section">
               <p className="muted">
-                Clicking submit opens a pre-filled GitHub issue in your browser with your
-                description and the most recent log activity from this session. You review
-                and post it — no credentials are sent from the app.
+                We'll attach your recent log activity so we can reproduce the issue.
+                You'll see exactly what gets sent on the next screen before anything
+                leaves the app.
               </p>
             </section>
 
@@ -72,7 +97,6 @@ export function BugReportModal({ onClose }: Props): JSX.Element {
                 placeholder="Short summary of what went wrong"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                disabled={submitting}
               />
             </section>
 
@@ -85,7 +109,6 @@ export function BugReportModal({ onClose }: Props): JSX.Element {
                 placeholder="What did you do? What did you expect? What actually happened?"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                disabled={submitting}
                 rows={8}
               />
             </section>
@@ -94,20 +117,108 @@ export function BugReportModal({ onClose }: Props): JSX.Element {
 
             <section className="modal-section">
               <div className="row">
-                <button type="button" onClick={onClose} disabled={submitting}>
+                <button type="button" onClick={onClose}>
                   Cancel
                 </button>
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => void submit()}
-                  disabled={submitting || title.trim().length === 0}
+                  onClick={() => void goPreview()}
+                  disabled={title.trim().length === 0}
                 >
-                  {submitting ? 'Opening GitHub…' : 'Submit report'}
+                  Preview
                 </button>
               </div>
             </section>
           </>
+        )}
+
+        {(stage === 'preview' || stage === 'submitting') && preview && (
+          <>
+            <section className="modal-section">
+              <p className="muted">
+                {preview.deliveryMode === 'worker'
+                  ? 'Clicking send posts this directly to GitHub through our relay — no GitHub account needed on your end.'
+                  : 'Clicking send opens a pre-filled GitHub issue in your browser; you review and click Submit new issue there.'}
+              </p>
+            </section>
+
+            <section className="modal-section">
+              <label className="field-label">Title</label>
+              <div className="bug-preview-title">{preview.title}</div>
+            </section>
+
+            <section className="modal-section">
+              <label className="field-label">Body (including attached logs)</label>
+              <pre className="bug-preview-body">{preview.body}</pre>
+            </section>
+
+            {error && <div className="error">{error}</div>}
+
+            <section className="modal-section">
+              <div className="row">
+                <button
+                  type="button"
+                  onClick={() => setStage('compose')}
+                  disabled={stage === 'submitting'}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void submit()}
+                  disabled={stage === 'submitting'}
+                >
+                  {stage === 'submitting'
+                    ? 'Sending…'
+                    : preview.deliveryMode === 'worker'
+                      ? 'Send to GitHub'
+                      : 'Open in browser'}
+                </button>
+              </div>
+            </section>
+          </>
+        )}
+
+        {stage === 'done' && result && (
+          <section className="modal-section">
+            {result.delivered === 'worker' ? (
+              <>
+                <p>
+                  Thanks! Your report was posted as{' '}
+                  <a href={result.issueUrl} target="_blank" rel="noreferrer">
+                    {result.issueNumber !== null
+                      ? `issue #${result.issueNumber}`
+                      : 'a new GitHub issue'}
+                  </a>
+                  .
+                </p>
+                {result.workerError && (
+                  <p className="muted">
+                    (First try failed: {result.workerError} — fell through to the
+                    browser flow.)
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p>
+                  {result.workerError
+                    ? 'Our relay wasn\'t reachable, so we opened a pre-filled GitHub issue in your browser instead. Click Submit new issue there to post it.'
+                    : 'A pre-filled GitHub issue has opened in your browser. Click Submit new issue there to post it.'}
+                </p>
+                {result.workerError && (
+                  <p className="muted">Details: {result.workerError}</p>
+                )}
+              </>
+            )}
+            <div className="row">
+              <button type="button" className="primary" onClick={onClose}>
+                Done
+              </button>
+            </div>
+          </section>
         )}
       </div>
     </div>

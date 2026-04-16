@@ -2152,6 +2152,29 @@ h3 {
   outline: none;
   border-color: var(--accent, #4f9eff);
 }
+.bug-preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.bug-preview-body {
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
 
 
 /* ===================== Deep Plan mode ===================== */
