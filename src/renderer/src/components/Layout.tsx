@@ -9,6 +9,7 @@ import { ChatPanel } from './ChatPanel';
 import { TableOfContents } from './TableOfContents';
 import { SourcePreviewPopup } from './SourcePreview';
 import { DeepSearchModal } from './research/DeepSearchModal';
+import logoUrl from '../assets/logo.svg';
 
 export function Layout(): JSX.Element {
   const { project, openSettings, closeProject } = useApp();
@@ -23,6 +24,7 @@ export function Layout(): JSX.Element {
     <div className="layout">
       <header className="titlebar">
         <div className="titlebar-left">
+          <img src={logoUrl} className="app-logo" alt="" aria-hidden="true" />
           <span className="app-name">Open Myst</span>
           {project && <span className="project-name">· {project.name}</span>}
         </div>
