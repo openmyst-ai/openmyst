@@ -1309,6 +1309,16 @@ h3 {
   color: inherit;
   text-decoration: underline;
 }
+.quota-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted, #8b94a7);
+}
 .chat-messages {
   flex: 1;
   overflow: auto;
