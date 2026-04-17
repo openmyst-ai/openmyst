@@ -35,6 +35,14 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   notarize:
     teamId: 3J9KC6LRM3
+  # Register the `openmyst://` URL scheme so the OS launches the app
+  # when the browser redirects to `openmyst://auth-callback?state=...&token=...`
+  # at the end of the sign-in flow (changes.md §2.1).
+  extendInfo:
+    CFBundleURLTypes:
+      - CFBundleURLName: Open Myst
+        CFBundleURLSchemes:
+          - openmyst
 
 dmg:
   artifactName: ${productName}-${version}-${arch}.dmg
@@ -50,6 +58,14 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+  # Register the `openmyst://` scheme in HKCU so Windows launches the
+  # desktop app when the browser hits openmyst://auth-callback.
+  include: build/installer.nsh
+
+protocols:
+  - name: Open Myst
+    schemes:
+      - openmyst
 
 linux:
   target:
@@ -58,6 +74,8 @@ linux:
         - x64
   category: Office
   artifactName: ${productName}-${version}-${arch}.${ext}
+  # The `protocols:` block above also writes a MimeType=x-scheme-handler/openmyst
+  # entry into the .desktop file for the Linux AppImage.
 
 # Disable auto-publishing — we only want local artifacts.
 publish: null
