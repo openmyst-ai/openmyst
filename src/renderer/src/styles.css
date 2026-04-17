@@ -648,9 +648,9 @@ h3 {
   gap: 12px;
   margin-bottom: 8px;
 }
-.login-logo {
-  width: 32px;
-  height: 32px;
+img.login-logo {
+  width: 56px;
+  height: 56px;
 }
 .login-paste {
   margin-top: 16px;
