@@ -271,6 +271,22 @@ h3 {
   border-color: var(--border-strong);
   background: var(--bg-hover);
 }
+.app-logo {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex-shrink: 0;
+  animation: app-logo-spin 18s linear infinite;
+  /* Hint the compositor so the rotation stays silky on low-power GPUs. */
+  will-change: transform;
+}
+@keyframes app-logo-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-logo { animation: none; }
+}
 .app-name {
   font-weight: 600;
   letter-spacing: -0.01em;
