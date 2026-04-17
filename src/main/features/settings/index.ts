@@ -39,7 +39,7 @@ const DEFAULTS: StoredSettings = {
  * isn't discoverable on macOS/Windows.
  */
 function defaultWorkspaceRoot(): string {
-  return join(app.getPath('documents'), 'Open Myst');
+  return join(app.getPath('documents'), 'OpenMyst');
 }
 
 const MAX_RECENTS = 10;

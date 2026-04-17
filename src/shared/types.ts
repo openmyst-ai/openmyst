@@ -10,7 +10,7 @@ export interface AppSettings {
    * the user picks one (or accepts the default) on first launch.
    */
   workspaceRoot: string | null;
-  /** Suggested workspace root if `workspaceRoot` is null (e.g. ~/Documents/Open Myst). */
+  /** Suggested workspace root if `workspaceRoot` is null (e.g. ~/Documents/OpenMyst). */
   defaultWorkspaceRoot: string;
 }
 

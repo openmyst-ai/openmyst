@@ -1,31 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { WorkspaceProject } from '@shared/types';
 import { useApp } from '../store/app';
+import logoUrl from '../assets/logo.svg';
 
 /**
- * Three-mode landing surface:
- *   1. Workspace not set → pick a folder where all projects live.
- *   2. Workspace set → scrollable gallery of existing projects + "New project".
- *   3. "New project" clicked → inline modal with just a name field (and an
- *      advanced disclosure for overriding the parent dir).
+ * First screen the user ever sees. Two modes:
+ *   1. Workspace not set → hero with spinning logo + "start" action.
+ *   2. Workspace set → project gallery with scrollable cards.
  *
- * The native file-dialog entry points are kept as escape hatches so users
- * with projects outside the workspace can still open them.
+ * Settings lives in a fixed corner so it never crowds the card layout.
+ * The native file-dialog entry points stay as escape hatches.
  */
 export function Welcome(): JSX.Element {
   const { settings, openSettings } = useApp();
   const hasWorkspace = Boolean(settings?.workspaceRoot);
 
   return (
-    <div className="welcome">
-      <div className="welcome-shell">
+    <div className="welcome welcome-v2">
+      <button
+        type="button"
+        className="welcome-corner-btn"
+        onClick={openSettings}
+        title="Settings"
+      >
+        Settings
+      </button>
+      <div className="welcome-stage">
         {hasWorkspace ? <ProjectGallery /> : <WorkspaceSetup />}
-        <div className="welcome-shell-footer">
-          <button type="button" className="link" onClick={openSettings}>
-            Settings
-          </button>
-        </div>
       </div>
+    </div>
+  );
+}
+
+function SpinningLogo(props: { size: number }): JSX.Element {
+  return (
+    <div className="welcome-logo-wrap" style={{ width: props.size, height: props.size }}>
+      <div className="welcome-logo-aura" />
+      <img src={logoUrl} className="welcome-logo app-logo" alt="" aria-hidden="true" />
     </div>
   );
 }
@@ -42,30 +53,41 @@ function WorkspaceSetup(): JSX.Element {
   const suggested = settings?.defaultWorkspaceRoot ?? '';
 
   return (
-    <div className="welcome-card welcome-setup">
-      <h1>Welcome to Open Myst</h1>
-      <p className="welcome-tagline">
-        First, pick a folder to keep all your projects in. You can change this
-        any time from Settings.
-      </p>
-      <div className="welcome-path-preview" title={suggested}>
-        {suggested || '—'}
+    <div className="welcome-hero">
+      <SpinningLogo size={96} />
+      <h1 className="welcome-title">Open Myst</h1>
+      <p className="welcome-subtitle">A writing and research companion.</p>
+
+      <p className="welcome-lead">Choose a folder to keep all your projects in.</p>
+
+      <div className="welcome-path-chip" title={suggested}>
+        <span className="welcome-path-chip-icon" aria-hidden="true">📁</span>
+        <span className="welcome-path-chip-text">{suggested || '—'}</span>
       </div>
-      <div className="welcome-actions">
+
+      <div className="welcome-bubble-row">
         <button
           type="button"
-          className="primary"
+          className="welcome-bubble welcome-bubble-primary"
           onClick={() => void setWorkspaceRoot(suggested)}
           disabled={loading || !suggested}
         >
           Use this folder
         </button>
-        <button type="button" onClick={() => void pickWorkspaceRoot()} disabled={loading}>
-          Choose a different folder…
+        <button
+          type="button"
+          className="welcome-bubble"
+          onClick={() => void pickWorkspaceRoot()}
+          disabled={loading}
+        >
+          Choose another…
         </button>
       </div>
+
+      <p className="welcome-fineprint">You can change this later in Settings.</p>
+
       {error && (
-        <div className="error" onClick={dismissError}>
+        <div className="welcome-error" onClick={dismissError}>
           {error}
         </div>
       )}
@@ -95,17 +117,18 @@ function ProjectGallery(): JSX.Element {
 
   return (
     <>
-      <div className="welcome-card welcome-gallery">
-        <header className="welcome-gallery-header">
-          <div>
-            <h1>Your projects</h1>
+      <div className="welcome-gallery-v2">
+        <header className="welcome-gallery-hero">
+          <SpinningLogo size={56} />
+          <div className="welcome-gallery-hero-text">
+            <h1 className="welcome-title-sm">Open Myst</h1>
             <p className="welcome-gallery-root" title={workspaceRoot}>
               {workspaceRoot}
             </p>
           </div>
           <button
             type="button"
-            className="primary"
+            className="welcome-bubble welcome-bubble-primary welcome-bubble-lg"
             onClick={() => setShowNewProject(true)}
             disabled={loading}
           >
@@ -113,36 +136,39 @@ function ProjectGallery(): JSX.Element {
           </button>
         </header>
 
-        <div className="welcome-gallery-list">
+        <div className="welcome-gallery-body">
           {workspaceLoading && workspaceProjects.length === 0 ? (
-            <div className="welcome-gallery-empty muted">Loading…</div>
+            <div className="welcome-gallery-empty muted">Loading projects…</div>
           ) : workspaceProjects.length === 0 ? (
             <div className="welcome-gallery-empty">
-              <p className="muted">No projects here yet.</p>
+              <p className="welcome-empty-title">No projects yet.</p>
+              <p className="muted">Create your first one to get started.</p>
               <button
                 type="button"
-                className="primary"
+                className="welcome-bubble welcome-bubble-primary"
                 onClick={() => setShowNewProject(true)}
               >
-                Create your first project
+                + New project
               </button>
             </div>
           ) : (
-            workspaceProjects.map((p) => (
-              <ProjectCard
-                key={p.path}
-                project={p}
-                onOpen={() => void openProjectByPath(p.path)}
-                disabled={loading}
-              />
-            ))
+            <div className="welcome-gallery-list">
+              {workspaceProjects.map((p) => (
+                <ProjectCard
+                  key={p.path}
+                  project={p}
+                  onOpen={() => void openProjectByPath(p.path)}
+                  disabled={loading}
+                />
+              ))}
+            </div>
           )}
         </div>
 
-        <footer className="welcome-gallery-actions">
+        <footer className="welcome-gallery-footer">
           <button
             type="button"
-            className="link"
+            className="welcome-bubble welcome-bubble-ghost"
             onClick={() => void openExistingProject()}
             disabled={loading}
           >
@@ -150,7 +176,7 @@ function ProjectGallery(): JSX.Element {
           </button>
           <button
             type="button"
-            className="link"
+            className="welcome-bubble welcome-bubble-ghost"
             onClick={() => void pickWorkspaceRoot()}
             disabled={loading}
           >
@@ -159,7 +185,7 @@ function ProjectGallery(): JSX.Element {
         </footer>
 
         {error && (
-          <div className="error" onClick={dismissError}>
+          <div className="welcome-error" onClick={dismissError}>
             {error}
           </div>
         )}
@@ -179,21 +205,25 @@ function ProjectCard(props: {
 }): JSX.Element {
   const { project, onOpen, disabled } = props;
   const date = useMemo(() => formatDate(project.updatedAt), [project.updatedAt]);
+  const initial = project.name.charAt(0).toUpperCase() || '·';
 
   return (
     <button
       type="button"
-      className="welcome-project-card"
+      className="welcome-project-card-v2"
       onClick={onOpen}
       disabled={disabled}
     >
-      <div className="welcome-project-name">{project.name}</div>
-      <div className="welcome-project-meta">
-        <span className="muted" title={project.path}>
-          {project.path}
-        </span>
-        {date && <span className="muted"> · {date}</span>}
+      <div className="welcome-project-avatar" aria-hidden="true">
+        {initial}
       </div>
+      <div className="welcome-project-body">
+        <div className="welcome-project-name">{project.name}</div>
+        <div className="welcome-project-path" title={project.path}>
+          {project.path}
+        </div>
+      </div>
+      {date && <div className="welcome-project-date">{date}</div>}
     </button>
   );
 }
@@ -228,7 +258,7 @@ function NewProjectModal(props: { onClose: () => void }): JSX.Element {
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal welcome-new-modal" onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
           <h2>New project</h2>
           <button type="button" className="link" onClick={props.onClose}>
@@ -236,79 +266,85 @@ function NewProjectModal(props: { onClose: () => void }): JSX.Element {
           </button>
         </header>
 
-        <section className="modal-section">
-          <label className="muted" htmlFor="new-project-name">
-            Project name
-          </label>
-          <input
-            id="new-project-name"
-            autoFocus
-            type="text"
-            value={name}
-            placeholder="My research project"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void submit();
-            }}
-          />
-          {previewPath && (
-            <p className="muted welcome-path-preview-inline" title={previewPath}>
-              Will be created at: <code>{previewPath}</code>
-            </p>
-          )}
-        </section>
+        <label className="welcome-field-label" htmlFor="new-project-name">
+          Project name
+        </label>
+        <input
+          id="new-project-name"
+          autoFocus
+          type="text"
+          value={name}
+          placeholder="My research project"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void submit();
+          }}
+          className="welcome-field-input"
+        />
+        {previewPath && (
+          <div className="welcome-path-chip welcome-path-chip-sm" title={previewPath}>
+            <span className="welcome-path-chip-icon" aria-hidden="true">📁</span>
+            <span className="welcome-path-chip-text">{previewPath}</span>
+          </div>
+        )}
 
-        <section className="modal-section">
-          <button
-            type="button"
-            className="link"
-            onClick={() => setAdvancedOpen((v) => !v)}
-          >
-            {advancedOpen ? 'Hide' : 'Show'} advanced options
-          </button>
-          {advancedOpen && (
-            <div className="welcome-advanced">
-              <p className="muted">
-                By default the project goes inside your workspace folder. Override
-                to put it anywhere on disk.
-              </p>
-              <div className="row">
-                <input
-                  type="text"
-                  value={parentOverride ?? ''}
-                  placeholder={settings?.workspaceRoot ?? 'Choose a location…'}
-                  onChange={(e) => setParentOverride(e.target.value || null)}
-                />
-                <button type="button" onClick={() => void pickCustomParent()}>
-                  Browse…
-                </button>
-              </div>
-              {parentOverride && (
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => setParentOverride(null)}
-                >
-                  Reset to workspace folder
-                </button>
-              )}
+        <button
+          type="button"
+          className="welcome-disclosure"
+          onClick={() => setAdvancedOpen((v) => !v)}
+        >
+          {advancedOpen ? '▾' : '▸'} Advanced: custom location
+        </button>
+        {advancedOpen && (
+          <div className="welcome-advanced-v2">
+            <p className="muted">
+              Put the project anywhere on disk instead of inside your workspace folder.
+            </p>
+            <div className="row">
+              <input
+                type="text"
+                value={parentOverride ?? ''}
+                placeholder={settings?.workspaceRoot ?? 'Choose a location…'}
+                onChange={(e) => setParentOverride(e.target.value || null)}
+                className="welcome-field-input"
+              />
+              <button
+                type="button"
+                className="welcome-bubble welcome-bubble-sm"
+                onClick={() => void pickCustomParent()}
+              >
+                Browse…
+              </button>
             </div>
-          )}
-        </section>
+            {parentOverride && (
+              <button
+                type="button"
+                className="link"
+                onClick={() => setParentOverride(null)}
+              >
+                Reset to workspace folder
+              </button>
+            )}
+          </div>
+        )}
 
         {error && (
-          <div className="error" onClick={dismissError}>
+          <div className="welcome-error" onClick={dismissError}>
             {error}
           </div>
         )}
 
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-          <button type="button" onClick={props.onClose}>
+        <div className="welcome-modal-actions">
+          <button
+            type="button"
+            className="welcome-bubble welcome-bubble-ghost"
+            onClick={props.onClose}
+          >
             Cancel
           </button>
           <button
             type="button"
-            className="primary"
+            className="welcome-bubble welcome-bubble-primary"
             onClick={() => void submit()}
             disabled={!canCreate}
           >
