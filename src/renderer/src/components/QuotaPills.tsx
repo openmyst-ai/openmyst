@@ -16,7 +16,7 @@ function bucketClass(b: MeQuotaBucket): string {
 }
 
 function formatBucket(b: MeQuotaBucket, label: string): string {
-  if (b.limit === null) return `∞ ${label}`;
+  if (b.limit === null) return `${b.used} ${label} · ∞`;
   return `${b.used} / ${b.limit} ${label}`;
 }
 

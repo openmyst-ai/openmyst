@@ -42,6 +42,13 @@ let loading = false;
 let lastError: string | null = null;
 let lastFetchAttempt = 0;
 let loadedFromDisk = false;
+/**
+ * True when a `refreshAfterRequest` fired while another refresh was already
+ * in-flight. We only run one at a time, but a queued follow-up runs right
+ * after the current one so bursts of chats/searches (e.g. Deep Plan's
+ * research loop) never leave the final request's counter unreflected.
+ */
+let pendingRefresh = false;
 
 function storePath(): string {
   return join(app.getPath('userData'), 'me.json');
@@ -187,7 +194,13 @@ export async function refreshMe(options: RefreshOptions = {}): Promise<MeStatus>
   }
   lastFetchAttempt = now;
 
-  if (loading) return getStatus();
+  if (loading) {
+    // Drop-the-request path: mark that we need to refetch once the in-flight
+    // call resolves. Don't bump lastFetchAttempt — the follow-up should still
+    // be considered fresh.
+    pendingRefresh = true;
+    return getStatus();
+  }
   loading = true;
   if (!options.silent) notifyChanged();
 
@@ -236,7 +249,9 @@ export async function refreshMe(options: RefreshOptions = {}): Promise<MeStatus>
     lastError = null;
     log('me', 'refresh.ok', {
       plan: snapshot.plan,
+      chatUsed: snapshot.quota.chat.used,
       chatRemaining: snapshot.quota.chat.remaining,
+      searchUsed: snapshot.quota.search.used,
       searchRemaining: snapshot.quota.search.remaining,
     });
     await writeStored({ snapshot }).catch((err) => logError('me', 'disk.write.failed', err));
@@ -259,6 +274,10 @@ export async function refreshMe(options: RefreshOptions = {}): Promise<MeStatus>
   } finally {
     loading = false;
     notifyChanged();
+    if (pendingRefresh) {
+      pendingRefresh = false;
+      void refreshMe({ force: true, silent: true });
+    }
   }
 }
 
