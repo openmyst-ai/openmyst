@@ -271,3 +271,54 @@ export interface DeepSearchStatus {
   /** ISO timestamp of the most recent state mutation, for UI ordering. */
   updatedAt: string;
 }
+
+/**
+ * Snapshot of the signed-in user's account, quota, and currently-routed model.
+ * Mirrors the `/api/v1/me` response shape (changes.md §4.3), trimmed to the
+ * fields the desktop app actually uses.
+ */
+export interface MeQuotaBucket {
+  period: 'day';
+  /** null for Pro users — treat as unlimited. */
+  limit: number | null;
+  used: number;
+  /** null when the bucket is unlimited. */
+  remaining: number | null;
+  resetsAt: string;
+}
+
+export interface MeCurrentModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export interface MeSnapshot {
+  user: {
+    id: string;
+    email: string;
+    emailVerified: boolean;
+  };
+  plan: 'free' | 'pro' | string;
+  quota: {
+    chat: MeQuotaBucket;
+    search: MeQuotaBucket;
+  };
+  rateLimit: {
+    requestsPerMinute: number;
+  };
+  currentModel: MeCurrentModel | null;
+  /** When this snapshot was fetched (ISO). Used to gate offline stale-reads. */
+  fetchedAt: string;
+}
+
+export interface MeStatus {
+  /** null on first launch or after sign-out. */
+  snapshot: MeSnapshot | null;
+  /** True while a refresh is in flight. */
+  loading: boolean;
+  /** Last error from `/api/v1/me`, if any. */
+  error: string | null;
+  /** True when the last fetch failed and we're displaying cached data. */
+  offline: boolean;
+}

@@ -3,6 +3,7 @@ import { app } from 'electron';
 import { arch, platform } from 'node:os';
 import { log, logError } from '../../platform';
 import { getAuthTokenSync, invalidateToken } from '../auth';
+import { refreshAfterRequest } from '../me';
 import { getJinaKey } from '../settings';
 import { jinaSearch, type JinaResult } from '../deepPlan/jina';
 
@@ -107,6 +108,7 @@ async function openmystSearch(options: {
 
     const data = (await response.json()) as OpenmystSearchResponse;
     const entries = Array.isArray(data.results) ? data.results : [];
+    refreshAfterRequest();
     return entries.map((r) => {
       const snippet = typeof r.snippet === 'string' ? r.snippet : '';
       const content = typeof r.content === 'string' ? r.content : '';

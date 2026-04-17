@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { USE_OPENMYST } from '@shared/flags';
 import { useApp } from './store/app';
 import { useAuth } from './store/auth';
+import { useMe } from './store/me';
 import { useDeepPlan } from './store/deepPlan';
 import { Layout } from './components/Layout';
 import { Welcome } from './components/Welcome';
@@ -12,11 +13,13 @@ import { DeepPlanMode } from './components/DeepPlanMode';
 export function App(): JSX.Element {
   const { project, settingsOpen, init, error, dismissError } = useApp();
   const { signedIn, init: initAuth } = useAuth();
+  const { init: initMe } = useMe();
   const { visible: deepPlanVisible, refresh: refreshDeepPlan } = useDeepPlan();
 
   useEffect(() => {
     void initAuth();
-  }, [initAuth]);
+    void initMe();
+  }, [initAuth, initMe]);
 
   useEffect(() => {
     // In managed mode, only load app-level state after the user is signed in

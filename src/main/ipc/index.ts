@@ -1,4 +1,5 @@
 import { registerAuthIpc } from './auth';
+import { registerMeIpc } from './me';
 import { registerSettingsIpc } from './settings';
 import { registerProjectsIpc } from './projects';
 import { registerDocumentsIpc } from './documents';
@@ -22,6 +23,7 @@ import { registerDeepSearchIpc } from './deepSearch';
  */
 export function registerIpcHandlers(): void {
   registerAuthIpc();
+  registerMeIpc();
   registerSettingsIpc();
   registerProjectsIpc();
   registerDocumentsIpc();

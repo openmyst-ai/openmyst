@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { USE_OPENMYST } from '@shared/flags';
 import type { ChatMessage } from '@shared/types';
 import { useApp } from '../store/app';
 import { useDocuments } from '../store/documents';
+import { useMe } from '../store/me';
 import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
 import { bridge } from '../api/bridge';
 import { renderMarkdown } from '../utils/markdown';
+import { ApproachingLimitBanner, PoweredByModel, QuotaPills } from './QuotaPills';
 
 function MarkdownContent({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -13,7 +16,9 @@ function MarkdownContent({ text }: { text: string }): JSX.Element {
 
 export function ChatPanel(): JSX.Element {
   const { settings, openSettings } = useApp();
-  const needsKey = settings && !settings.hasOpenRouterKey;
+  // BYOK-only gate. In managed mode there is no user-facing key to check;
+  // the App-level auth gate already stops unsigned-in users from getting here.
+  const needsKey = !USE_OPENMYST && settings && !settings.hasOpenRouterKey;
 
   if (needsKey) {
     return (
@@ -97,6 +102,13 @@ function ChatView(): JSX.Element {
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || sending || !activeFile) return;
+    // Block chat sends when the daily free quota is exhausted; search path
+    // is unaffected so deep search can continue (changes.md §6).
+    const chatQuota = useMe.getState().snapshot?.quota.chat;
+    if (chatQuota && chatQuota.limit !== null && (chatQuota.remaining ?? 1) <= 0) {
+      setError('Daily chat limit reached. Upgrade to Pro for unlimited access.');
+      return;
+    }
 
     setInput('');
     setError(null);
@@ -129,16 +141,30 @@ function ChatView(): JSX.Element {
     setError(null);
   }, []);
 
+  const me = useMe((s) => s.snapshot);
+  const chatExhausted =
+    me?.quota.chat.limit !== null &&
+    me?.quota.chat.remaining !== null &&
+    (me?.quota.chat.remaining ?? 1) <= 0;
+  const sendDisabled = sending || Boolean(chatExhausted);
+
   return (
     <div className="chat-panel chat-active">
       <div className="chat-header">
-        <h2>Chat</h2>
-        {messages.length > 0 && (
-          <button type="button" className="link chat-clear-btn" onClick={() => void handleClear()}>
-            Clear
-          </button>
-        )}
+        <div className="chat-header-title">
+          <h2>Chat</h2>
+          <PoweredByModel />
+        </div>
+        <div className="chat-header-right">
+          <QuotaPills />
+          {messages.length > 0 && (
+            <button type="button" className="link chat-clear-btn" onClick={() => void handleClear()}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
+      <ApproachingLimitBanner />
 
       <div className="chat-messages" ref={scrollRef}>
         {messages.length === 0 && !sending && (
@@ -201,12 +227,16 @@ function ChatView(): JSX.Element {
         <textarea
           ref={inputRef}
           className="chat-input"
-          placeholder="Message… (Enter to send, Shift+Enter for newline)"
+          placeholder={
+            chatExhausted
+              ? 'Daily chat limit reached — upgrade to Pro for unlimited access.'
+              : 'Message… (Enter to send, Shift+Enter for newline)'
+          }
           rows={2}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={sending}
+          disabled={sendDisabled}
         />
       </div>
     </div>

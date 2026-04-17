@@ -3,6 +3,7 @@ import { arch, platform } from 'node:os';
 import { OPENMYST_API_BASE_URL } from '@shared/flags';
 import { log, logError } from '../platform';
 import { invalidateToken } from '../features/auth';
+import { refreshAfterRequest } from '../features/me';
 import type { LlmMessage } from './types';
 
 /**
@@ -200,6 +201,7 @@ export async function openmystStreamChat(options: {
   if (!sawDone && fullContent.length > 0) {
     log(logScope, 'openmyst.llm.streamIncomplete', { chars: fullContent.length });
   }
+  refreshAfterRequest();
   return fullContent;
 }
 
@@ -240,7 +242,9 @@ export async function openmystCompleteText(options: {
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
-    return data.choices?.[0]?.message?.content?.trim() ?? '';
+    const content = data.choices?.[0]?.message?.content?.trim() ?? '';
+    refreshAfterRequest();
+    return content;
   } catch (err) {
     logError(logScope, 'openmyst.llm.request.failed', err);
     return null;

@@ -19,6 +19,19 @@ const api: MystApi = {
       };
     },
   },
+  me: {
+    get: () => ipcRenderer.invoke(IpcChannels.Me.Get),
+    refresh: () => ipcRenderer.invoke(IpcChannels.Me.Refresh),
+    onChanged: (callback) => {
+      const handler = (): void => {
+        callback();
+      };
+      ipcRenderer.on(IpcChannels.Me.Changed, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.Me.Changed, handler);
+      };
+    },
+  },
   settings: {
     get: () => ipcRenderer.invoke(IpcChannels.Settings.Get),
     setOpenRouterKey: (key) => ipcRenderer.invoke(IpcChannels.Settings.SetOpenRouterKey, key),

@@ -6,6 +6,7 @@ import type {
   DeepPlanStatus,
   DeepSearchStatus,
   DocumentFile,
+  MeStatus,
   PendingEdit,
   ProjectMeta,
   Result,
@@ -23,6 +24,11 @@ export interface MystApi {
     signIn: () => Promise<{ loginUrl: string }>;
     pasteToken: (token: string) => Promise<void>;
     signOut: () => Promise<void>;
+    onChanged: (callback: () => void) => () => void;
+  };
+  me: {
+    get: () => Promise<MeStatus>;
+    refresh: () => Promise<MeStatus>;
     onChanged: (callback: () => void) => () => void;
   };
   settings: {

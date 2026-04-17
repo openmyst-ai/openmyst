@@ -1240,6 +1240,75 @@ h3 {
 .chat-clear-btn {
   font-size: 12px;
 }
+.chat-header-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.powered-by {
+  font-size: 11px;
+  color: var(--muted, #8b94a7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quota-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.quota-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted, #8b94a7);
+  white-space: nowrap;
+}
+.quota-pill-pro {
+  background: rgba(86, 143, 255, 0.14);
+  color: #9fb8ff;
+}
+.quota-pill-warn {
+  background: rgba(255, 184, 70, 0.14);
+  color: #ffb846;
+}
+.quota-pill-danger {
+  background: rgba(239, 82, 82, 0.16);
+  color: #ff7a7a;
+}
+.quota-pill-offline {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted, #8b94a7);
+  font-style: italic;
+}
+.quota-banner {
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quota-banner-warn {
+  background: rgba(255, 184, 70, 0.10);
+  color: #ffcd7a;
+}
+.quota-banner-blocked {
+  background: rgba(239, 82, 82, 0.12);
+  color: #ff8f8f;
+}
+.quota-banner a {
+  color: inherit;
+  text-decoration: underline;
+}
 .chat-messages {
   flex: 1;
   overflow: auto;

@@ -4,6 +4,7 @@ import { USE_OPENMYST, OPENMYST_DEEP_LINK_SCHEME } from '@shared/flags';
 import { registerIpcHandlers } from './ipc';
 import { attachContextMenu } from './context-menu';
 import { completeSignInFromUrl, initAuth } from './features/auth';
+import { initMe } from './features/me';
 import { log } from './platform';
 
 const isDev = !app.isPackaged;
@@ -151,6 +152,7 @@ void app.whenReady().then(async () => {
   }
 
   await initAuth();
+  await initMe();
   registerIpcHandlers();
   createMainWindow();
 
