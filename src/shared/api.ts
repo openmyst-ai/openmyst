@@ -12,6 +12,7 @@ import type {
   Result,
   SourceMeta,
   WikiGraph,
+  WorkspaceProject,
 } from './types';
 
 export interface AuthStatus {
@@ -48,6 +49,14 @@ export interface MystApi {
     getCurrent: () => Promise<ProjectMeta | null>;
     close: () => Promise<void>;
     listRecent: () => Promise<string[]>;
+    createByName: (input: { name: string; parentDir?: string }) => Promise<Result<ProjectMeta>>;
+    openByPath: (path: string) => Promise<Result<ProjectMeta>>;
+  };
+  workspace: {
+    getRoot: () => Promise<string | null>;
+    pickRoot: () => Promise<string | null>;
+    setRoot: (path: string) => Promise<string>;
+    listProjects: () => Promise<WorkspaceProject[]>;
   };
   document: {
     read: (filename: string) => Promise<string>;

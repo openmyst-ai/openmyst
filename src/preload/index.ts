@@ -49,6 +49,14 @@ const api: MystApi = {
     getCurrent: () => ipcRenderer.invoke(IpcChannels.Projects.GetCurrent),
     close: () => ipcRenderer.invoke(IpcChannels.Projects.Close),
     listRecent: () => ipcRenderer.invoke(IpcChannels.Projects.ListRecent),
+    createByName: (input) => ipcRenderer.invoke(IpcChannels.Projects.CreateByName, input),
+    openByPath: (path) => ipcRenderer.invoke(IpcChannels.Projects.OpenByPath, path),
+  },
+  workspace: {
+    getRoot: () => ipcRenderer.invoke(IpcChannels.Workspace.GetRoot),
+    pickRoot: () => ipcRenderer.invoke(IpcChannels.Workspace.PickRoot),
+    setRoot: (path) => ipcRenderer.invoke(IpcChannels.Workspace.SetRoot, path),
+    listProjects: () => ipcRenderer.invoke(IpcChannels.Workspace.ListProjects),
   },
   document: {
     read: (filename) => ipcRenderer.invoke(IpcChannels.Document.Read, filename),

@@ -4,6 +4,29 @@ export interface AppSettings {
   hasJinaKey: boolean;
   deepPlanModel: string;
   recentProjects: string[];
+  /**
+   * Folder under which the user keeps all their Open Myst projects. Each
+   * project is a subdirectory with a `project.json` marker. `null` until
+   * the user picks one (or accepts the default) on first launch.
+   */
+  workspaceRoot: string | null;
+  /** Suggested workspace root if `workspaceRoot` is null (e.g. ~/Documents/Open Myst). */
+  defaultWorkspaceRoot: string;
+}
+
+/**
+ * Lightweight summary of a project found inside the workspace root, used
+ * to render the project gallery on the Welcome screen.
+ */
+export interface WorkspaceProject {
+  /** Display name from project.json — falls back to folder basename. */
+  name: string;
+  /** Absolute path to the project root. */
+  path: string;
+  /** ISO timestamp from project.json, or folder mtime if missing. */
+  createdAt: string;
+  /** Most recent file mtime inside the project, for "last opened" sort. */
+  updatedAt: string;
 }
 
 export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-chat';

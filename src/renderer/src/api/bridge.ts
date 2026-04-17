@@ -5,6 +5,7 @@ const EXPECTED_NAMESPACES = [
   'me',
   'settings',
   'projects',
+  'workspace',
   'document',
   'documents',
   'chat',
@@ -49,6 +50,9 @@ export const bridge: MystApi = {
   },
   get projects() {
     return getApi().projects;
+  },
+  get workspace() {
+    return getApi().workspace;
   },
   get document() {
     return getApi().document;

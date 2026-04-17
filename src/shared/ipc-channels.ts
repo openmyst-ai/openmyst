@@ -28,6 +28,14 @@ export const IpcChannels = {
     GetCurrent: 'projects:get-current',
     Close: 'projects:close',
     ListRecent: 'projects:list-recent',
+    CreateByName: 'projects:create-by-name',
+    OpenByPath: 'projects:open-by-path',
+  },
+  Workspace: {
+    GetRoot: 'workspace:get-root',
+    PickRoot: 'workspace:pick-root',
+    SetRoot: 'workspace:set-root',
+    ListProjects: 'workspace:list-projects',
   },
   Document: {
     Read: 'document:read',

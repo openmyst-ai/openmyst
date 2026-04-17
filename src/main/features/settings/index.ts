@@ -20,6 +20,7 @@ interface StoredSettings {
   openRouterKeyCipher: string | null;
   jinaKeyCipher: string | null;
   recentProjects: string[];
+  workspaceRoot: string | null;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -28,7 +29,18 @@ const DEFAULTS: StoredSettings = {
   openRouterKeyCipher: null,
   jinaKeyCipher: null,
   recentProjects: [],
+  workspaceRoot: null,
 };
+
+/**
+ * Where we suggest the user keep their projects on first launch.
+ * `~/Documents/Open Myst` is friendly to non-power users (visible in Finder,
+ * obvious purpose) and avoids the dot-prefixed home dir convention which
+ * isn't discoverable on macOS/Windows.
+ */
+function defaultWorkspaceRoot(): string {
+  return join(app.getPath('documents'), 'Open Myst');
+}
 
 const MAX_RECENTS = 10;
 
@@ -61,7 +73,19 @@ export async function getSettings(): Promise<AppSettings> {
     hasOpenRouterKey: stored.openRouterKeyCipher !== null,
     hasJinaKey: stored.jinaKeyCipher !== null,
     recentProjects: stored.recentProjects,
+    workspaceRoot: stored.workspaceRoot,
+    defaultWorkspaceRoot: defaultWorkspaceRoot(),
   };
+}
+
+export async function getWorkspaceRoot(): Promise<string | null> {
+  const stored = await readStored();
+  return stored.workspaceRoot;
+}
+
+export async function setWorkspaceRoot(path: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, workspaceRoot: path });
 }
 
 export async function setOpenRouterKey(key: string): Promise<void> {
