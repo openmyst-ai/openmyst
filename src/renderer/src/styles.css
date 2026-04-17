@@ -269,43 +269,14 @@ h3 {
 }
 
 /* ---- Spinning logo ---- */
-.welcome-logo-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.welcome-logo-aura {
-  position: absolute;
-  inset: -12%;
-  border-radius: 50%;
-  background: radial-gradient(
-    closest-side,
-    rgba(79, 158, 255, 0.25),
-    rgba(79, 158, 255, 0.08) 45%,
-    transparent 70%
-  );
-  filter: blur(8px);
-  animation: welcome-aura-pulse 4.5s ease-in-out infinite;
-  pointer-events: none;
-}
 .welcome-logo {
-  width: 100%;
-  height: 100%;
   display: block;
-  position: relative;
-  z-index: 1;
+  flex-shrink: 0;
   animation: app-logo-spin 14s linear infinite;
   will-change: transform;
 }
-@keyframes welcome-aura-pulse {
-  0%, 100% { opacity: 0.7; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.06); }
-}
 @media (prefers-reduced-motion: reduce) {
   .welcome-logo { animation: none; }
-  .welcome-logo-aura { animation: none; }
 }
 
 /* ---- Hero (setup) ---- */

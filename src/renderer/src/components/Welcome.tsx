@@ -34,10 +34,13 @@ export function Welcome(): JSX.Element {
 
 function SpinningLogo(props: { size: number }): JSX.Element {
   return (
-    <div className="welcome-logo-wrap" style={{ width: props.size, height: props.size }}>
-      <div className="welcome-logo-aura" />
-      <img src={logoUrl} className="welcome-logo app-logo" alt="" aria-hidden="true" />
-    </div>
+    <img
+      src={logoUrl}
+      className="welcome-logo app-logo"
+      style={{ width: props.size, height: props.size }}
+      alt=""
+      aria-hidden="true"
+    />
   );
 }
 
@@ -54,7 +57,7 @@ function WorkspaceSetup(): JSX.Element {
 
   return (
     <div className="welcome-hero">
-      <SpinningLogo size={96} />
+      <SpinningLogo size={140} />
       <h1 className="welcome-title">Open Myst</h1>
       <p className="welcome-subtitle">A writing and research companion.</p>
 
@@ -119,7 +122,7 @@ function ProjectGallery(): JSX.Element {
     <>
       <div className="welcome-gallery-v2">
         <header className="welcome-gallery-hero">
-          <SpinningLogo size={56} />
+          <SpinningLogo size={64} />
           <div className="welcome-gallery-hero-text">
             <h1 className="welcome-title-sm">Open Myst</h1>
             <p className="welcome-gallery-root" title={workspaceRoot}>
