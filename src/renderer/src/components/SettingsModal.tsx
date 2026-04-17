@@ -257,12 +257,6 @@ function AccountSection(): JSX.Element {
               {snapshot.plan && <> · plan: <strong>{snapshot.plan}</strong></>}
               {offline && <> · <em>offline</em></>}
             </p>
-            {snapshot.currentModel && (
-              <p className="muted">
-                Currently powered by <strong>{snapshot.currentModel.name}</strong>
-                {snapshot.currentModel.provider && <> ({snapshot.currentModel.provider})</>}
-              </p>
-            )}
             <div className="row">
               <button type="button" onClick={openDashboard}>
                 Manage on web

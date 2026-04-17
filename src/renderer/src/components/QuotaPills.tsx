@@ -76,8 +76,6 @@ export function ApproachingLimitBanner(): JSX.Element | null {
 }
 
 export function PoweredByModel(): JSX.Element | null {
-  const { snapshot } = useMe();
   if (!USE_OPENMYST) return null;
-  if (!snapshot?.currentModel) return null;
-  return <span className="powered-by">Powered by {snapshot.currentModel.name}</span>;
+  return <span className="powered-by"></span>;
 }
