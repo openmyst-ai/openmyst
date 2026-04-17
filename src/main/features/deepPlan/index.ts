@@ -8,8 +8,9 @@ import type {
   SourceMeta,
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
-import { streamChat, completeText, type LlmMessage } from '../../llm';
-import { getOpenRouterKey, getDeepPlanModel, getJinaKey } from '../settings';
+import { ensureLlmReady, streamChat, completeText, type LlmMessage } from '../../llm';
+import { getDeepPlanModel } from '../settings';
+import { ensureSearchReady } from '../research/search';
 import { listSources } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
 import {
@@ -62,13 +63,11 @@ export function buildStatus(): Promise<DeepPlanStatus> {
 
 async function streamWithLookupResolution(
   args: {
-    apiKey: string;
     model: string;
     messages: LlmMessage[];
   },
 ): Promise<string> {
   let content = await streamChat({
-    apiKey: args.apiKey,
     model: args.model,
     messages: args.messages,
     logScope: 'deep-plan',
@@ -87,7 +86,6 @@ async function streamWithLookupResolution(
       { role: 'user', content: followUp },
     ];
     content = await streamChat({
-      apiKey: args.apiKey,
       model: args.model,
       messages: replayMessages,
       logScope: 'deep-plan',
@@ -170,12 +168,13 @@ function llmHistoryFrom(session: DeepPlanSession): LlmMessage[] {
     }));
 }
 
-async function requireKey(): Promise<string> {
-  const key = await getOpenRouterKey();
-  if (!key) {
-    throw new Error('OpenRouter API key not set. Open Settings and add one.');
-  }
-  return key;
+/**
+ * Fail-fast check before kicking off a planner turn. The facade resolves the
+ * actual credential (OpenRouter key or openmyst token) internally — we just
+ * surface a user-friendly error if neither is available.
+ */
+async function requireLlm(): Promise<void> {
+  await ensureLlmReady();
 }
 
 /* ------------------------------ Public API ------------------------------ */
@@ -214,7 +213,7 @@ export async function sendUserMessage(text: string): Promise<DeepPlanStatus> {
   await updateSession(() => withUser);
   notifyChanged();
 
-  const key = await requireKey();
+  await requireLlm();
   const model = await getDeepPlanModel();
 
   const messages: LlmMessage[] = [
@@ -224,7 +223,7 @@ export async function sendUserMessage(text: string): Promise<DeepPlanStatus> {
 
   let fullContent = '';
   try {
-    fullContent = await streamWithLookupResolution({ apiKey: key, model, messages });
+    fullContent = await streamWithLookupResolution({ model, messages });
   } catch (err) {
     logError('deep-plan', 'planner.stream.failed', err);
     broadcast(IpcChannels.DeepPlan.ChunkDone);
@@ -311,7 +310,7 @@ async function primeStage(stage: DeepPlanStage): Promise<void> {
 
   const sources = await listSources();
   const systemPrompt = builder(session, sources);
-  const key = await requireKey();
+  await requireLlm();
   const model = await getDeepPlanModel();
 
   // The priming call reuses the full history so the model has full context,
@@ -329,7 +328,7 @@ async function primeStage(stage: DeepPlanStage): Promise<void> {
 
   let content = '';
   try {
-    content = await streamWithLookupResolution({ apiKey: key, model, messages });
+    content = await streamWithLookupResolution({ model, messages });
   } catch (err) {
     logError('deep-plan', 'planner.prime.failed', err, { stage });
     broadcast(IpcChannels.DeepPlan.ChunkDone);
@@ -399,20 +398,21 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
     return buildStatus();
   }
 
-  const jinaKey = await getJinaKey();
-  if (!jinaKey) {
+  try {
+    await ensureSearchReady();
+  } catch (err) {
     await updateSession((s) =>
       appendMessage(
         s,
         'assistant',
-        'I need a Jina API key to run autonomous research. Open Settings and add one, then hit Continue again. You can also hit Continue without it to skip ahead.',
+        `I can't run autonomous research right now: ${(err as Error).message} You can hit Continue without it to skip ahead.`,
       ),
     );
     notifyChanged();
     return buildStatus();
   }
 
-  const key = await requireKey();
+  await requireLlm();
   const model = await getDeepPlanModel();
 
   notifyChanged();
@@ -449,7 +449,6 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
       {
         runId,
         source: 'deepPlan',
-        jinaKey,
         getHints: () => {
           // Read fresh from disk so hints added while the loop is running
           // get picked up on the next planner call.
@@ -464,7 +463,6 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
           const latestHints = current.researchHints ?? hints;
           const plannerSystem = researchPlannerPrompt(current, sources, latestHints);
           const rawPlan = await completeText({
-            apiKey: key,
             model,
             messages: [
               { role: 'system', content: plannerSystem },
@@ -568,7 +566,7 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   const session = await readSession();
   if (!session) throw new Error('No Deep Plan session is active.');
 
-  const key = await requireKey();
+  await requireLlm();
   const model = await getDeepPlanModel();
   const sources = await listSources();
 
@@ -613,7 +611,6 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   let fullContent = '';
   try {
     fullContent = await streamChat({
-      apiKey: key,
       model,
       messages,
       logScope: 'deep-plan',

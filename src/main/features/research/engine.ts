@@ -3,7 +3,7 @@ import { IpcChannels } from '@shared/ipc-channels';
 import type { DeepPlanResearchEvent } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { ingestText } from '../sources';
-import { jinaSearch, type JinaResult } from '../deepPlan/jina';
+import { searchWeb, type JinaResult } from './search';
 import type { ResearchQueryProposal } from '../deepPlan/parse';
 
 /**
@@ -33,7 +33,6 @@ const MIN_CONTENT_CHARS = 1500;
 export interface ResearchEngineContext {
   runId: string;
   source: 'deepPlan' | 'deepSearch';
-  jinaKey: string;
 
   /**
    * Produce the next batch of queries. Called once at the start of every
@@ -204,15 +203,15 @@ async function runOneQuery(
   queryId: string,
   seen: Set<string>,
 ): Promise<JinaResult[]> {
-  const resp = await jinaSearch({
-    apiKey: ctx.jinaKey,
+  const results = await searchWeb({
     query: proposal.query,
     maxResults: MAX_RESULTS_PER_QUERY,
+    logScope: ctx.source === 'deepSearch' ? 'deep-search' : 'deep-plan',
   });
-  if (!resp || resp.results.length === 0) return [];
+  if (results.length === 0) return [];
 
   const ingested: JinaResult[] = [];
-  for (const result of resp.results) {
+  for (const result of results) {
     if (ctx.isCancelled()) break;
     if (ingested.length >= MAX_INGEST_PER_QUERY) break;
 

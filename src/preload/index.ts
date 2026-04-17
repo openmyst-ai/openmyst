@@ -4,6 +4,21 @@ import type { MystApi } from '@shared/api';
 import type { DeepPlanResearchEvent } from '@shared/types';
 
 const api: MystApi = {
+  auth: {
+    status: () => ipcRenderer.invoke(IpcChannels.Auth.Status),
+    signIn: () => ipcRenderer.invoke(IpcChannels.Auth.SignIn),
+    pasteToken: (token) => ipcRenderer.invoke(IpcChannels.Auth.PasteToken, token),
+    signOut: () => ipcRenderer.invoke(IpcChannels.Auth.SignOut),
+    onChanged: (callback) => {
+      const handler = (): void => {
+        callback();
+      };
+      ipcRenderer.on(IpcChannels.Auth.Changed, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.Auth.Changed, handler);
+      };
+    },
+  },
   settings: {
     get: () => ipcRenderer.invoke(IpcChannels.Settings.Get),
     setOpenRouterKey: (key) => ipcRenderer.invoke(IpcChannels.Settings.SetOpenRouterKey, key),

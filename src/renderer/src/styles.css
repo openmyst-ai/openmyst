@@ -228,6 +228,25 @@ h3 {
   color: var(--fg-muted);
 }
 
+.login-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.login-logo {
+  width: 32px;
+  height: 32px;
+}
+.login-paste {
+  margin-top: 16px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 /* ---- Layout ---- */
 .layout {
   display: flex;

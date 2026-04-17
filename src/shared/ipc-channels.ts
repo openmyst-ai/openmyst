@@ -1,4 +1,16 @@
 export const IpcChannels = {
+  Auth: {
+    Status: 'auth:status',
+    SignIn: 'auth:sign-in',
+    PasteToken: 'auth:paste-token',
+    SignOut: 'auth:sign-out',
+    Changed: 'auth:changed',
+  },
+  Me: {
+    Get: 'me:get',
+    Refresh: 'me:refresh',
+    Changed: 'me:changed',
+  },
   Settings: {
     Get: 'settings:get',
     SetOpenRouterKey: 'settings:set-openrouter-key',

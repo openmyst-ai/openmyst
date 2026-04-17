@@ -13,7 +13,18 @@ import type {
   WikiGraph,
 } from './types';
 
+export interface AuthStatus {
+  signedIn: boolean;
+}
+
 export interface MystApi {
+  auth: {
+    status: () => Promise<AuthStatus>;
+    signIn: () => Promise<{ loginUrl: string }>;
+    pasteToken: (token: string) => Promise<void>;
+    signOut: () => Promise<void>;
+    onChanged: (callback: () => void) => () => void;
+  };
   settings: {
     get: () => Promise<AppSettings>;
     setOpenRouterKey: (key: string) => Promise<void>;

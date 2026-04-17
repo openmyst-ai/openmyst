@@ -1,7 +1,10 @@
 import { app, BrowserWindow, nativeImage, shell } from 'electron';
 import { join } from 'node:path';
+import { USE_OPENMYST, OPENMYST_DEEP_LINK_SCHEME } from '@shared/flags';
 import { registerIpcHandlers } from './ipc';
 import { attachContextMenu } from './context-menu';
+import { completeSignInFromUrl, initAuth } from './features/auth';
+import { log } from './platform';
 
 const isDev = !app.isPackaged;
 
@@ -13,6 +16,8 @@ const isDev = !app.isPackaged;
  * `res/logos/`.
  */
 const DEV_ICON_PATH = join(__dirname, '../../res/logos/OpenMyst.png');
+
+let mainWindow: BrowserWindow | null = null;
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -62,10 +67,78 @@ function createMainWindow(): BrowserWindow {
     void win.loadFile(join(__dirname, '../renderer/index.html'));
   }
 
+  mainWindow = win;
   return win;
 }
 
-void app.whenReady().then(() => {
+/**
+ * Register the `openmyst://` deep-link scheme so the OS hands URLs starting
+ * with it back to this process. Only needed in managed mode — BYOK dev flow
+ * doesn't round-trip through the browser for auth.
+ *
+ * In dev the second argument points Electron at the actual electron binary
+ * so the OS can find a running instance to notify. In a packaged build
+ * electron-builder already wires up the scheme via electron-builder.yml.
+ */
+function registerDeepLinkScheme(): void {
+  if (!USE_OPENMYST) return;
+  if (isDev && process.platform === 'win32') {
+    // On Windows, dev-mode registration needs the path to the electron
+    // binary + the entry script; otherwise the OS has nothing to launch.
+    app.setAsDefaultProtocolClient(OPENMYST_DEEP_LINK_SCHEME, process.execPath, [
+      join(__dirname, '..', '..'),
+    ]);
+  } else {
+    app.setAsDefaultProtocolClient(OPENMYST_DEEP_LINK_SCHEME);
+  }
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+}
+
+async function handleDeepLink(url: string): Promise<void> {
+  if (!USE_OPENMYST) return;
+  log('auth', 'deepLink.received', { preview: url.slice(0, 80) });
+  const ok = await completeSignInFromUrl(url);
+  log('auth', 'deepLink.handled', { ok });
+  focusMainWindow();
+}
+
+/**
+ * macOS delivers deep links via the `open-url` event. Must be attached
+ * BEFORE `app.whenReady` because the OS can fire `open-url` while the app
+ * is still starting (it's what launched us in the first place).
+ */
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  void handleDeepLink(url);
+});
+
+/**
+ * Single-instance lock — critical for deep-link handling on Windows/Linux.
+ * A second launch (triggered by the OS when the browser hits
+ * `openmyst://auth-callback…`) will fail the lock, which fires
+ * `second-instance` on the already-running primary with the URL as argv.
+ */
+if (USE_OPENMYST) {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', (_event, argv) => {
+      const urlArg = argv.find((a) => a.startsWith(`${OPENMYST_DEEP_LINK_SCHEME}://`));
+      if (urlArg) void handleDeepLink(urlArg);
+      focusMainWindow();
+    });
+  }
+}
+
+registerDeepLinkScheme();
+
+void app.whenReady().then(async () => {
   // macOS uses the bundle icon in prod. In dev without this, the dock shows
   // the generic Electron logo; setIcon paints our brand immediately.
   if (isDev && process.platform === 'darwin' && app.dock) {
@@ -77,8 +150,16 @@ void app.whenReady().then(() => {
     }
   }
 
+  await initAuth();
   registerIpcHandlers();
   createMainWindow();
+
+  // On launch, check whether the process was started with a deep-link URL
+  // in argv (Windows/Linux cold-start path).
+  if (USE_OPENMYST) {
+    const urlArg = process.argv.find((a) => a.startsWith(`${OPENMYST_DEEP_LINK_SCHEME}://`));
+    if (urlArg) void handleDeepLink(urlArg);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
