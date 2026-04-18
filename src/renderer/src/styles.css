@@ -2779,14 +2779,6 @@ img.login-logo {
   align-items: center;
   gap: 12px;
 }
-.dp-stagebar-meter {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
 .dp-stagebar-skip {
   background: transparent;
   border: 1px solid var(--border);

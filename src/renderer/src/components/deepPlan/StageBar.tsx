@@ -4,7 +4,6 @@ import { useDeepPlan } from '../../store/deepPlan';
 
 interface Props {
   stage: DeepPlanStage;
-  tokensUsedK: number;
   onOpenSettings: () => void;
 }
 
@@ -32,8 +31,8 @@ const CONTINUE_LABELS: Record<DeepPlanStage, string> = {
   done: 'Done',
 };
 
-export function StageBar({ stage, tokensUsedK, onOpenSettings }: Props): JSX.Element {
-  const { status, busy, advance, oneShot, stopResearch, runResearch } = useDeepPlan();
+export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
+  const { status, busy, advance, oneShot, stopResearch, runResearch, skip } = useDeepPlan();
   const visible = DEEP_PLAN_STAGE_ORDER.filter((s) => s !== 'done');
   const currentIdx = DEEP_PLAN_STAGE_ORDER.indexOf(stage);
 
@@ -115,9 +114,17 @@ export function StageBar({ stage, tokensUsedK, onOpenSettings }: Props): JSX.Ele
             {action.label}
           </button>
         )}
-        <span className="dp-stagebar-meter" title="Deep research tokens used">
-          {tokensUsedK.toFixed(1)}K tokens
-        </span>
+        {!isDone && (
+          <button
+            type="button"
+            className="dp-btn dp-btn-ghost dp-btn-small"
+            onClick={() => void skip()}
+            disabled={busy}
+            title="Skip Deep Plan and go straight to the draft"
+          >
+            Skip Deep Plan
+          </button>
+        )}
         <button
           type="button"
           className="dp-stagebar-skip"
