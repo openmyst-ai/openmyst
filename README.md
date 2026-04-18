@@ -1,7 +1,7 @@
 # OpenMyst
 [OpenMyst](openmyst.ai) is a research collaboration tool, built using enterprise grade open source tools and ideas.
 
-![OpenMyst — editor, sources, outline, and chat in one view](res/project_select.png)
+![OpenMyst — editor, sources, outline, and chat in one view](res/preview/project_select.png)
 
 A desktop writing and research companion. You write in a markdown editor; an LLM agent reads alongside you, maintains a grounded research wiki on disk, and proposes edits as inline diffs you accept or reject one at a time. The wiki is plain files — drop in PDFs, code, data, or links, and the agent consults it every turn.
 
