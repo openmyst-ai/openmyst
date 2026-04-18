@@ -4,6 +4,29 @@ export interface AppSettings {
   hasJinaKey: boolean;
   deepPlanModel: string;
   recentProjects: string[];
+  /**
+   * Folder under which the user keeps all their Open Myst projects. Each
+   * project is a subdirectory with a `project.json` marker. `null` until
+   * the user picks one (or accepts the default) on first launch.
+   */
+  workspaceRoot: string | null;
+  /** Suggested workspace root if `workspaceRoot` is null (e.g. ~/Documents/OpenMyst). */
+  defaultWorkspaceRoot: string;
+}
+
+/**
+ * Lightweight summary of a project found inside the workspace root, used
+ * to render the project gallery on the Welcome screen.
+ */
+export interface WorkspaceProject {
+  /** Display name from project.json — falls back to folder basename. */
+  name: string;
+  /** Absolute path to the project root. */
+  path: string;
+  /** ISO timestamp from project.json, or folder mtime if missing. */
+  createdAt: string;
+  /** Most recent file mtime inside the project, for "last opened" sort. */
+  updatedAt: string;
 }
 
 export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-chat';
@@ -270,4 +293,55 @@ export interface DeepSearchStatus {
   lastError: string | null;
   /** ISO timestamp of the most recent state mutation, for UI ordering. */
   updatedAt: string;
+}
+
+/**
+ * Snapshot of the signed-in user's account, quota, and currently-routed model.
+ * Mirrors the `/api/v1/me` response shape (changes.md §4.3), trimmed to the
+ * fields the desktop app actually uses.
+ */
+export interface MeQuotaBucket {
+  period: 'day';
+  /** null for Pro users — treat as unlimited. */
+  limit: number | null;
+  used: number;
+  /** null when the bucket is unlimited. */
+  remaining: number | null;
+  resetsAt: string;
+}
+
+export interface MeCurrentModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export interface MeSnapshot {
+  user: {
+    id: string;
+    email: string;
+    emailVerified: boolean;
+  };
+  plan: 'free' | 'pro' | string;
+  quota: {
+    chat: MeQuotaBucket;
+    search: MeQuotaBucket;
+  };
+  rateLimit: {
+    requestsPerMinute: number;
+  };
+  currentModel: MeCurrentModel | null;
+  /** When this snapshot was fetched (ISO). Used to gate offline stale-reads. */
+  fetchedAt: string;
+}
+
+export interface MeStatus {
+  /** null on first launch or after sign-out. */
+  snapshot: MeSnapshot | null;
+  /** True while a refresh is in flight. */
+  loading: boolean;
+  /** Last error from `/api/v1/me`, if any. */
+  error: string | null;
+  /** True when the last fetch failed and we're displaying cached data. */
+  offline: boolean;
 }

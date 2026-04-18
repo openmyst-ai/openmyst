@@ -1,4 +1,16 @@
 export const IpcChannels = {
+  Auth: {
+    Status: 'auth:status',
+    SignIn: 'auth:sign-in',
+    PasteToken: 'auth:paste-token',
+    SignOut: 'auth:sign-out',
+    Changed: 'auth:changed',
+  },
+  Me: {
+    Get: 'me:get',
+    Refresh: 'me:refresh',
+    Changed: 'me:changed',
+  },
   Settings: {
     Get: 'settings:get',
     SetOpenRouterKey: 'settings:set-openrouter-key',
@@ -16,6 +28,14 @@ export const IpcChannels = {
     GetCurrent: 'projects:get-current',
     Close: 'projects:close',
     ListRecent: 'projects:list-recent',
+    CreateByName: 'projects:create-by-name',
+    OpenByPath: 'projects:open-by-path',
+  },
+  Workspace: {
+    GetRoot: 'workspace:get-root',
+    PickRoot: 'workspace:pick-root',
+    SetRoot: 'workspace:set-root',
+    ListProjects: 'workspace:list-projects',
   },
   Document: {
     Read: 'document:read',

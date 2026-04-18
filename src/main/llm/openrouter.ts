@@ -40,7 +40,18 @@ function buildHeaders(apiKey: string): Record<string, string> {
  * content when the stream closes. Invokes `onChunk` for each delta as it
  * arrives so the renderer can show tokens live.
  */
-export async function streamChat(options: StreamChatOptions): Promise<string> {
+/**
+ * Low-level OpenRouter streaming client. Feature code should call the
+ * `streamChat` facade in `llm/index.ts` instead — it branches between this
+ * and the openmyst client based on the build-time flag.
+ */
+export async function openrouterStreamChat(options: {
+  apiKey: string;
+  model: string;
+  messages: StreamChatOptions['messages'];
+  onChunk?: StreamChatOptions['onChunk'];
+  logScope?: StreamChatOptions['logScope'];
+}): Promise<string> {
   const { apiKey, model, messages, onChunk, logScope = 'llm' } = options;
 
   const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
@@ -120,7 +131,7 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
  * Returns the raw content string — parsing is the caller's job, since each
  * caller has its own expected shape and fallback behaviour on bad JSON.
  */
-export async function completeText(options: {
+export async function openrouterCompleteText(options: {
   apiKey: string;
   model: string;
   messages: LlmMessage[];

@@ -1,8 +1,11 @@
 import type { MystApi } from '@shared/api';
 
 const EXPECTED_NAMESPACES = [
+  'auth',
+  'me',
   'settings',
   'projects',
+  'workspace',
   'document',
   'documents',
   'chat',
@@ -36,11 +39,20 @@ function getApi(): MystApi {
 }
 
 export const bridge: MystApi = {
+  get auth() {
+    return getApi().auth;
+  },
+  get me() {
+    return getApi().me;
+  },
   get settings() {
     return getApi().settings;
   },
   get projects() {
     return getApi().projects;
+  },
+  get workspace() {
+    return getApi().workspace;
   },
   get document() {
     return getApi().document;

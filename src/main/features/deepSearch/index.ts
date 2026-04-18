@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { DeepSearchQueryRecord, DeepSearchStatus } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
-import { completeText } from '../../llm';
-import { getDeepPlanModel, getJinaKey, getOpenRouterKey } from '../settings';
+import { completeText, ensureLlmReady } from '../../llm';
+import { getDeepPlanModel } from '../settings';
 import { listSources } from '../sources';
 import { deepSearchPlannerPrompt } from '../deepPlan/prompts';
 import { parsePlannerReply } from '../deepPlan/parse';
 import { runResearchEngine } from '../research/engine';
+import { ensureSearchReady } from '../research/search';
 
 /**
  * Deep Search — the "pop into research mode" slice. It shares the research
@@ -109,14 +110,8 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
     throw new Error('Deep Search is already running. Stop it first.');
   }
 
-  const jinaKey = await getJinaKey();
-  if (!jinaKey) {
-    throw new Error('Jina API key not set. Open Settings and add one.');
-  }
-  const openRouterKey = await getOpenRouterKey();
-  if (!openRouterKey) {
-    throw new Error('OpenRouter API key not set. Open Settings and add one.');
-  }
+  await ensureLlmReady();
+  await ensureSearchReady();
   const model = await getDeepPlanModel();
 
   // Reset state for a new run.
@@ -160,7 +155,6 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
         {
           runId,
           source: 'deepSearch',
-          jinaKey,
           getHints: () => state.hints.slice(),
           isCancelled: () => run.cancelled,
           getNextPlan: async (hints) => {
@@ -169,7 +163,6 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
             const priorQueries = state.queries.map((q) => q.query);
             const prompt = deepSearchPlannerPrompt(trimmed, sources, priorQueries, hints);
             const raw = await completeText({
-              apiKey: openRouterKey,
               model,
               messages: [
                 { role: 'system', content: prompt },

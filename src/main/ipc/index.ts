@@ -1,3 +1,5 @@
+import { registerAuthIpc } from './auth';
+import { registerMeIpc } from './me';
 import { registerSettingsIpc } from './settings';
 import { registerProjectsIpc } from './projects';
 import { registerDocumentsIpc } from './documents';
@@ -20,6 +22,8 @@ import { registerDeepSearchIpc } from './deepSearch';
  * find yourself wanting to put logic here, push it into the feature instead.
  */
 export function registerIpcHandlers(): void {
+  registerAuthIpc();
+  registerMeIpc();
   registerSettingsIpc();
   registerProjectsIpc();
   registerDocumentsIpc();

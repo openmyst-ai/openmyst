@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { ChatMessage } from '@shared/types';
 import { broadcast, log, logError, readProjectFile } from '../../platform';
-import { getOpenRouterKey, getSettings } from '../settings';
+import { ensureLlmReady } from '../../llm';
+import { getSettings } from '../settings';
 import { readDocument } from '../documents';
 import { readWikiIndex, updateWikiIndex } from '../wiki';
 import { listSources } from '../sources';
@@ -36,8 +37,7 @@ export async function sendMessage(
     userTextChars: userText.length,
   });
 
-  const apiKey = await getOpenRouterKey();
-  if (!apiKey) throw new Error('OpenRouter API key not set. Add it in Settings.');
+  await ensureLlmReady();
 
   const settings = await getSettings();
   const model = settings.defaultModel;
@@ -68,7 +68,6 @@ export async function sendMessage(
 
   try {
     return await runTurn({
-      apiKey,
       model,
       agentPrompt,
       document,

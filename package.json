@@ -8,7 +8,9 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:prod": "USE_OPENMYST=1 electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "build:prod": "USE_OPENMYST=1 npm run build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
@@ -20,7 +22,11 @@
     "dist": "npm run build && electron-builder --publish never",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "dist:linux": "npm run build && electron-builder --linux --publish never"
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist:prod": "npm run build:prod && electron-builder --publish never",
+    "dist:prod:mac": "npm run build:prod && electron-builder --mac --publish never",
+    "dist:prod:win": "npm run build:prod && electron-builder --win --publish never",
+    "dist:prod:linux": "npm run build:prod && electron-builder --linux --publish never"
   },
   "dependencies": {
     "@tiptap/core": "^3.22.3",

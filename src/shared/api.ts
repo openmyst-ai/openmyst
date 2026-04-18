@@ -6,14 +6,32 @@ import type {
   DeepPlanStatus,
   DeepSearchStatus,
   DocumentFile,
+  MeStatus,
   PendingEdit,
   ProjectMeta,
   Result,
   SourceMeta,
   WikiGraph,
+  WorkspaceProject,
 } from './types';
 
+export interface AuthStatus {
+  signedIn: boolean;
+}
+
 export interface MystApi {
+  auth: {
+    status: () => Promise<AuthStatus>;
+    signIn: () => Promise<{ loginUrl: string }>;
+    pasteToken: (token: string) => Promise<void>;
+    signOut: () => Promise<void>;
+    onChanged: (callback: () => void) => () => void;
+  };
+  me: {
+    get: () => Promise<MeStatus>;
+    refresh: () => Promise<MeStatus>;
+    onChanged: (callback: () => void) => () => void;
+  };
   settings: {
     get: () => Promise<AppSettings>;
     setOpenRouterKey: (key: string) => Promise<void>;
@@ -31,6 +49,14 @@ export interface MystApi {
     getCurrent: () => Promise<ProjectMeta | null>;
     close: () => Promise<void>;
     listRecent: () => Promise<string[]>;
+    createByName: (input: { name: string; parentDir?: string }) => Promise<Result<ProjectMeta>>;
+    openByPath: (path: string) => Promise<Result<ProjectMeta>>;
+  };
+  workspace: {
+    getRoot: () => Promise<string | null>;
+    pickRoot: () => Promise<string | null>;
+    setRoot: (path: string) => Promise<string>;
+    listProjects: () => Promise<WorkspaceProject[]>;
   };
   document: {
     read: (filename: string) => Promise<string>;

@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
+import { USE_OPENMYST } from '@shared/flags';
 import { useApp } from '../store/app';
+import { useAuth } from '../store/auth';
+import { useMe } from '../store/me';
 import { bridge } from '../api/bridge';
 import { BugReportModal } from './BugReportModal';
+import { formatTokens } from './QuotaPills';
 
 export function SettingsModal(): JSX.Element {
   const { settings, closeSettings, refreshSettings } = useApp();
@@ -104,105 +108,111 @@ export function SettingsModal(): JSX.Element {
           </button>
         </header>
 
-        <section className="modal-section">
-          <h3>OpenRouter API key</h3>
-          <p className="muted">
-            Stored encrypted via your OS keychain. Get a key at openrouter.ai.
-          </p>
-          {settings?.hasOpenRouterKey ? (
-            <div className="row">
-              <span className="status-ok">Key is set</span>
-              <button type="button" onClick={() => void clearKey()} disabled={saving}>
-                Clear key
-              </button>
-            </div>
-          ) : (
-            <div className="row">
-              <input
-                type="password"
-                placeholder="sk-or-..."
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-              />
-              <button
-                type="button"
-                className="primary"
-                onClick={() => void saveKey()}
-                disabled={saving || key.trim().length === 0}
-              >
-                Save key
-              </button>
-            </div>
-          )}
-        </section>
+        {USE_OPENMYST ? (
+          <AccountSection />
+        ) : (
+          <>
+            <section className="modal-section">
+              <h3>OpenRouter API key</h3>
+              <p className="muted">
+                Stored encrypted via your OS keychain. Get a key at openrouter.ai.
+              </p>
+              {settings?.hasOpenRouterKey ? (
+                <div className="row">
+                  <span className="status-ok">Key is set</span>
+                  <button type="button" onClick={() => void clearKey()} disabled={saving}>
+                    Clear key
+                  </button>
+                </div>
+              ) : (
+                <div className="row">
+                  <input
+                    type="password"
+                    placeholder="sk-or-..."
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void saveKey()}
+                    disabled={saving || key.trim().length === 0}
+                  >
+                    Save key
+                  </button>
+                </div>
+              )}
+            </section>
 
-        <section className="modal-section">
-          <h3>Default model</h3>
-          <p className="muted">OpenRouter model id used unless a project overrides it.</p>
-          <div className="row">
-            <input
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="google/gemma-3-27b-it"
-            />
-            <button type="button" onClick={() => void saveModel()} disabled={saving}>
-              Save model
-            </button>
-          </div>
-        </section>
+            <section className="modal-section">
+              <h3>Default model</h3>
+              <p className="muted">OpenRouter model id used unless a project overrides it.</p>
+              <div className="row">
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="google/gemma-3-27b-it"
+                />
+                <button type="button" onClick={() => void saveModel()} disabled={saving}>
+                  Save model
+                </button>
+              </div>
+            </section>
 
-        <section className="modal-section">
-          <h3>Jina API key</h3>
-          <p className="muted">
-            Used by Deep Plan's research loop to search the web and scrape pages in one call.
-            Stored encrypted via your OS keychain. Get a key at jina.ai.
-          </p>
-          {settings?.hasJinaKey ? (
-            <div className="row">
-              <span className="status-ok">Key is set</span>
-              <button type="button" onClick={() => void clearJinaKey()} disabled={saving}>
-                Clear key
-              </button>
-            </div>
-          ) : (
-            <div className="row">
-              <input
-                type="password"
-                placeholder="jina_..."
-                value={jinaKey}
-                onChange={(e) => setJinaKey(e.target.value)}
-              />
-              <button
-                type="button"
-                className="primary"
-                onClick={() => void saveJinaKey()}
-                disabled={saving || jinaKey.trim().length === 0}
-              >
-                Save key
-              </button>
-            </div>
-          )}
-        </section>
+            <section className="modal-section">
+              <h3>Jina API key</h3>
+              <p className="muted">
+                Used by Deep Plan's research loop to search the web and scrape pages in one call.
+                Stored encrypted via your OS keychain. Get a key at jina.ai.
+              </p>
+              {settings?.hasJinaKey ? (
+                <div className="row">
+                  <span className="status-ok">Key is set</span>
+                  <button type="button" onClick={() => void clearJinaKey()} disabled={saving}>
+                    Clear key
+                  </button>
+                </div>
+              ) : (
+                <div className="row">
+                  <input
+                    type="password"
+                    placeholder="jina_..."
+                    value={jinaKey}
+                    onChange={(e) => setJinaKey(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void saveJinaKey()}
+                    disabled={saving || jinaKey.trim().length === 0}
+                  >
+                    Save key
+                  </button>
+                </div>
+              )}
+            </section>
 
-        <section className="modal-section">
-          <h3>Deep Plan model</h3>
-          <p className="muted">
-            OpenRouter model used by Deep Plan's planner and one-shot generator. Defaults to an
-            open-source model to keep the research loop cheap.
-          </p>
-          <div className="row">
-            <input
-              type="text"
-              value={deepPlanModel}
-              onChange={(e) => setDeepPlanModel(e.target.value)}
-              placeholder="deepseek/deepseek-chat"
-            />
-            <button type="button" onClick={() => void saveDeepPlanModel()} disabled={saving}>
-              Save model
-            </button>
-          </div>
-        </section>
+            <section className="modal-section">
+              <h3>Deep Plan model</h3>
+              <p className="muted">
+                OpenRouter model used by Deep Plan's planner and one-shot generator. Defaults to an
+                open-source model to keep the research loop cheap.
+              </p>
+              <div className="row">
+                <input
+                  type="text"
+                  value={deepPlanModel}
+                  onChange={(e) => setDeepPlanModel(e.target.value)}
+                  placeholder="deepseek/deepseek-chat"
+                />
+                <button type="button" onClick={() => void saveDeepPlanModel()} disabled={saving}>
+                  Save model
+                </button>
+              </div>
+            </section>
+          </>
+        )}
 
         {localError && <div className="error">{localError}</div>}
 
@@ -222,5 +232,65 @@ export function SettingsModal(): JSX.Element {
 
       {showBugReport && <BugReportModal onClose={() => setShowBugReport(false)} />}
     </div>
+  );
+}
+
+function AccountSection(): JSX.Element {
+  const { snapshot, offline } = useMe();
+  const { signOut, loading: signingOut } = useAuth();
+
+  const handleSignOut = async (): Promise<void> => {
+    await signOut();
+  };
+
+  const openDashboard = (): void => {
+    window.open('https://www.openmyst.ai/dashboard', '_blank', 'noreferrer');
+  };
+
+  return (
+    <>
+      <section className="modal-section">
+        <h3>Account</h3>
+        {snapshot ? (
+          <>
+            <p className="muted">
+              Signed in as <strong>{snapshot.user.email || snapshot.user.id}</strong>
+              {snapshot.plan && <> · plan: <strong>{snapshot.plan}</strong></>}
+              {offline && <> · <em>offline</em></>}
+            </p>
+            <div className="row">
+              <button type="button" onClick={openDashboard}>
+                Manage on web
+              </button>
+              <button type="button" onClick={() => void handleSignOut()} disabled={signingOut}>
+                Sign out
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="muted">Signing in…</p>
+        )}
+      </section>
+
+      {snapshot && (
+        <section className="modal-section">
+          <h3>Daily usage</h3>
+          <ul className="quota-list">
+            <li>
+              Chat tokens:{' '}
+              {snapshot.quota.chat.limit === null
+                ? `${formatTokens(snapshot.quota.chat.used)} (unlimited)`
+                : `${formatTokens(snapshot.quota.chat.used)} / ${formatTokens(snapshot.quota.chat.limit)}`}
+            </li>
+            <li>
+              Search tokens:{' '}
+              {snapshot.quota.search.limit === null
+                ? `${formatTokens(snapshot.quota.search.used)} (unlimited)`
+                : `${formatTokens(snapshot.quota.search.used)} / ${formatTokens(snapshot.quota.search.limit)}`}
+            </li>
+          </ul>
+        </section>
+      )}
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AppSettings, ProjectMeta } from '@shared/types';
+import type { AppSettings, ProjectMeta, WorkspaceProject } from '@shared/types';
 import { bridge } from '../api/bridge';
 
 interface AppState {
@@ -8,6 +8,8 @@ interface AppState {
   settingsOpen: boolean;
   loading: boolean;
   error: string | null;
+  workspaceProjects: WorkspaceProject[];
+  workspaceLoading: boolean;
 
   init: () => Promise<void>;
   refreshSettings: () => Promise<void>;
@@ -17,6 +19,12 @@ interface AppState {
   createNewProject: () => Promise<void>;
   openExistingProject: () => Promise<void>;
   closeProject: () => Promise<void>;
+
+  refreshWorkspaceProjects: () => Promise<void>;
+  setWorkspaceRoot: (path: string) => Promise<void>;
+  pickWorkspaceRoot: () => Promise<void>;
+  createProjectByName: (input: { name: string; parentDir?: string }) => Promise<void>;
+  openProjectByPath: (path: string) => Promise<void>;
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -25,6 +33,8 @@ export const useApp = create<AppState>((set, get) => ({
   settingsOpen: false,
   loading: false,
   error: null,
+  workspaceProjects: [],
+  workspaceLoading: false,
 
   init: async () => {
     set({ loading: true, error: null });
@@ -34,6 +44,9 @@ export const useApp = create<AppState>((set, get) => ({
         bridge.projects.getCurrent(),
       ]);
       set({ settings, project, loading: false });
+      if (settings.workspaceRoot && !project) {
+        void get().refreshWorkspaceProjects();
+      }
     } catch (err) {
       set({ error: (err as Error).message, loading: false });
     }
@@ -89,8 +102,87 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       await bridge.projects.close();
       set({ project: null });
+      if (get().settings?.workspaceRoot) {
+        void get().refreshWorkspaceProjects();
+      }
     } catch (err) {
       console.error('closeProject failed', err);
+      set({ error: (err as Error).message });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  refreshWorkspaceProjects: async () => {
+    set({ workspaceLoading: true });
+    try {
+      const projects = await bridge.workspace.listProjects();
+      set({ workspaceProjects: projects });
+    } catch (err) {
+      console.error('refreshWorkspaceProjects failed', err);
+    } finally {
+      set({ workspaceLoading: false });
+    }
+  },
+
+  setWorkspaceRoot: async (path) => {
+    set({ loading: true, error: null });
+    try {
+      await bridge.workspace.setRoot(path);
+      await get().refreshSettings();
+      await get().refreshWorkspaceProjects();
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  pickWorkspaceRoot: async () => {
+    set({ loading: true, error: null });
+    try {
+      const picked = await bridge.workspace.pickRoot();
+      if (picked) {
+        await get().refreshSettings();
+        await get().refreshWorkspaceProjects();
+      }
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  createProjectByName: async (input) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await bridge.projects.createByName(input);
+      if (result.ok) {
+        set({ project: result.value });
+        await get().refreshSettings();
+      } else {
+        set({ error: result.error });
+      }
+    } catch (err) {
+      console.error('createProjectByName failed', err);
+      set({ error: (err as Error).message });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  openProjectByPath: async (path) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await bridge.projects.openByPath(path);
+      if (result.ok) {
+        set({ project: result.value });
+        await get().refreshSettings();
+      } else {
+        set({ error: result.error });
+      }
+    } catch (err) {
+      console.error('openProjectByPath failed', err);
       set({ error: (err as Error).message });
     } finally {
       set({ loading: false });

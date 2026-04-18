@@ -1,6 +1,6 @@
 import type { SourceMeta } from '@shared/types';
 import { completeText } from '../../llm';
-import { getOpenRouterKey, getSettings } from '../settings';
+import { getSettings } from '../settings';
 import { locateAnchors, type RawLlmAnchor } from './anchors';
 import type { SourceAnchor } from '@shared/types';
 
@@ -90,12 +90,8 @@ export async function generateDigest(
   hint: string,
   existingSources: SourceMeta[] = [],
 ): Promise<SourceDigest> {
-  const apiKey = await getOpenRouterKey();
-  if (!apiKey) return fallbackDigest(rawText, hint);
-
   const { defaultModel } = await getSettings();
   const raw = await completeText({
-    apiKey,
     model: defaultModel,
     logScope: 'sources',
     messages: [

@@ -39,7 +39,6 @@ const MAX_LOOKUP_ROUNDS = 3;
  */
 
 export interface TurnContext {
-  apiKey: string;
   model: string;
   agentPrompt: string;
   document: string;
@@ -134,7 +133,6 @@ async function triageEditsAgainstPending(
 
 export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
   const {
-    apiKey,
     model,
     agentPrompt,
     document,
@@ -184,7 +182,6 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
   log('chat', 'turn.systemPrompt', { chars: systemContent.length });
 
   let fullContent = await streamChat({
-    apiKey,
     model,
     messages,
     logScope: 'chat',
@@ -206,7 +203,6 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
       { role: 'user', content: followUp },
     ];
     fullContent = await streamChat({
-      apiKey,
       model,
       messages: replayMessages,
       logScope: 'chat',
@@ -271,7 +267,6 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
       },
     ];
     const retryContent = await streamChat({
-      apiKey,
       model,
       messages: retryMessages,
       logScope: 'chat',
@@ -298,7 +293,6 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
         },
       ];
       const retryContent = await streamChat({
-        apiKey,
         model,
         messages: retryMessages,
         logScope: 'chat',
