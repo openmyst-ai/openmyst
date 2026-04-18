@@ -1508,11 +1508,17 @@ img.login-logo {
   outline: none;
 }
 
-/* Headings */
+/* Headings — shared between the live editor and the pending-edit diff widget
+ * so both render identical typography. The diff widget inherits any rule
+ * targeted at .pending-insert-text via the same selectors below. */
 .tiptap h1,
 .tiptap h2,
 .tiptap h3,
-.tiptap h4 {
+.tiptap h4,
+.pending-insert-text h1,
+.pending-insert-text h2,
+.pending-insert-text h3,
+.pending-insert-text h4 {
   font-family: var(--font-serif);
   color: var(--doc-fg);
   font-weight: 600;
@@ -1520,25 +1526,32 @@ img.login-logo {
   letter-spacing: -0.01em;
   text-transform: none;
 }
-.tiptap h1 {
+.tiptap h1,
+.pending-insert-text h1 {
   font-size: 2.1em;
   margin: 1.2em 0 0.5em;
 }
 .tiptap > h1:first-child,
 .tiptap > h2:first-child,
-.tiptap > h3:first-child {
+.tiptap > h3:first-child,
+.pending-insert-text > h1:first-child,
+.pending-insert-text > h2:first-child,
+.pending-insert-text > h3:first-child {
   margin-top: 0;
 }
-.tiptap h2 {
+.tiptap h2,
+.pending-insert-text h2 {
   font-size: 1.55em;
   margin: 1.8em 0 0.4em;
 }
-.tiptap h3 {
+.tiptap h3,
+.pending-insert-text h3 {
   font-size: 1.2em;
   margin: 1.6em 0 0.3em;
   color: var(--doc-fg-soft);
 }
-.tiptap h4 {
+.tiptap h4,
+.pending-insert-text h4 {
   font-size: 1em;
   margin: 1.4em 0 0.3em;
   text-transform: uppercase;
@@ -1547,30 +1560,37 @@ img.login-logo {
 }
 
 /* Paragraphs */
-.tiptap p {
+.tiptap p,
+.pending-insert-text p {
   margin: 0.75em 0 0;
 }
-.tiptap > p:first-child {
+.tiptap > p:first-child,
+.pending-insert-text > p:first-child {
   margin-top: 0;
 }
 
 /* Inline */
-.tiptap strong {
+.tiptap strong,
+.pending-insert-text strong {
   font-weight: 600;
   color: var(--doc-fg);
 }
-.tiptap em {
+.tiptap em,
+.pending-insert-text em {
   font-style: italic;
 }
-.tiptap a {
+.tiptap a,
+.pending-insert-text a {
   color: var(--doc-accent);
   text-decoration: none;
   border-bottom: 1px solid rgba(156, 180, 255, 0.4);
 }
-.tiptap a:hover {
+.tiptap a:hover,
+.pending-insert-text a:hover {
   border-bottom-color: var(--doc-accent);
 }
-.tiptap code {
+.tiptap code,
+.pending-insert-text code {
   font-family: var(--font-mono);
   font-size: 0.88em;
   background: var(--doc-code-bg);
@@ -1580,33 +1600,41 @@ img.login-logo {
 }
 
 /* Blockquote */
-.tiptap blockquote {
+.tiptap blockquote,
+.pending-insert-text blockquote {
   margin: 1.4em 0;
   padding: 0 0 0 1.2em;
   border-left: 2px solid var(--doc-accent);
   color: var(--doc-quote);
   font-style: italic;
 }
-.tiptap blockquote p {
+.tiptap blockquote p,
+.pending-insert-text blockquote p {
   margin: 0.4em 0;
 }
 
 /* Lists */
 .tiptap ul,
-.tiptap ol {
+.tiptap ol,
+.pending-insert-text ul,
+.pending-insert-text ol {
   margin: 0.6em 0 1em;
   padding-left: 1.6em;
 }
-.tiptap li {
+.tiptap li,
+.pending-insert-text li {
   margin: 0.25em 0;
 }
-.tiptap li > p {
+.tiptap li > p,
+.pending-insert-text li > p {
   margin: 0;
 }
-.tiptap ul li::marker {
+.tiptap ul li::marker,
+.pending-insert-text ul li::marker {
   color: var(--fg-muted);
 }
-.tiptap ol li::marker {
+.tiptap ol li::marker,
+.pending-insert-text ol li::marker {
   color: var(--fg-muted);
 }
 
@@ -1625,7 +1653,8 @@ img.login-logo {
 }
 
 /* Code block */
-.tiptap pre {
+.tiptap pre,
+.pending-insert-text pre {
   font-family: var(--font-mono);
   font-size: 14px;
   background: var(--doc-code-bg);
@@ -1637,7 +1666,8 @@ img.login-logo {
   line-height: 1.55;
   color: #dbe0ea;
 }
-.tiptap pre code {
+.tiptap pre code,
+.pending-insert-text pre code {
   background: transparent;
   padding: 0;
   color: inherit;
@@ -1645,7 +1675,8 @@ img.login-logo {
 }
 
 /* Horizontal rule */
-.tiptap hr {
+.tiptap hr,
+.pending-insert-text hr {
   border: none;
   border-top: 1px solid var(--doc-rule);
   margin: 2em 0;
@@ -1653,25 +1684,30 @@ img.login-logo {
 }
 
 /* Tables */
-.tiptap table {
+.tiptap table,
+.pending-insert-text table {
   border-collapse: collapse;
   width: 100%;
   margin: 1.4em 0;
   font-size: 0.95em;
 }
 .tiptap th,
-.tiptap td {
+.tiptap td,
+.pending-insert-text th,
+.pending-insert-text td {
   border: 1px solid var(--doc-rule);
   padding: 8px 12px;
   text-align: left;
 }
-.tiptap th {
+.tiptap th,
+.pending-insert-text th {
   background: rgba(255, 255, 255, 0.02);
   font-weight: 600;
 }
 
 /* Images */
-.tiptap img {
+.tiptap img,
+.pending-insert-text img {
   max-width: 100%;
   border-radius: 6px;
   display: block;
@@ -2252,7 +2288,10 @@ img.login-logo {
   margin: 0 1px;
 }
 .pending-insert-text {
-  white-space: pre-wrap;
+  /* No `white-space: pre-wrap` here — markdown-it emits literal "\n" chars
+   * between block tags (`</p>\n<p>`), and pre-wrap would render those as a
+   * blank line on top of each block's own margin, producing a visible gap
+   * after every diff. Block spacing is now driven purely by margins. */
   cursor: text;
   font-family: var(--font-serif);
   font-size: var(--doc-font-size, 13px);
@@ -2289,58 +2328,15 @@ img.login-logo {
   border-color: rgba(107, 212, 139, 1);
   box-shadow: 0 0 0 2px rgba(107, 212, 139, 0.25);
 }
-/* Rendered markdown inside the diff widget — mirror the main document's
- * typography so the green preview looks identical to what the text will
- * become once accepted. Sizes are em-based against the widget's own
- * --doc-font-size root, matching the .tiptap rules above. */
+/* The diff widget shares the editor's typography rules (see the combined
+ * `.tiptap, .pending-insert-text` selectors above). Only widget-specific
+ * quirks live here: zero the outer margins so the green chrome hugs the
+ * first/last rendered block, and tighten display-math. */
 .pending-insert-text > :first-child {
   margin-top: 0;
 }
 .pending-insert-text > :last-child {
   margin-bottom: 0;
-}
-.pending-insert-text p {
-  margin: 0.75em 0 0;
-}
-.pending-insert-text p:first-child {
-  margin-top: 0;
-}
-.pending-insert-text h1,
-.pending-insert-text h2,
-.pending-insert-text h3,
-.pending-insert-text h4 {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-}
-.pending-insert-text h1 {
-  font-size: 2.1em;
-  margin: 1.2em 0 0.5em;
-}
-.pending-insert-text h2 {
-  font-size: 1.55em;
-  margin: 1.8em 0 0.4em;
-}
-.pending-insert-text h3 {
-  font-size: 1.2em;
-  margin: 1.6em 0 0.3em;
-  color: var(--doc-fg-soft);
-}
-.pending-insert-text h4 {
-  font-size: 1em;
-  margin: 1.4em 0 0.3em;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--doc-fg-soft);
-}
-.pending-insert-text ul,
-.pending-insert-text ol {
-  margin: 0.5em 0;
-  padding-left: 1.4em;
-}
-.pending-insert-text li {
-  margin: 0.15em 0;
 }
 .pending-insert-text .katex-display {
   margin: 0.5em 0;

@@ -100,6 +100,22 @@ function buildResearchQueriesBlock(queries: string[]): string {
   );
 }
 
+function buildWebSearchBlock(): string {
+  return (
+    '\n\n[Web search — on-demand]\n' +
+    'When the user asks about prior work, novelty, state-of-the-art, recent developments, or anything you need external evidence for, run one or more web searches by emitting a `web_search` fenced block. Each block takes a single `query` string. Results (title, URL, snippet) come back before your next turn so you can cite them with the URL.\n' +
+    '```web_search\n{"query": "policy gradient nearest-neighbor reward shaping"}\n```\n' +
+    'Rules:\n' +
+    '- Emit multiple blocks in one response to search in parallel — they all resolve before your next turn.\n' +
+    '- Use when the answer is NOT in the active document or wiki index above. Always check the wiki first.\n' +
+    '- When citing a result, quote the URL verbatim. Never invent URLs or paraphrase a source you did not see.\n' +
+    '- If the user explicitly asks you to "search" or "look up" or "find prior work", you MUST emit at least one web_search block before answering.\n' +
+    '\n' +
+    '[Grounding search queries — critical]\n' +
+    'If the user references a local source by name (a slug, filename, or project-specific term like "nearest policy" or "the training script"), you MUST read the actual source BEFORE searching. Emit a `source_lookup` in the same response as your `web_search` — they resolve together in one round. Never guess what a source is about from its filename; filenames are ambiguous ("nearest_policy.py" could be nearest-neighbor imitation learning, k-NN retrieval-based control, or something else entirely). The query you send to the web must be built from concepts you actually read in the source — specific algorithm names, method names, paper titles it cites, the problem domain — not from the filename tokens. A query like "real world data policy enforcement" based only on the name "nearest policy" is a bug, not a search.'
+  );
+}
+
 function buildWikiBlock(wikiIndex: string): string {
   if (!wikiIndex.trim()) return '';
   return (
@@ -150,6 +166,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
       document +
       `\n========== END ${activeDocument} ==========`,
     buildPendingBlock(pending),
+    buildWebSearchBlock(),
     buildWikiBlock(wikiIndex),
     buildResearchQueriesBlock(researchQueries),
   ].join('');

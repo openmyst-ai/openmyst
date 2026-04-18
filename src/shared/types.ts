@@ -38,7 +38,7 @@ export const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
   { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2' },
   { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
   { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
-  { id: 'z-ai/glm-4.5-air', label: 'GLM 4.5 Air' },
+  { id: 'qwen/qwen3.5-flash-02-23', label: 'Qwen 3.5 Flash' },
 ];
 
 export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v3.2';
