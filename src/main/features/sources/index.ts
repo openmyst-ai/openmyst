@@ -311,6 +311,22 @@ export async function pickSourceFiles(): Promise<string[]> {
   return result.filePaths;
 }
 
+/**
+ * Signature of the old raw-source summary body. Pre-0.1.1 ingests stored a
+ * verbose blurb explaining the `source_lookup` protocol to the LLM in the
+ * user-visible `summary` field; the user sees that text in the sources pane
+ * and it reads like jargon. Any stored summary containing this phrase is a
+ * legacy raw-source summary and gets rewritten lazily below.
+ */
+const LEGACY_RAW_SUMMARY_MARKER = 'This source is not summarised. To read the full contents';
+
+function buildRawSourceSummary(meta: SourceMeta): string {
+  const ext = meta.rawFile ? extname(meta.rawFile) : extname(meta.originalName);
+  const lang = rawLangLabel(ext);
+  const size = typeof meta.sizeBytes === 'number' ? formatBytes(meta.sizeBytes) : 'unknown size';
+  return `No summary — raw ${lang} file (${size}). Full contents stay indexed and the agent reads them on demand.`;
+}
+
 export async function listSources(): Promise<SourceMeta[]> {
   const sourcesDir = projectPath('sources');
   let entries: string[];
@@ -327,6 +343,22 @@ export async function listSources(): Promise<SourceMeta[]> {
     try {
       const raw = await fs.readFile(projectPath('sources', metaFile), 'utf-8');
       const meta = JSON.parse(raw) as SourceMeta;
+
+      // One-shot migration for raw sources ingested before the user-friendly
+      // summary split. Rewrite the .meta.json in place so future reads don't
+      // pay the cost, but don't touch the `.md` stub — that one is read by
+      // the agent and still needs the `source_lookup` instructions.
+      if (meta.type === 'raw' && meta.summary.includes(LEGACY_RAW_SUMMARY_MARKER)) {
+        meta.summary = buildRawSourceSummary(meta);
+        await fs.writeFile(
+          projectPath('sources', metaFile),
+          JSON.stringify(meta, null, 2),
+          'utf-8',
+        ).catch(() => {
+          // Best-effort persist; on failure we still return the migrated
+          // summary in memory so the UI looks right this session.
+        });
+      }
       // If the meta has no sourcePath but raw.txt opens with "Source URL: …"
       // (how we save Tavily results), lift that URL up so the preview can
       // show it. Covers sources ingested before we started storing it.
