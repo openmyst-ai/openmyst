@@ -109,7 +109,10 @@ function buildWebSearchBlock(): string {
     '- Emit multiple blocks in one response to search in parallel — they all resolve before your next turn.\n' +
     '- Use when the answer is NOT in the active document or wiki index above. Always check the wiki first.\n' +
     '- When citing a result, quote the URL verbatim. Never invent URLs or paraphrase a source you did not see.\n' +
-    '- If the user explicitly asks you to "search" or "look up" or "find prior work", you MUST emit at least one web_search block before answering.'
+    '- If the user explicitly asks you to "search" or "look up" or "find prior work", you MUST emit at least one web_search block before answering.\n' +
+    '\n' +
+    '[Grounding search queries — critical]\n' +
+    'If the user references a local source by name (a slug, filename, or project-specific term like "nearest policy" or "the training script"), you MUST read the actual source BEFORE searching. Emit a `source_lookup` in the same response as your `web_search` — they resolve together in one round. Never guess what a source is about from its filename; filenames are ambiguous ("nearest_policy.py" could be nearest-neighbor imitation learning, k-NN retrieval-based control, or something else entirely). The query you send to the web must be built from concepts you actually read in the source — specific algorithm names, method names, paper titles it cites, the problem domain — not from the filename tokens. A query like "real world data policy enforcement" based only on the name "nearest policy" is a bug, not a search.'
   );
 }
 
