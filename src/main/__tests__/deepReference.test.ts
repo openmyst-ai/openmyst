@@ -150,6 +150,7 @@ describe('formatLookupReply', () => {
           text: 'Law 1.2. Foo.',
         },
         pageHit: null,
+        rawHit: null,
       },
     ]);
     expect(reply).toContain('smith-2022#law-1-2');
@@ -163,6 +164,7 @@ describe('formatLookupReply', () => {
         request: { slug: 'ghost', anchor: 'none' },
         anchorHit: null,
         pageHit: null,
+        rawHit: null,
       },
     ]);
     expect(reply).toContain('Lookup failed');
@@ -187,6 +189,7 @@ describe('formatLookupReply', () => {
             { id: 'intro', type: 'section', label: 'Introduction' },
           ],
         },
+        rawHit: null,
       },
     ]);
     expect(reply).toContain('Smith 2022');
@@ -204,6 +207,7 @@ describe('formatLookupReply', () => {
         request: { slug: 'ghost' },
         anchorHit: null,
         pageHit: null,
+        rawHit: null,
       },
     ]);
     expect(reply).toContain('Lookup failed');
