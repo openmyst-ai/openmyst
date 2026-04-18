@@ -15,6 +15,11 @@ import {
   resolveSourceLookups,
 } from '../sources/sourceLookup';
 import {
+  formatWebSearchReply,
+  parseWebSearches,
+  resolveWebSearches,
+} from '../research/webSearchLookup';
+import {
   cleanChatContent,
   looksLikeDocumentRequest,
   parseEditBlocks,
@@ -194,15 +199,27 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
   });
 
-  // Deep reference: if the LLM emitted source_lookup blocks, resolve them
-  // deterministically from disk, inject the results, and re-stream. We cap
-  // rounds so a buggy model can't loop us forever.
+  // Deep reference: if the LLM emitted source_lookup or web_search blocks,
+  // resolve them (disk for source_lookup, live search backend for
+  // web_search), inject the results, and re-stream. We cap rounds so a
+  // buggy model can't loop us forever.
   for (let round = 0; round < MAX_LOOKUP_ROUNDS; round++) {
-    const { requests } = parseSourceLookups(fullContent);
-    if (requests.length === 0) break;
-    log('chat', 'sourceLookup.round', { round, count: requests.length });
-    const resolved = await resolveSourceLookups(requests);
-    const followUp = formatLookupReply(resolved);
+    const { requests: sourceRequests } = parseSourceLookups(fullContent);
+    const { requests: webRequests } = parseWebSearches(fullContent);
+    if (sourceRequests.length === 0 && webRequests.length === 0) break;
+    log('chat', 'lookup.round', {
+      round,
+      sourceCount: sourceRequests.length,
+      webCount: webRequests.length,
+    });
+    const [resolvedSources, resolvedWeb] = await Promise.all([
+      sourceRequests.length > 0 ? resolveSourceLookups(sourceRequests) : Promise.resolve([]),
+      webRequests.length > 0 ? resolveWebSearches(webRequests) : Promise.resolve([]),
+    ]);
+    const parts: string[] = [];
+    if (resolvedSources.length > 0) parts.push(formatLookupReply(resolvedSources));
+    if (resolvedWeb.length > 0) parts.push(formatWebSearchReply(resolvedWeb));
+    const followUp = parts.join('\n\n');
     const replayMessages: LlmMessage[] = [
       ...messages,
       { role: 'assistant', content: fullContent },
@@ -216,8 +233,9 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     });
   }
 
-  // Strip any residual source_lookup fences before handing to edit parsing.
+  // Strip any residual lookup/search fences before handing to edit parsing.
   fullContent = parseSourceLookups(fullContent).stripped || fullContent;
+  fullContent = parseWebSearches(fullContent).stripped || fullContent;
 
   let { edits, chatContent } = parseEditBlocks(fullContent);
   log('chat', 'turn.parsed', {
