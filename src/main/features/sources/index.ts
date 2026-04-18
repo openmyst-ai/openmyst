@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, extname } from 'node:path';
 import { dialog } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { SourceAnchorSummary, SourceIndex, SourceMeta } from '@shared/types';
@@ -8,6 +8,73 @@ import { updateWikiIndex, appendWikiLog } from '../wiki';
 import { extractText } from './extract';
 import { generateDigest, MAX_PREVIEW_CHARS, type SourceDigest } from './digest';
 import { updateSourcesIndex } from './indexMd';
+import { fetchUrlAsMarkdown } from '../research/fetch';
+
+/**
+ * Extensions we send through the LLM digest pipeline. Everything else is
+ * treated as a raw file — copied in verbatim, no summary, agent reads on
+ * demand via `source_lookup` with `raw: true`. `.txt` stays on the summary
+ * side since small text notes are typically prose worth summarising; code
+ * and data files aren't.
+ */
+const SUMMARY_EXTS: ReadonlySet<string> = new Set(['.pdf', '.md', '.markdown', '.txt']);
+
+/**
+ * Friendly labels for the index line ("Raw Python file (train.py)"). Used
+ * purely for the human/agent-readable summary string — mime type / editor
+ * choices stay driven by the extension itself.
+ */
+const RAW_LANG_LABELS: Record<string, string> = {
+  '.py': 'Python',
+  '.pyw': 'Python',
+  '.ipynb': 'Jupyter notebook',
+  '.js': 'JavaScript',
+  '.jsx': 'JavaScript',
+  '.mjs': 'JavaScript',
+  '.cjs': 'JavaScript',
+  '.ts': 'TypeScript',
+  '.tsx': 'TypeScript',
+  '.csv': 'CSV',
+  '.tsv': 'TSV',
+  '.json': 'JSON',
+  '.jsonl': 'JSONL',
+  '.yaml': 'YAML',
+  '.yml': 'YAML',
+  '.toml': 'TOML',
+  '.ini': 'INI',
+  '.sh': 'Shell',
+  '.bash': 'Shell',
+  '.zsh': 'Shell',
+  '.fish': 'Shell',
+  '.sql': 'SQL',
+  '.go': 'Go',
+  '.rs': 'Rust',
+  '.rb': 'Ruby',
+  '.java': 'Java',
+  '.kt': 'Kotlin',
+  '.swift': 'Swift',
+  '.c': 'C',
+  '.h': 'C',
+  '.cpp': 'C++',
+  '.cxx': 'C++',
+  '.hpp': 'C++',
+  '.cs': 'C#',
+  '.html': 'HTML',
+  '.htm': 'HTML',
+  '.xml': 'XML',
+  '.log': 'Log',
+  '.env': 'Env',
+};
+
+function rawLangLabel(ext: string): string {
+  return RAW_LANG_LABELS[ext.toLowerCase()] ?? 'file';
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 /**
  * Source ingestion — the orchestration layer on top of extract + digest +
@@ -97,17 +164,67 @@ async function saveSource(
   return meta;
 }
 
+async function saveRawSource(filePath: string): Promise<SourceMeta> {
+  const originalName = basename(filePath);
+  const ext = extname(originalName);
+  const stat = await fs.stat(filePath);
+  const lang = rawLangLabel(ext);
+
+  // slug from the bare filename — keeps it predictable when the agent
+  // references it (`train_py` for `train.py`). ext is preserved in the
+  // stored filename so IDE previews / `file` command still work.
+  const baseSlug = slugify(originalName);
+  const slug = await uniqueSlugFor(baseSlug);
+  const rawFile = `${slug}${ext}`;
+  await fs.copyFile(filePath, projectPath('sources', rawFile));
+
+  const indexSummary = `Raw ${lang} file (${originalName}, ${formatBytes(stat.size)}) — not summarized. Pull contents via \`source_lookup\` with \`"raw": true\`.`;
+  const summary =
+    `**${originalName}** — raw ${lang} file, ${formatBytes(stat.size)}.\n\n` +
+    `This source is not summarised. To read the full contents, emit a \`source_lookup\` block with \`{"slug": "${slug}", "raw": true}\`. ` +
+    `The verbatim file will be returned (capped at 50 KB — anything larger is truncated with a marker).`;
+
+  // Stub .md so the slug-only source_lookup path still returns something
+  // sensible ("this is a raw file — use raw mode to read it").
+  await fs.writeFile(projectPath('sources', `${slug}.md`), summary, 'utf-8');
+
+  const meta: SourceMeta = {
+    slug,
+    name: originalName,
+    originalName,
+    type: 'raw',
+    addedAt: new Date().toISOString(),
+    summary,
+    indexSummary,
+    sourcePath: filePath,
+    anchors: [],
+    rawFile,
+    sizeBytes: stat.size,
+  };
+  await fs.writeFile(
+    projectPath('sources', `${slug}.meta.json`),
+    JSON.stringify(meta, null, 2),
+    'utf-8',
+  );
+  return meta;
+}
+
 export async function ingestSources(filePaths: string[]): Promise<SourceMeta[]> {
   const results: SourceMeta[] = [];
   const existing = await listSources();
 
   for (const filePath of filePaths) {
-    const originalName = basename(filePath);
-    const { text, type } = await extractText(filePath);
-    const digest = await generateDigest(text, originalName, existing);
-    const slug = await uniqueSlugFor(slugify(digest.name || originalName));
-    const meta = await saveSource(slug, digest, type, originalName, text, filePath);
-    results.push(meta);
+    const ext = extname(filePath).toLowerCase();
+    if (SUMMARY_EXTS.has(ext)) {
+      const originalName = basename(filePath);
+      const { text, type } = await extractText(filePath);
+      const digest = await generateDigest(text, originalName, existing);
+      const slug = await uniqueSlugFor(slugify(digest.name || originalName));
+      const meta = await saveSource(slug, digest, type, originalName, text, filePath);
+      results.push(meta);
+    } else {
+      results.push(await saveRawSource(filePath));
+    }
   }
 
   const all = await listSources();
@@ -145,13 +262,45 @@ export async function ingestText(text: string, title: string): Promise<SourceMet
   return meta;
 }
 
+export async function ingestLink(url: string): Promise<SourceMeta> {
+  const page = await fetchUrlAsMarkdown(url);
+  // Prepend "Source URL: …" so listSources() and extractSourceUrl() pick it
+  // up consistently with how Tavily/Jina-sourced pages get stored.
+  const text = `Source URL: ${page.url}\n\n${page.markdown}`;
+  const existing = await listSources();
+  const digest = await generateDigest(text, page.title, existing);
+  const slug = await uniqueSlugFor(slugify(digest.name || page.title));
+  const meta = await saveSource(slug, digest, 'link', page.title, text, page.url);
+
+  const all = await listSources();
+  await updateSourcesIndex(all);
+  await updateWikiIndex(all);
+  await appendWikiLog('ingest', `${meta.name} (${meta.slug})`);
+  broadcast(IpcChannels.Sources.Changed);
+  return meta;
+}
+
 export async function pickSourceFiles(): Promise<string[]> {
   const result = await dialog.showOpenDialog({
     title: 'Add sources',
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: 'Documents', extensions: ['pdf', 'md', 'markdown', 'txt'] },
+      // "All Files" up top so the default picker lets users drop in any
+      // code/data file — the whole point of raw sources. Summary types
+      // stay listed so markdown/PDF users can still filter.
       { name: 'All Files', extensions: ['*'] },
+      { name: 'Documents (summarised)', extensions: ['pdf', 'md', 'markdown', 'txt'] },
+      {
+        name: 'Code & data (raw)',
+        extensions: [
+          'py', 'ipynb', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
+          'csv', 'tsv', 'json', 'jsonl', 'yaml', 'yml', 'toml', 'ini',
+          'sh', 'bash', 'zsh', 'sql',
+          'go', 'rs', 'rb', 'java', 'kt', 'swift',
+          'c', 'h', 'cpp', 'cxx', 'hpp', 'cs',
+          'html', 'htm', 'xml', 'log',
+        ],
+      },
     ],
   });
   if (result.canceled) return [];
@@ -219,10 +368,23 @@ export async function readSource(slug: string): Promise<string> {
 }
 
 export async function deleteSource(slug: string): Promise<void> {
+  // For raw sources, we need to clean up the copied-in file too — the meta
+  // carries its filename. Read it before unlinking anything else.
+  let rawFile: string | undefined;
+  try {
+    const rawMeta = await fs.readFile(projectPath('sources', `${slug}.meta.json`), 'utf-8');
+    rawFile = (JSON.parse(rawMeta) as SourceMeta).rawFile;
+  } catch {
+    // no meta — nothing to clean up beyond the standard triple
+  }
+
   await fs.unlink(projectPath('sources', `${slug}.md`)).catch(() => {});
   await fs.unlink(projectPath('sources', `${slug}.meta.json`)).catch(() => {});
   await fs.unlink(projectPath('sources', `${slug}.raw.txt`)).catch(() => {});
   await fs.unlink(projectPath('sources', `${slug}.index.json`)).catch(() => {});
+  if (rawFile) {
+    await fs.unlink(projectPath('sources', rawFile)).catch(() => {});
+  }
 
   const all = await listSources();
   await updateSourcesIndex(all);

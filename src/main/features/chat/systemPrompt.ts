@@ -107,12 +107,14 @@ function buildWikiBlock(wikiIndex: string): string {
     wikiIndex +
     '\n========== END research wiki index ==========\n' +
     'This index is loaded every turn. Treat it as the map of what you already know: one line per source, with a short summary and a slug. Do not ask the user to attach sources that are already here.\n\n' +
-    '[Deep reference — two-step lookup]\n' +
-    'The index only shows summaries. When a source looks relevant, drill in with a `source_lookup` block. Two forms:\n\n' +
+    '[Deep reference — on-demand lookup]\n' +
+    'The index only shows summaries. When a source looks relevant, drill in with a `source_lookup` block. Three forms:\n\n' +
     '1) **Open a source page** — slug only. Returns the full detailed summary plus the list of available anchors (definitions, rules, arguments, equations, findings, sections). Use this whenever you want to know more about a source than the one-liner.\n' +
     '```source_lookup\n{"slug": "smith-2022"}\n```\n\n' +
     '2) **Pull a verbatim anchor** — slug + anchor id, after you\'ve seen the anchor menu from step 1. Returns the exact raw text for quoting, citation, or definition-checking.\n' +
     '```source_lookup\n{"slug": "smith-2022", "anchor": "law-1-2"}\n```\n\n' +
+    '3) **Read a raw file** — slug + `"raw": true`. Returns the full verbatim contents of a raw-typed source (code, CSV, JSON, etc. the user dropped in). Raw sources have no anchors and no LLM summary — you only see them if you ask. Capped at 50 KB; larger files come back truncated with a marker. Use this when the user\'s task references a specific script or data file by name.\n' +
+    '```source_lookup\n{"slug": "train_py", "raw": true}\n```\n\n' +
     'You may emit multiple lookups in one response; each resolves independently and the results are injected back before your next turn. Lookups are cheap — use them liberally, and NEVER paraphrase quotes from memory.'
   );
 }

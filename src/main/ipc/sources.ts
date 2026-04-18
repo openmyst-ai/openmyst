@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
 import {
   deleteSource,
+  ingestLink,
   ingestSources,
   ingestText,
   listSources,
@@ -24,6 +25,12 @@ export function registerSourcesIpc(): void {
       throw new Error('Title must be a non-empty string.');
     }
     return ingestText(text.trim(), title.trim());
+  });
+  ipcMain.handle(IpcChannels.Sources.IngestLink, async (_event, url: unknown) => {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      throw new Error('URL must be a non-empty string.');
+    }
+    return ingestLink(url.trim());
   });
   ipcMain.handle(IpcChannels.Sources.PickFiles, () => pickSourceFiles());
   ipcMain.handle(IpcChannels.Sources.List, () => listSources());

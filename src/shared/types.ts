@@ -74,16 +74,28 @@ export interface Heading {
   pos: number;
 }
 
+/**
+ * `raw` — a file we keep verbatim on disk and never summarise (code, CSVs,
+ * JSON, etc.). The agent reads them on demand via `source_lookup` with
+ * `raw: true`.
+ * `link` — a URL we fetched as markdown via Jina Reader, then summarised
+ * through the normal pipeline. Behaves identically to `pasted` except the
+ * origin is a live URL stored in `sourcePath`.
+ */
 export interface SourceMeta {
   slug: string;
   name: string;
   originalName: string;
-  type: 'pdf' | 'markdown' | 'text' | 'pasted';
+  type: 'pdf' | 'markdown' | 'text' | 'pasted' | 'raw' | 'link';
   addedAt: string;
   summary: string;
   indexSummary: string;
   sourcePath?: string;
   anchors?: SourceAnchorSummary[];
+  /** Relative filename (under `sources/`) where the verbatim file lives — raw sources only. */
+  rawFile?: string;
+  /** Byte size of the underlying file — raw sources only, for UI + caps. */
+  sizeBytes?: number;
 }
 
 export type SourceAnchorType =

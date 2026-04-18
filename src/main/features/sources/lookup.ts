@@ -91,3 +91,53 @@ export async function readSourcePage(slug: string): Promise<SourcePageHit | null
     return null;
   }
 }
+
+export interface RawFileHit {
+  slug: string;
+  filename: string;
+  text: string;
+  totalBytes: number;
+  truncated: boolean;
+}
+
+/**
+ * Cap for raw-file lookups. 50 KB is ~12k tokens worst case — big enough for
+ * most scripts and small data files, small enough not to blow out the chat
+ * context. Anything above the cap is truncated with a marker so the agent
+ * knows what it's missing.
+ */
+const RAW_READ_CAP_BYTES = 50 * 1024;
+
+/**
+ * Read the verbatim contents of a raw-typed source. Returns `null` if the
+ * slug doesn't exist or isn't a raw source. Callers should fall back to
+ * `readSourcePage` in that case.
+ */
+export async function readRawFile(slug: string): Promise<RawFileHit | null> {
+  const metaPath = projectPath('sources', `${slug}.meta.json`);
+  if (!(await pathExists(metaPath))) return null;
+  let meta: SourceMeta;
+  try {
+    meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as SourceMeta;
+  } catch {
+    return null;
+  }
+  if (meta.type !== 'raw' || !meta.rawFile) return null;
+
+  const filePath = projectPath('sources', meta.rawFile);
+  if (!(await pathExists(filePath))) return null;
+
+  const stat = await fs.stat(filePath);
+  const buf = await fs.readFile(filePath);
+  const truncated = buf.length > RAW_READ_CAP_BYTES;
+  const slice = truncated ? buf.subarray(0, RAW_READ_CAP_BYTES) : buf;
+  // `utf8` — raw sources are expected to be text. Binary files would show up
+  // as garbled but we don't accept binaries through the pickFiles filter.
+  return {
+    slug,
+    filename: meta.rawFile,
+    text: slice.toString('utf8'),
+    totalBytes: stat.size,
+    truncated,
+  };
+}
