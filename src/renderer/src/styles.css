@@ -3882,3 +3882,33 @@ img.login-logo {
   display: flex;
   justify-content: flex-end;
 }
+.ds-query-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ds-query-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.ds-query-text {
+  font-size: 13px;
+  line-height: 1.3;
+}
+.ds-query-rationale {
+  font-size: 12px;
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.ds-query-meta {
+  font-size: 11px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
