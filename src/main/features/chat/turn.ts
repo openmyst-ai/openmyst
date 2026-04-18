@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
-import type { ChatMessage, PendingEdit } from '@shared/types';
+import type { ChatMessage, DeepPlanRubric, PendingEdit } from '@shared/types';
 import { broadcast, log } from '../../platform';
 import { streamChat, type LlmMessage } from '../../llm';
 import {
@@ -47,6 +47,8 @@ export interface TurnContext {
   activeDocument: string;
   userText: string;
   displayText: string | undefined;
+  rubric: DeepPlanRubric | null;
+  researchQueries: string[];
 }
 
 async function listPendingEditsSafe(docFilename: string): Promise<PendingEdit[]> {
@@ -141,6 +143,8 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     activeDocument,
     userText,
     displayText,
+    rubric,
+    researchQueries,
   } = ctx;
 
   const history = await loadHistory();
@@ -166,6 +170,8 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     document,
     pending: existingPending,
     wikiIndex,
+    rubric,
+    researchQueries,
   });
 
   const llmHistory: LlmMessage[] = history.map((m) => ({ role: m.role, content: m.content }));

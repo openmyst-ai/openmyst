@@ -14,6 +14,19 @@ import type { DeepPlanRubric, DeepPlanSession, SourceMeta } from '@shared/types'
  *   - Prompts deliberately skew short. We want conversation, not lectures.
  */
 
+function rubricIsEmpty(rubric: DeepPlanRubric): boolean {
+  return (
+    !rubric.title &&
+    !rubric.form &&
+    !rubric.audience &&
+    !rubric.lengthTarget &&
+    !rubric.thesis &&
+    rubric.mustCover.length === 0 &&
+    rubric.mustAvoid.length === 0 &&
+    !rubric.notes.trim()
+  );
+}
+
 function rubricBlock(rubric: DeepPlanRubric): string {
   const lines = [
     `- Title: ${rubric.title ?? '(unset)'}`,
@@ -179,13 +192,15 @@ If you believe the rubric is adequately covered and no more research is needed, 
 
 /**
  * Lightweight planner prompt for Deep Search — the research-only slice.
- * No rubric, no session messages, just a task + existing wiki + hints.
+ * Takes the Deep Plan rubric (if any) so queries stay aligned with the
+ * user's thesis, must-covers, and must-avoids; otherwise it's just the task.
  */
 export function deepSearchPlannerPrompt(
   task: string,
   sources: SourceMeta[],
   priorQueries: string[],
   hints: string[],
+  rubric: DeepPlanRubric | null = null,
 ): string {
   const hintsBlock =
     hints.length === 0
@@ -197,10 +212,14 @@ export function deepSearchPlannerPrompt(
     priorQueries.length === 0
       ? '(none yet)'
       : priorQueries.map((q) => `- "${q}"`).join('\n');
+  const rubricSection =
+    rubric && !rubricIsEmpty(rubric)
+      ? `\n\nPlan rubric (the user's writing task — prefer queries that feed the thesis and must-covers; avoid must-avoid areas):\n${rubricBlock(rubric)}`
+      : '';
 
   return `You are the research query generator for Myst's Deep Search — a research-only mode that finds and ingests sources into the user's wiki without touching what they're writing. Your ONLY job is to emit the next batch of web searches — no prose, no chat.
 
-Research task: "${task}"
+Research task: "${task}"${rubricSection}
 
 Sources already in wiki:
 ${sourcesBlock(sources)}

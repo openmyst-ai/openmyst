@@ -7,6 +7,7 @@ import { getDeepPlanModel } from '../settings';
 import { listSources } from '../sources';
 import { deepSearchPlannerPrompt } from '../deepPlan/prompts';
 import { parsePlannerReply } from '../deepPlan/parse';
+import { readSession as readDeepPlanSession } from '../deepPlan/state';
 import { runResearchEngine } from '../research/engine';
 import { ensureSearchReady } from '../research/search';
 import { clearState, readState, writeState } from './state';
@@ -226,7 +227,18 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
             if (run.cancelled) return [];
             const sources = await listSources();
             const priorQueries = state.queries.map((q) => q.query);
-            const prompt = deepSearchPlannerPrompt(trimmed, sources, priorQueries, hints);
+            // Pull the Deep Plan rubric fresh each loop so the planner stays
+            // aligned with any updates the user made mid-run (e.g. refined
+            // must-covers during a clarify detour).
+            const dpSession = await readDeepPlanSession().catch(() => null);
+            const rubric = dpSession && !dpSession.skipped ? dpSession.rubric : null;
+            const prompt = deepSearchPlannerPrompt(
+              trimmed,
+              sources,
+              priorQueries,
+              hints,
+              rubric,
+            );
             const raw = await completeText({
               model,
               messages: [

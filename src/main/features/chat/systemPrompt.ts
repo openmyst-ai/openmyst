@@ -1,4 +1,4 @@
-import type { PendingEdit } from '@shared/types';
+import type { DeepPlanRubric, PendingEdit } from '@shared/types';
 
 /**
  * System prompt builder — the one file you touch to change how the agent is
@@ -44,6 +44,62 @@ function buildPendingBlock(pending: PendingEdit[]): string {
   );
 }
 
+function rubricIsEmpty(r: DeepPlanRubric): boolean {
+  return (
+    !r.title &&
+    !r.form &&
+    !r.audience &&
+    !r.lengthTarget &&
+    !r.thesis &&
+    r.mustCover.length === 0 &&
+    r.mustAvoid.length === 0 &&
+    !r.notes.trim()
+  );
+}
+
+function buildRubricBlock(rubric: DeepPlanRubric | null): string {
+  if (!rubric || rubricIsEmpty(rubric)) return '';
+  const lines: string[] = [];
+  if (rubric.title) lines.push(`Title: ${rubric.title}`);
+  if (rubric.form) lines.push(`Form: ${rubric.form}`);
+  if (rubric.audience) lines.push(`Audience: ${rubric.audience}`);
+  if (rubric.lengthTarget) lines.push(`Length target: ${rubric.lengthTarget}`);
+  if (rubric.thesis) lines.push(`Thesis: ${rubric.thesis}`);
+  if (rubric.mustCover.length > 0) {
+    lines.push('');
+    lines.push('Must cover:');
+    for (const m of rubric.mustCover) lines.push(`- ${m}`);
+  }
+  if (rubric.mustAvoid.length > 0) {
+    lines.push('');
+    lines.push('Must avoid:');
+    for (const m of rubric.mustAvoid) lines.push(`- ${m}`);
+  }
+  const notes = rubric.notes.trim();
+  if (notes) {
+    lines.push('');
+    lines.push('Notes:');
+    lines.push(notes);
+  }
+  return (
+    '\n\n========== BEGIN plan rubric (.myst/deep-plan/session.json) ==========\n' +
+    lines.join('\n') +
+    '\n========== END plan rubric ==========\n' +
+    'This is the plan the user agreed to during Deep Plan. Treat it as the north star for the current writing task: honor the thesis, cover the must-cover items, and avoid the must-avoid ones. If the user asks about "the plan" or "the rubric", this is it. Don\'t contradict it without their consent — if something here no longer fits, flag it and ask.'
+  );
+}
+
+function buildResearchQueriesBlock(queries: string[]): string {
+  if (queries.length === 0) return '';
+  const lines = queries.map((q) => `- "${q}"`).join('\n');
+  return (
+    '\n\n========== BEGIN research queries already run ==========\n' +
+    lines +
+    '\n========== END research queries already run ==========\n' +
+    "These web searches have already been run during this project's Deep Plan / Deep Search sessions. Anything they surfaced is in the wiki index above. If the user asks for something adjacent, check the wiki first, then propose a NEW angle — don't re-run the same query expecting different results."
+  );
+}
+
 function buildWikiBlock(wikiIndex: string): string {
   if (!wikiIndex.trim()) return '';
   return (
@@ -68,18 +124,31 @@ export interface SystemPromptInput {
   document: string;
   pending: PendingEdit[];
   wikiIndex: string;
+  rubric: DeepPlanRubric | null;
+  researchQueries: string[];
 }
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
-  const { agentPrompt, activeDocument, docLabel, document, pending, wikiIndex } = input;
+  const {
+    agentPrompt,
+    activeDocument,
+    docLabel,
+    document,
+    pending,
+    wikiIndex,
+    rubric,
+    researchQueries,
+  } = input;
   return [
     agentPrompt,
     TWEAK_ETIQUETTE,
+    buildRubricBlock(rubric),
     `\n\n[Active document: ${docLabel}]`,
     `\n\n========== BEGIN ${activeDocument} ==========\n` +
       document +
       `\n========== END ${activeDocument} ==========`,
     buildPendingBlock(pending),
     buildWikiBlock(wikiIndex),
+    buildResearchQueriesBlock(researchQueries),
   ].join('');
 }
