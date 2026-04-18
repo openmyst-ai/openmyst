@@ -5,6 +5,7 @@ import { registerIpcHandlers } from './ipc';
 import { attachContextMenu } from './context-menu';
 import { completeSignInFromUrl, initAuth } from './features/auth';
 import { initMe } from './features/me';
+import { initUpdater } from './features/updater';
 import { log } from './platform';
 
 const isDev = !app.isPackaged;
@@ -47,6 +48,15 @@ function createMainWindow(): BrowserWindow {
   win.once('ready-to-show', () => {
     win.show();
     if (isDev) win.webContents.openDevTools({ mode: 'right' });
+  });
+
+  // Null the module-level handle when the window goes away so `focusMainWindow`
+  // and other callers don't touch a destroyed BrowserWindow — that throws
+  // "Object has been destroyed" from native code and crashes the main process
+  // (seen when the OS re-delivers a deep link or `second-instance` fires
+  // after the user closed the window on macOS).
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
 
   win.webContents.on('preload-error', (_event, preloadPath, error) => {
@@ -95,7 +105,13 @@ function registerDeepLinkScheme(): void {
 }
 
 function focusMainWindow(): void {
-  if (!mainWindow) return;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    // Window was closed (common on macOS where the app keeps running with no
+    // windows). Re-create it instead of silently no-oping — the caller is
+    // almost always "user clicked the dock icon" or "deep link came in".
+    createMainWindow();
+    return;
+  }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
 }
@@ -155,6 +171,7 @@ void app.whenReady().then(async () => {
   await initMe();
   registerIpcHandlers();
   createMainWindow();
+  initUpdater();
 
   // On launch, check whether the process was started with a deep-link URL
   // in argv (Windows/Linux cold-start path).

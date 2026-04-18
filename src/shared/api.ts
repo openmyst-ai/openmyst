@@ -11,6 +11,7 @@ import type {
   ProjectMeta,
   Result,
   SourceMeta,
+  UpdateStatus,
   WikiGraph,
   WorkspaceProject,
 } from './types';
@@ -141,6 +142,12 @@ export interface MystApi {
     start: (task: string) => Promise<DeepSearchStatus>;
     stop: () => Promise<DeepSearchStatus>;
     addHint: (hint: string) => Promise<DeepSearchStatus>;
+    onChanged: (callback: () => void) => () => void;
+  };
+  updater: {
+    getStatus: () => Promise<UpdateStatus>;
+    check: () => Promise<UpdateStatus>;
+    downloadAndInstall: () => Promise<UpdateStatus>;
     onChanged: (callback: () => void) => () => void;
   };
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { USE_OPENMYST } from '@shared/flags';
 import { MODEL_OPTIONS } from '@shared/types';
+import type { UpdateStatus } from '@shared/types';
 import { useApp } from '../store/app';
 import { useAuth } from '../store/auth';
 import { useMe } from '../store/me';
@@ -203,6 +204,8 @@ export function SettingsModal(): JSX.Element {
 
         {localError && <div className="error">{localError}</div>}
 
+        <UpdatesSection />
+
         <section className="modal-section">
           <h3>Report a bug</h3>
           <p className="muted">
@@ -219,6 +222,112 @@ export function SettingsModal(): JSX.Element {
 
       {showBugReport && <BugReportModal onClose={() => setShowBugReport(false)} />}
     </div>
+  );
+}
+
+function UpdatesSection(): JSX.Element {
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void bridge.updater.getStatus().then((s) => {
+      if (mounted) setStatus(s);
+    });
+    const off = bridge.updater.onChanged(() => {
+      void bridge.updater.getStatus().then((s) => {
+        if (mounted) setStatus(s);
+      });
+    });
+    return () => {
+      mounted = false;
+      off();
+    };
+  }, []);
+
+  const check = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const next = await bridge.updater.check();
+      setStatus(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const install = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      await bridge.updater.downloadAndInstall();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!status) {
+    return (
+      <section className="modal-section">
+        <h3>Updates</h3>
+        <p className="muted">Loading…</p>
+      </section>
+    );
+  }
+
+  const { state, currentVersion, availableVersion, progressPercent, error } = status;
+
+  let detail: string;
+  if (state === 'disabled') {
+    detail = 'Auto-update is only active in the packaged app.';
+  } else if (state === 'idle') {
+    detail = 'Click to check for a newer version.';
+  } else if (state === 'checking') {
+    detail = 'Checking for updates…';
+  } else if (state === 'not-available') {
+    detail = "You're on the latest version.";
+  } else if (state === 'downloading') {
+    detail =
+      availableVersion != null
+        ? `Downloading v${availableVersion}${progressPercent != null ? ` — ${progressPercent}%` : '…'}`
+        : 'Downloading update…';
+  } else if (state === 'downloaded') {
+    detail =
+      availableVersion != null
+        ? `v${availableVersion} is ready. Restart to install.`
+        : 'Update ready. Restart to install.';
+  } else if (state === 'error') {
+    detail = error ?? 'Something went wrong checking for updates.';
+  } else if (state === 'available') {
+    detail = availableVersion != null ? `v${availableVersion} is available.` : 'Update available.';
+  } else {
+    detail = '';
+  }
+
+  const checkDisabled = busy || state === 'checking' || state === 'downloading' || state === 'disabled';
+  const showRestart = state === 'downloaded';
+
+  return (
+    <section className="modal-section">
+      <h3>Updates</h3>
+      <p className="muted">
+        Current version: <strong>{currentVersion}</strong>
+      </p>
+      <p className="muted">{detail}</p>
+      <div className="row">
+        <button type="button" onClick={() => void check()} disabled={checkDisabled}>
+          Check for updates
+        </button>
+        {showRestart && (
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void install()}
+            disabled={busy}
+          >
+            Restart & install
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

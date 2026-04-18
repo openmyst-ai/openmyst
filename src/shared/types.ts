@@ -369,3 +369,27 @@ export interface MeStatus {
   /** True when the last fetch failed and we're displaying cached data. */
   offline: boolean;
 }
+
+/**
+ * Auto-update state shared with the renderer. `disabled` means the app is
+ * running unpackaged (dev) — the updater is a no-op and the UI should say so.
+ * `downloaded` is the terminal happy-path state; clicking "Restart" triggers
+ * `quitAndInstall`. Progress is percent complete (0–100) while downloading.
+ */
+export type UpdateState =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error';
+
+export interface UpdateStatus {
+  state: UpdateState;
+  currentVersion: string;
+  availableVersion: string | null;
+  progressPercent: number | null;
+  error: string | null;
+}

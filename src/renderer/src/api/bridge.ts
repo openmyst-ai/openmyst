@@ -16,6 +16,7 @@ const EXPECTED_NAMESPACES = [
   'bugReport',
   'deepPlan',
   'deepSearch',
+  'updater',
 ] as const;
 
 function getApi(): MystApi {
@@ -83,5 +84,8 @@ export const bridge: MystApi = {
   },
   get deepSearch() {
     return getApi().deepSearch;
+  },
+  get updater() {
+    return getApi().updater;
   },
 } as MystApi;

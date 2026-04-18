@@ -110,4 +110,10 @@ export const IpcChannels = {
     AddHint: 'deep-search:add-hint',
     Changed: 'deep-search:changed',
   },
+  Updater: {
+    GetStatus: 'updater:get-status',
+    Check: 'updater:check',
+    DownloadAndInstall: 'updater:download-and-install',
+    Changed: 'updater:changed',
+  },
 } as const;

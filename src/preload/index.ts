@@ -233,6 +233,20 @@ const api: MystApi = {
       };
     },
   },
+  updater: {
+    getStatus: () => ipcRenderer.invoke(IpcChannels.Updater.GetStatus),
+    check: () => ipcRenderer.invoke(IpcChannels.Updater.Check),
+    downloadAndInstall: () => ipcRenderer.invoke(IpcChannels.Updater.DownloadAndInstall),
+    onChanged: (callback) => {
+      const handler = (): void => {
+        callback();
+      };
+      ipcRenderer.on(IpcChannels.Updater.Changed, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.Updater.Changed, handler);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('myst', api);
