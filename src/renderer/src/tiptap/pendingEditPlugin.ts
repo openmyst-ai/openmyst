@@ -196,6 +196,27 @@ function findPendingEditRange(
   return null;
 }
 
+/**
+ * True if `source` contains any markdown construct that only renders correctly
+ * through the block pipeline (headings, lists, blockquotes, tables, fenced
+ * code, horizontal rules) or spans multiple paragraphs. Inline-rendered diffs
+ * show those as literal `#`/`-`/`>` chars, which is what users were flagging.
+ */
+function hasBlockMarkdown(source: string): boolean {
+  if (/\n\s*\n/.test(source)) return true;
+  for (const line of source.split('\n')) {
+    const trimmed = line.replace(/^\s+/, '');
+    if (/^#{1,6}\s/.test(trimmed)) return true;
+    if (/^[-*+]\s/.test(trimmed)) return true;
+    if (/^\d+\.\s/.test(trimmed)) return true;
+    if (/^>\s?/.test(trimmed)) return true;
+    if (/^```/.test(trimmed)) return true;
+    if (/^\|.*\|/.test(trimmed)) return true;
+    if (/^(?:-{3,}|_{3,}|\*{3,})\s*$/.test(trimmed)) return true;
+  }
+  return false;
+}
+
 function quickHash(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
@@ -269,9 +290,14 @@ function buildState(doc: PmNode, edits: PendingEdit[]): PendingEditsState {
  * patch channel and writes back to .myst/pending/<doc>.json.
  */
 function buildInsertWidget(edit: PendingEdit, isAppend: boolean): HTMLElement {
-  const tag = isAppend ? 'div' : 'span';
+  // A replacement whose new content contains block-level markdown (headings,
+  // lists, blockquotes, multi-paragraph, fenced code…) must render through the
+  // block pipeline, otherwise `#`, `-`, `>` etc. leak through as literal chars.
+  // We flip to the block layout in that case even for non-append edits.
+  const useBlock = isAppend || hasBlockMarkdown(edit.newString);
+  const tag = useBlock ? 'div' : 'span';
   const container = document.createElement(tag);
-  container.className = isAppend ? 'pending-insert pending-insert-append' : 'pending-insert';
+  container.className = useBlock ? 'pending-insert pending-insert-append' : 'pending-insert';
   container.dataset['pendingId'] = edit.id;
 
   let currentValue = edit.newString;
@@ -286,14 +312,15 @@ function buildInsertWidget(edit: PendingEdit, isAppend: boolean): HTMLElement {
     if (currentValue.length === 0) {
       body.textContent = '(empty — click to write a replacement)';
       body.dataset['empty'] = 'true';
-    } else if (isAppend) {
+    } else if (useBlock) {
       // Append widgets sit on their own block, so full block rendering is
-      // fine — headings, paragraphs, lists all flow naturally.
+      // fine — headings, paragraphs, lists all flow naturally. Same path
+      // also handles inline replacements whose new content is block-shaped.
       body.innerHTML = renderMarkdown(currentValue);
     } else {
-      // Inline replacement (e.g. "Dingle" → "Pingle" mid-paragraph). Block
-      // rendering would wrap in `<p>`, which forces line breaks inside the
-      // host paragraph and leaves the strikethrough range looking like it
+      // Truly inline replacement (e.g. "Dingle" → "Pingle" mid-paragraph).
+      // Block rendering would wrap in `<p>`, which forces line breaks inside
+      // the host paragraph and leaves the strikethrough range looking like it
       // covers blank lines. renderInline skips the `<p>` wrap.
       body.innerHTML = renderMarkdownInline(currentValue);
     }

@@ -179,14 +179,18 @@ async function saveRawSource(filePath: string): Promise<SourceMeta> {
   await fs.copyFile(filePath, projectPath('sources', rawFile));
 
   const indexSummary = `Raw ${lang} file (${originalName}, ${formatBytes(stat.size)}) — not summarized. Pull contents via \`source_lookup\` with \`"raw": true\`.`;
-  const summary =
+  // User-facing body shown in the sources pane. Short and reassuring — the
+  // file is still usable, just not auto-summarised. No protocol details here;
+  // those belong in the stub .md below, which the agent reads, not the human.
+  const summary = `No summary — raw ${lang} file (${formatBytes(stat.size)}). Full contents stay indexed and the agent reads them on demand.`;
+
+  // Stub .md returned when the agent hits `source_lookup {"slug":"..."}`
+  // without an anchor. Tells it how to read the raw bytes.
+  const agentStub =
     `**${originalName}** — raw ${lang} file, ${formatBytes(stat.size)}.\n\n` +
     `This source is not summarised. To read the full contents, emit a \`source_lookup\` block with \`{"slug": "${slug}", "raw": true}\`. ` +
     `The verbatim file will be returned (capped at 50 KB — anything larger is truncated with a marker).`;
-
-  // Stub .md so the slug-only source_lookup path still returns something
-  // sensible ("this is a raw file — use raw mode to read it").
-  await fs.writeFile(projectPath('sources', `${slug}.md`), summary, 'utf-8');
+  await fs.writeFile(projectPath('sources', `${slug}.md`), agentStub, 'utf-8');
 
   const meta: SourceMeta = {
     slug,
