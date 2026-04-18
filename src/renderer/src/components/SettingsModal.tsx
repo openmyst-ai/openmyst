@@ -5,6 +5,7 @@ import { useAuth } from '../store/auth';
 import { useMe } from '../store/me';
 import { bridge } from '../api/bridge';
 import { BugReportModal } from './BugReportModal';
+import { formatTokens } from './QuotaPills';
 
 export function SettingsModal(): JSX.Element {
   const { settings, closeSettings, refreshSettings } = useApp();
@@ -276,16 +277,16 @@ function AccountSection(): JSX.Element {
           <h3>Daily usage</h3>
           <ul className="quota-list">
             <li>
-              Chat:{' '}
+              Chat tokens:{' '}
               {snapshot.quota.chat.limit === null
-                ? `${snapshot.quota.chat.used} (unlimited)`
-                : `${snapshot.quota.chat.used} / ${snapshot.quota.chat.limit}`}
+                ? `${formatTokens(snapshot.quota.chat.used)} (unlimited)`
+                : `${formatTokens(snapshot.quota.chat.used)} / ${formatTokens(snapshot.quota.chat.limit)}`}
             </li>
             <li>
-              Search:{' '}
+              Search tokens:{' '}
               {snapshot.quota.search.limit === null
-                ? `${snapshot.quota.search.used} (unlimited)`
-                : `${snapshot.quota.search.used} / ${snapshot.quota.search.limit}`}
+                ? `${formatTokens(snapshot.quota.search.used)} (unlimited)`
+                : `${formatTokens(snapshot.quota.search.used)} / ${formatTokens(snapshot.quota.search.limit)}`}
             </li>
           </ul>
         </section>

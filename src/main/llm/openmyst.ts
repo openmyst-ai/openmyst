@@ -153,6 +153,8 @@ export async function openmystStreamChat(options: {
   let buffer = '';
   let sawDone = false;
   let reading = true;
+  let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null =
+    null;
 
   while (reading) {
     const { done, value } = await reader.read();
@@ -177,12 +179,20 @@ export async function openmystStreamChat(options: {
       try {
         const parsed = JSON.parse(data) as {
           choices?: Array<{ delta?: { content?: string } }>;
+          usage?: {
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            total_tokens?: number;
+          };
         };
         const chunk = parsed.choices?.[0]?.delta?.content;
         if (chunk) {
           fullContent += chunk;
           onChunk?.(chunk);
         }
+        // The final SSE frame before `[DONE]` carries token counts per the
+        // OpenAI-compatible streaming contract. Keep the latest one we see.
+        if (parsed.usage) usage = parsed.usage;
       } catch {
         // Keepalives / malformed lines — ignore.
       }
@@ -193,6 +203,9 @@ export async function openmystStreamChat(options: {
     chars: fullContent.length,
     elapsedMs: Date.now() - t0,
     sawDone,
+    promptTokens: usage?.prompt_tokens ?? null,
+    completionTokens: usage?.completion_tokens ?? null,
+    totalTokens: usage?.total_tokens ?? null,
     preview: fullContent.slice(0, 400),
   });
 

@@ -4,20 +4,39 @@ import { useMe } from '../store/me';
 
 /**
  * Two small counters rendered in the chat header when in managed mode:
- * chat usage and search usage (changes.md §6). Pro users get a single
- * "Pro ∞" pill instead. BYOK dev mode renders nothing.
+ * chat token usage and search token usage. Free users get "12.4k / 400k";
+ * Pro users get "12.4k · ∞". Pills warn at ≥70% and go red at ≥85% of
+ * the daily budget. BYOK dev mode renders nothing.
  */
+
+/**
+ * Compact token count: "850", "1.5k", "12k", "400k", "1.2M". Rounding
+ * picks up speed past 10k so "412000" doesn't read as "412.0k".
+ */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${n}`;
+}
+
+function usageRatio(b: MeQuotaBucket): number {
+  if (b.limit === null || b.limit <= 0) return 0;
+  return b.used / b.limit;
+}
 
 function bucketClass(b: MeQuotaBucket): string {
   if (b.limit === null) return 'quota-pill quota-pill-pro';
-  if (b.remaining !== null && b.remaining <= 1) return 'quota-pill quota-pill-danger';
-  if (b.remaining !== null && b.remaining <= 5) return 'quota-pill quota-pill-warn';
+  const ratio = usageRatio(b);
+  if (ratio >= 1) return 'quota-pill quota-pill-danger';
+  if (ratio >= 0.85) return 'quota-pill quota-pill-danger';
+  if (ratio >= 0.7) return 'quota-pill quota-pill-warn';
   return 'quota-pill';
 }
 
 function formatBucket(b: MeQuotaBucket, label: string): string {
-  if (b.limit === null) return `${b.used} ${label} · ∞`;
-  return `${b.used} / ${b.limit} ${label}`;
+  if (b.limit === null) return `${formatTokens(b.used)} ${label} · ∞`;
+  return `${formatTokens(b.used)} / ${formatTokens(b.limit)} ${label}`;
 }
 
 export function QuotaPills(): JSX.Element | null {
@@ -27,7 +46,10 @@ export function QuotaPills(): JSX.Element | null {
 
   return (
     <div className="quota-pills" aria-label="Daily usage">
-      <span className={bucketClass(snapshot.quota.chat)} title={`Resets ${snapshot.quota.chat.resetsAt}`}>
+      <span
+        className={bucketClass(snapshot.quota.chat)}
+        title={`Resets ${snapshot.quota.chat.resetsAt}`}
+      >
         {formatBucket(snapshot.quota.chat, 'chat')}
       </span>
       <span
@@ -52,21 +74,24 @@ export function ApproachingLimitBanner(): JSX.Element | null {
   ];
 
   const exhausted = buckets.filter(
-    (b) => b.bucket.limit !== null && b.bucket.remaining !== null && b.bucket.remaining <= 0,
+    (b) =>
+      b.bucket.limit !== null &&
+      b.bucket.remaining !== null &&
+      b.bucket.remaining <= 0,
   );
-  const oneLeft = buckets.filter(
-    (b) => b.bucket.limit !== null && b.bucket.remaining === 1,
-  );
+  const nearLimit = buckets.filter((b) => usageRatio(b.bucket) >= 0.85);
 
-  if (exhausted.length === 0 && oneLeft.length === 0) return null;
+  if (exhausted.length === 0 && nearLimit.length === 0) return null;
 
   const upgradeUrl = 'https://www.openmyst.ai/pricing';
   const message = exhausted.length
-    ? `Out of free ${exhausted.map((b) => b.name).join(' + ')} requests today.`
-    : `Last free ${oneLeft.map((b) => b.name).join(' + ')} request today.`;
+    ? `Out of free ${exhausted.map((b) => b.name).join(' + ')} token budget today.`
+    : `Nearly out of free ${nearLimit.map((b) => b.name).join(' + ')} token budget today.`;
 
   return (
-    <div className={`quota-banner ${exhausted.length ? 'quota-banner-blocked' : 'quota-banner-warn'}`}>
+    <div
+      className={`quota-banner ${exhausted.length ? 'quota-banner-blocked' : 'quota-banner-warn'}`}
+    >
       <span>{message}</span>{' '}
       <a href={upgradeUrl} target="_blank" rel="noreferrer">
         Upgrade to Pro
