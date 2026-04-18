@@ -3313,13 +3313,6 @@ img.login-logo {
   gap: 10px;
 }
 
-.dp-footer {
-  padding: 8px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-alt, #141414);
-  display: flex;
-  justify-content: flex-end;
-}
 
 /* ---- Deep Search / Research graph ---- */
 

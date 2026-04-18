@@ -152,6 +152,29 @@ ${sourcesGuidance}
 Keep it to 3-5 short bullets or sentences, each tied to a specific gap. End with a one-line recommendation: either "I'll go find that" (if research is needed) or "I think we can proceed" (if the rubric is already tight). Do not emit a rubric_update in this stage.`;
 }
 
+/**
+ * Query-style rider shared by both research planners. Tuned against real
+ * Jina failures: over-constrained queries (many quoted phrases AND'd, tight
+ * `site:` filters, 5+ terms) return zero results AND still burn search
+ * tokens — so the highest-leverage fix is nudging the planner toward
+ * librarian-style broad terms. The examples are the important part; the
+ * LLM copies their shape more reliably than it follows abstract rules.
+ */
+const QUERY_STYLE = `Write queries like a research librarian, not a power user:
+- 3–5 plain keywords, lowercase, no punctuation.
+- Avoid quoted phrases unless the exact wording is a term of art (e.g. "chain of thought"). Multiple quoted phrases AND'd together almost always return zero results.
+- No \`site:\` filters unless you've confirmed the domain has what you want. Let the search engine rank authoritative sources (arxiv, official docs, .edu) on its own.
+- No dates unless the query is specifically time-sensitive. Recent work will surface anyway.
+- Each query should be a single conceptual angle — if you catch yourself AND-ing two ideas, split into two queries.
+
+Good: \`post-training rlhf alignment survey\`
+Good: \`llm inference efficiency bottleneck\`
+Good: \`"chain of thought" reasoning failures\`  ← one quoted term of art, not four
+Bad:  \`site:arxiv.org "LLM scaling laws" "post-scaling" research gaps 2023 2024\`  ← 5 constraints, 0 results
+Bad:  \`LLM "simulation reality gap" "embodied AI" "world model" "grounding" limitations\`  ← 4 quoted phrases, 0 results
+
+Quality bar: 3–4 well-shaped queries beat 5 over-specified ones. Every query that returns zero results still costs the user — broad beats narrow.`;
+
 export function researchPlannerPrompt(
   session: DeepPlanSession,
   sources: SourceMeta[],
@@ -174,10 +197,12 @@ ${rubricBlock(session.rubric)}
 Sources already in wiki:
 ${sourcesBlock(sources)}
 
-Queries already run:
+Queries already run (with how many sources each one yielded — low-yield shapes are signals to change tactics):
 ${session.researchQueries.length === 0 ? '(none yet)' : session.researchQueries.map((q) => `- "${q.query}" → ${q.ingestedSlugs.length} sources added`).join('\n')}${hintsBlock}
 
-Propose the next 3-5 web searches to fill gaps in the rubric. Prefer queries that surface primary sources (original papers, official docs, court opinions, firsthand accounts) over secondary commentary. Do NOT repeat queries already run. Be precise — queries should be specific enough to return substantive results.
+Propose the next 3–4 web searches to fill the biggest remaining gaps in the rubric. Prefer queries that surface primary sources (original papers, official docs, firsthand accounts) over secondary commentary. Do NOT repeat queries already run.
+
+${QUERY_STYLE}
 
 Output ONLY a fenced \`research_plan\` block. No text before or after.
 
@@ -227,7 +252,9 @@ ${sourcesBlock(sources)}
 Queries already run:
 ${priorBlock}${hintsBlock}
 
-Propose the next 3-5 web searches. Prefer primary sources (papers, official docs, firsthand accounts) over secondary commentary. Do NOT repeat queries already run. Be specific.
+Propose the next 3–4 web searches. Prefer primary sources (papers, official docs, firsthand accounts) over secondary commentary. Do NOT repeat queries already run.
+
+${QUERY_STYLE}
 
 Output ONLY a fenced \`research_plan\` block. No text before or after.
 
