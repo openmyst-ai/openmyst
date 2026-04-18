@@ -29,7 +29,19 @@ export interface WorkspaceProject {
   updatedAt: string;
 }
 
-export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-chat';
+/**
+ * The curated list of models users can pick from in Settings. A single
+ * selection drives both chat and Deep Plan/Search — keeps cost predictable
+ * and avoids asking launch users to reason about two knobs.
+ */
+export const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2' },
+  { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+  { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
+  { id: 'z-ai/glm-4.5-air', label: 'GLM 4.5 Air' },
+];
+
+export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v3.2';
 
 export interface ProjectMeta {
   name: string;
@@ -45,7 +57,7 @@ export interface ProjectSummary {
 
 export type Result<T, E = string> = { ok: true; value: T } | { ok: false; error: E };
 
-export const DEFAULT_MODEL = 'google/gemma-4-26b-a4b-it';
+export const DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -62,16 +74,28 @@ export interface Heading {
   pos: number;
 }
 
+/**
+ * `raw` — a file we keep verbatim on disk and never summarise (code, CSVs,
+ * JSON, etc.). The agent reads them on demand via `source_lookup` with
+ * `raw: true`.
+ * `link` — a URL we fetched as markdown via Jina Reader, then summarised
+ * through the normal pipeline. Behaves identically to `pasted` except the
+ * origin is a live URL stored in `sourcePath`.
+ */
 export interface SourceMeta {
   slug: string;
   name: string;
   originalName: string;
-  type: 'pdf' | 'markdown' | 'text' | 'pasted';
+  type: 'pdf' | 'markdown' | 'text' | 'pasted' | 'raw' | 'link';
   addedAt: string;
   summary: string;
   indexSummary: string;
   sourcePath?: string;
   anchors?: SourceAnchorSummary[];
+  /** Relative filename (under `sources/`) where the verbatim file lives — raw sources only. */
+  rawFile?: string;
+  /** Byte size of the underlying file — raw sources only, for UI + caps. */
+  sizeBytes?: number;
 }
 
 export type SourceAnchorType =

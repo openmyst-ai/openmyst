@@ -14,7 +14,9 @@ import type { LlmMessage } from './types';
  * which backend is under the hood — same SSE parse loop, same "return the
  * full completion string" contract. Differences:
  *   - `Authorization` comes from the auth feature, not user settings.
- *   - No `model` field in the body; openmyst picks the model server-side.
+ *   - `model` is forwarded in the body; the openmyst relay is expected to
+ *     honor it (proxying through to the underlying provider). If omitted,
+ *     the relay falls back to its server-side default.
  *   - Error bodies follow the openmyst error envelope (see §5).
  *   - 401 invalid_token / token_revoked ⇒ we clear the token immediately
  *     so the renderer's auth listener pushes the user to the login screen.
@@ -110,15 +112,17 @@ async function parseErrorResponse(response: Response): Promise<OpenmystApiError>
 export async function openmystStreamChat(options: {
   token: string;
   messages: LlmMessage[];
+  model?: string;
   onChunk?: (chunk: string) => void;
   logScope?: string;
   temperature?: number;
   maxTokens?: number;
 }): Promise<string> {
-  const { token, messages, onChunk, logScope = 'llm' } = options;
+  const { token, messages, model, onChunk, logScope = 'llm' } = options;
 
   const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
   log(logScope, 'openmyst.llm.request', {
+    model: model ?? null,
     messages: messages.length,
     roles: messages.map((m) => m.role).join(','),
     totalChars,
@@ -130,6 +134,7 @@ export async function openmystStreamChat(options: {
     messages,
     stream: true,
   };
+  if (model) body['model'] = model;
   if (options.temperature !== undefined) body['temperature'] = options.temperature;
   if (options.maxTokens !== undefined) body['max_tokens'] = options.maxTokens;
 
@@ -226,13 +231,15 @@ export async function openmystStreamChat(options: {
 export async function openmystCompleteText(options: {
   token: string;
   messages: LlmMessage[];
+  model?: string;
   logScope?: string;
   temperature?: number;
   maxTokens?: number;
 }): Promise<string | null> {
-  const { token, messages, logScope = 'llm' } = options;
+  const { token, messages, model, logScope = 'llm' } = options;
 
   const body: Record<string, unknown> = { messages, stream: false };
+  if (model) body['model'] = model;
   if (options.temperature !== undefined) body['temperature'] = options.temperature;
   if (options.maxTokens !== undefined) body['max_tokens'] = options.maxTokens;
 

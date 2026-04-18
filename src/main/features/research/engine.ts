@@ -19,10 +19,10 @@ import type { ResearchQueryProposal } from '../deepPlan/parse';
  * any hint added mid-run is picked up on the next planner call.
  */
 
-/** Cap queries at 20 so a pathological loop can't burn through infinite Jina calls. */
-const MAX_QUERIES = 20;
-/** Stop early once we've added this many sources — coverage is usually good. */
-const TARGET_INGESTED = 10;
+/** Cap queries so a pathological loop can't burn through infinite Jina calls. */
+const MAX_QUERIES = 12;
+/** Stop early once we've added this many sources — coverage is usually good by 6–8. */
+const TARGET_INGESTED = 8;
 /** Hits per Jina query. */
 const MAX_RESULTS_PER_QUERY = 5;
 /** Cap per-query ingests so one fat query can't dominate. */

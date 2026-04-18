@@ -112,6 +112,7 @@ const api: MystApi = {
   sources: {
     ingest: (filePaths) => ipcRenderer.invoke(IpcChannels.Sources.Ingest, filePaths),
     ingestText: (text, title) => ipcRenderer.invoke(IpcChannels.Sources.IngestText, text, title),
+    ingestLink: (url) => ipcRenderer.invoke(IpcChannels.Sources.IngestLink, url),
     pickFiles: () => ipcRenderer.invoke(IpcChannels.Sources.PickFiles),
     list: () => ipcRenderer.invoke(IpcChannels.Sources.List),
     read: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Read, slug),

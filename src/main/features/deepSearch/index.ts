@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { DeepSearchQueryRecord, DeepSearchStatus } from '@shared/types';
-import { broadcast, log, logError } from '../../platform';
+import { broadcast, log, logError, projectRoot } from '../../platform';
 import { completeText, ensureLlmReady } from '../../llm';
 import { getDeepPlanModel } from '../settings';
 import { listSources } from '../sources';
 import { deepSearchPlannerPrompt } from '../deepPlan/prompts';
 import { parsePlannerReply } from '../deepPlan/parse';
+import { readSession as readDeepPlanSession } from '../deepPlan/state';
 import { runResearchEngine } from '../research/engine';
 import { ensureSearchReady } from '../research/search';
+import { clearState, readState, writeState } from './state';
 
 /**
  * Deep Search — the "pop into research mode" slice. It shares the research
@@ -35,9 +37,15 @@ interface DeepSearchState {
   totalIngested: number;
   lastError: string | null;
   updatedAt: string;
+  /**
+   * Path of the project this in-memory state belongs to. `getStatus` checks
+   * this against the currently open project so re-opening a different
+   * project pulls its persisted state instead of showing the previous one.
+   */
+  projectPath: string | null;
 }
 
-function freshState(): DeepSearchState {
+function freshState(projectPath: string | null = null): DeepSearchState {
   return {
     running: false,
     runId: null,
@@ -47,6 +55,7 @@ function freshState(): DeepSearchState {
     totalIngested: 0,
     lastError: null,
     updatedAt: new Date().toISOString(),
+    projectPath,
   };
 }
 
@@ -64,12 +73,65 @@ interface ActiveRun {
 let state: DeepSearchState = freshState();
 let activeRun: ActiveRun | null = null;
 
+function currentProjectRootOrNull(): string | null {
+  try {
+    return projectRoot();
+  } catch {
+    return null;
+  }
+}
+
+function persistCurrent(): void {
+  // Don't persist to disk while the state still belongs to a different
+  // project — that would blow away the target project's real state. This
+  // is only reached between `ensureHydrated` sync paths; real writes go
+  // through the async touch path below.
+  const root = currentProjectRootOrNull();
+  if (!root || root !== state.projectPath) return;
+  void writeState({
+    task: state.task,
+    queries: state.queries.slice(),
+    totalIngested: state.totalIngested,
+    hints: state.hints.slice(),
+    lastError: state.lastError,
+    updatedAt: state.updatedAt,
+  }).catch((err) => logError('deep-search', 'state.write.failed', err));
+}
+
 function touch(): void {
   state.updatedAt = new Date().toISOString();
+  persistCurrent();
   broadcast(IpcChannels.DeepSearch.Changed);
 }
 
-export function getStatus(): DeepSearchStatus {
+/**
+ * Bind the in-memory state to the currently open project, reading any
+ * persisted queries/hints/task from disk. A no-op if we're already bound
+ * to this project, or if an active run is mid-flight (switching projects
+ * under a live run isn't supported and shouldn't happen from the UI).
+ */
+async function hydrateForCurrentProject(): Promise<void> {
+  const root = currentProjectRootOrNull();
+  if (!root) return;
+  if (state.projectPath === root) return;
+  if (activeRun) return;
+  const persisted = await readState().catch((err) => {
+    logError('deep-search', 'state.read.failed', err);
+    return null;
+  });
+  state = {
+    ...freshState(root),
+    task: persisted?.task ?? null,
+    queries: persisted?.queries.slice() ?? [],
+    totalIngested: persisted?.totalIngested ?? 0,
+    hints: persisted?.hints.slice() ?? [],
+    lastError: persisted?.lastError ?? null,
+    updatedAt: persisted?.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+export async function getStatus(): Promise<DeepSearchStatus> {
+  await hydrateForCurrentProject();
   return {
     running: state.running,
     runId: state.runId,
@@ -82,7 +144,7 @@ export function getStatus(): DeepSearchStatus {
   };
 }
 
-export function stopSearch(): DeepSearchStatus {
+export async function stopSearch(): Promise<DeepSearchStatus> {
   if (!state.running) return getStatus();
   log('deep-search', 'stop.requested', {});
   if (activeRun) activeRun.cancelled = true;
@@ -95,7 +157,7 @@ export function stopSearch(): DeepSearchStatus {
   return getStatus();
 }
 
-export function addHint(hint: string): DeepSearchStatus {
+export async function addHint(hint: string): Promise<DeepSearchStatus> {
   const trimmed = hint.trim();
   if (!trimmed) return getStatus();
   state.hints = [...state.hints, trimmed];
@@ -110,20 +172,24 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
     throw new Error('Deep Search is already running. Stop it first.');
   }
 
+  await hydrateForCurrentProject();
   await ensureLlmReady();
   await ensureSearchReady();
   const model = await getDeepPlanModel();
 
-  // Reset state for a new run.
+  // Reset state for a new run — wipes any prior queries from previous runs
+  // in this project so the "queries tried so far" list reflects only this
+  // run's exploration.
   const runId = randomUUID();
   const run: ActiveRun = { runId, cancelled: false };
   activeRun = run;
   state = {
-    ...freshState(),
+    ...freshState(currentProjectRootOrNull()),
     running: true,
     runId,
     task: trimmed,
   };
+  await clearState().catch((err) => logError('deep-search', 'state.clear.failed', err));
   touch();
 
   // Seed dedup set with existing wiki URLs.
@@ -161,7 +227,18 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
             if (run.cancelled) return [];
             const sources = await listSources();
             const priorQueries = state.queries.map((q) => q.query);
-            const prompt = deepSearchPlannerPrompt(trimmed, sources, priorQueries, hints);
+            // Pull the Deep Plan rubric fresh each loop so the planner stays
+            // aligned with any updates the user made mid-run (e.g. refined
+            // must-covers during a clarify detour).
+            const dpSession = await readDeepPlanSession().catch(() => null);
+            const rubric = dpSession && !dpSession.skipped ? dpSession.rubric : null;
+            const prompt = deepSearchPlannerPrompt(
+              trimmed,
+              sources,
+              priorQueries,
+              hints,
+              rubric,
+            );
             const raw = await completeText({
               model,
               messages: [

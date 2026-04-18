@@ -7,6 +7,8 @@ import { getSettings } from '../settings';
 import { readDocument } from '../documents';
 import { readWikiIndex, updateWikiIndex } from '../wiki';
 import { listSources } from '../sources';
+import { readSession as readDeepPlanSession } from '../deepPlan/state';
+import { readState as readDeepSearchState } from '../deepSearch/state';
 import { appendMessage, clearHistory, loadHistory } from './persistence';
 import { runTurn } from './turn';
 
@@ -52,6 +54,31 @@ export async function sendMessage(
   const wikiIndex = await readWikiIndex();
   const docLabel = activeDocument.replace(/\.md$/, '');
 
+  // Pull the Deep Plan rubric (if any) so the agent keeps its thesis,
+  // must-covers, and must-avoids in view across sessions. Skipped plans
+  // don't inject — the user explicitly opted out of the framing.
+  const deepPlanSession = await readDeepPlanSession().catch(() => null);
+  const rubric =
+    deepPlanSession && !deepPlanSession.skipped ? deepPlanSession.rubric : null;
+
+  // Combine research queries from both loops so the agent knows what's
+  // already been asked. De-duped preserving first-seen order.
+  const deepSearchState = await readDeepSearchState().catch(() => null);
+  const researchQueries: string[] = [];
+  const seen = new Set<string>();
+  for (const q of deepPlanSession?.researchQueries ?? []) {
+    const key = q.query.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    researchQueries.push(q.query);
+  }
+  for (const q of deepSearchState?.queries ?? []) {
+    const key = q.query.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    researchQueries.push(q.query);
+  }
+
   // `displayText` is what the user sees in chat history; `userText` is what
   // the LLM sees for this turn. When they differ (e.g. Ask Myst from a
   // comment), the raw prompt scaffolding stays out of the visible thread.
@@ -76,6 +103,8 @@ export async function sendMessage(
       activeDocument,
       userText,
       displayText,
+      rubric,
+      researchQueries,
     });
   } catch (err) {
     const message = (err as Error).message ?? 'Unknown error';

@@ -34,7 +34,6 @@ export function DeepPlanMode(): JSX.Element {
     error,
     refresh,
     start,
-    skip,
     ingestChunk,
     finishStream,
     clearError,
@@ -84,7 +83,6 @@ export function DeepPlanMode(): JSX.Element {
     <div className="dp-root">
       <StageBar
         stage={session?.stage ?? 'intent'}
-        tokensUsedK={session?.tokensUsedK ?? 0}
         onOpenSettings={openSettings}
       />
 
@@ -132,12 +130,6 @@ export function DeepPlanMode(): JSX.Element {
         <aside className="dp-col dp-col-right">
           <WikiGraphColumn />
         </aside>
-      </div>
-
-      <div className="dp-footer">
-        <button type="button" className="link" onClick={() => void skip()}>
-          Skip Deep Plan
-        </button>
       </div>
 
       <SourcePreviewPopup />

@@ -161,6 +161,22 @@ input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
+.model-select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
+  flex: 1;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.model-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
 
 h1,
 h2,
@@ -921,48 +937,101 @@ img.login-logo {
   font-weight: 600;
 }
 
-/* Popup option cards */
-.source-add-popup-options {
+/* Add Source root — drop zone + secondary actions */
+.source-add-root {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
-.source-popup-option {
+.source-drop-zone {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 12px 14px;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 18px;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--fg-muted);
   cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s;
-}
-.source-popup-option:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: rgba(var(--accent-rgb, 100, 149, 237), 0.06);
-}
-.source-popup-option-disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.source-popup-option-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-  width: 28px;
   text-align: center;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    color 0.15s;
 }
-.source-popup-option-title {
+.source-drop-zone:hover,
+.source-drop-zone:focus-visible {
+  border-color: var(--accent);
+  color: var(--fg);
+  outline: none;
+}
+.source-drop-zone.is-dragover {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 100, 149, 237), 0.08);
+  color: var(--fg);
+}
+.source-drop-zone .source-icon {
+  color: var(--fg-muted);
+  margin-bottom: 2px;
+}
+.source-drop-zone:hover .source-icon,
+.source-drop-zone.is-dragover .source-icon {
+  color: var(--accent);
+}
+.source-drop-title {
   font-size: 13px;
   font-weight: 500;
+  color: var(--fg);
 }
-.source-popup-option-desc {
+.source-drop-desc {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.source-add-alt-actions {
+  display: flex;
+  gap: 8px;
+}
+.source-alt-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s;
+}
+.source-alt-btn:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.source-alt-btn .source-icon {
+  flex-shrink: 0;
+}
+
+/* Link form extras */
+.source-link-hint {
   font-size: 11px;
   color: var(--fg-muted);
-  margin-top: 1px;
+  line-height: 1.5;
+  padding: 2px 2px 0;
+}
+.source-link-error {
+  font-size: 11px;
+  color: #d24b4b;
+  padding: 2px 2px 0;
 }
 
 /* Cancel / back link in popup */
@@ -2488,65 +2557,10 @@ img.login-logo {
 .sources-panel-header h2 {
   margin: 0;
 }
-.wiki-graph-trigger {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--fg-muted);
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-.wiki-graph-trigger:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(var(--accent-rgb, 100, 149, 237), 0.08);
-}
-
-/* Wiki graph modal */
-.wiki-graph-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.58);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 120;
-  backdrop-filter: blur(2px);
-}
-.wiki-graph-modal {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 22px 18px;
-  width: min(820px, 92vw);
-  max-height: 88vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
-}
-.wiki-graph-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.wiki-graph-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-.wiki-graph-sub {
+/* Deep Wiki graph canvas — mounted inside the ds-modal shell */
+.ds-modal-stats {
   font-size: 11px;
-  color: var(--fg-muted);
-  margin-top: 2px;
+  margin-bottom: 10px;
 }
 .wiki-graph-canvas-wrap {
   flex: 1;
@@ -2635,20 +2649,6 @@ img.login-logo {
   font-size: 12px;
   color: var(--fg-muted);
   line-height: 1.4;
-}
-.wiki-graph-footer {
-  margin-top: 10px;
-  font-size: 11px;
-  color: var(--fg-muted);
-  text-align: center;
-}
-.wiki-graph-footer code {
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  background: var(--bg);
-  padding: 1px 5px;
-  border-radius: 3px;
-  border: 1px solid var(--border);
 }
 
 /* ---- Bug report modal ---- */
@@ -2778,14 +2778,6 @@ img.login-logo {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.dp-stagebar-meter {
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
 }
 .dp-stagebar-skip {
   background: transparent;
@@ -3321,13 +3313,6 @@ img.login-logo {
   gap: 10px;
 }
 
-.dp-footer {
-  padding: 8px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-alt, #141414);
-  display: flex;
-  justify-content: flex-end;
-}
 
 /* ---- Deep Search / Research graph ---- */
 
@@ -3798,14 +3783,16 @@ img.login-logo {
 }
 .ds-start-form {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
 }
 .ds-start-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-ui);
   font-size: 13px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg-alt);
@@ -3889,4 +3876,34 @@ img.login-logo {
 .ds-actions {
   display: flex;
   justify-content: flex-end;
+}
+.ds-query-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ds-query-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.ds-query-text {
+  font-size: 13px;
+  line-height: 1.3;
+}
+.ds-query-rationale {
+  font-size: 12px;
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.ds-query-meta {
+  font-size: 11px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }

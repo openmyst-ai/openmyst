@@ -79,6 +79,7 @@ export interface MystApi {
   sources: {
     ingest: (filePaths: string[]) => Promise<SourceMeta[]>;
     ingestText: (text: string, title: string) => Promise<SourceMeta>;
+    ingestLink: (url: string) => Promise<SourceMeta>;
     pickFiles: () => Promise<string[]>;
     list: () => Promise<SourceMeta[]>;
     read: (slug: string) => Promise<string>;

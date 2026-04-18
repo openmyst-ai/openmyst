@@ -161,22 +161,21 @@ export function DeepSearchModal(): JSX.Element | null {
 
         {!running && !status?.task && (
           <section className="modal-section">
-            <h3>What should I research?</h3>
             <form className="ds-start-form" onSubmit={(e) => void handleStart(e)}>
-              <textarea
+              <input
                 autoFocus
-                rows={2}
+                type="text"
                 className="ds-start-input"
-                placeholder="e.g. recent empirical work on remote work productivity in knowledge sectors"
+                placeholder="What should I research?"
                 value={taskDraft}
                 onChange={(e) => setTaskDraft(e.target.value)}
               />
               <button
                 type="submit"
-                className="dp-btn dp-btn-primary"
+                className="dp-btn dp-btn-primary dp-btn-small"
                 disabled={taskDraft.trim().length === 0}
               >
-                Start research
+                Start
               </button>
             </form>
           </section>
@@ -208,6 +207,27 @@ export function DeepSearchModal(): JSX.Element | null {
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {status && status.queries.length > 0 && (
+          <section className="modal-section ds-queries-section">
+            <h3>Queries tried{status.task ? ` · ${status.queries.length}` : ''}</h3>
+            <p className="muted">
+              Previous searches against your wiki. Helpful context for the next run so the model
+              (and you) don't repeat ground.
+            </p>
+            <ul className="ds-query-list">
+              {status.queries.map((q) => (
+                <li key={q.queryId} className="ds-query-item">
+                  <div className="ds-query-text">{q.query}</div>
+                  {q.rationale && <div className="ds-query-rationale muted">{q.rationale}</div>}
+                  <div className="ds-query-meta muted">
+                    {q.ingestedCount} ingested
+                  </div>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 
