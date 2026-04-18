@@ -45,9 +45,11 @@ export async function streamChat(options: StreamChatOptions): Promise<string> {
   if (USE_OPENMYST) {
     const token = getAuthTokenSync();
     if (!token) throw new Error('Sign in to use Open Myst.');
+    const model = options.model ?? (await getSettings()).defaultModel;
     const managedOpts: Parameters<typeof openmystStreamChat>[0] = {
       token,
       messages: options.messages,
+      model,
     };
     if (options.onChunk) managedOpts.onChunk = options.onChunk;
     if (options.logScope) managedOpts.logScope = options.logScope;
@@ -71,9 +73,11 @@ export async function completeText(options: CompleteTextOptions): Promise<string
   if (USE_OPENMYST) {
     const token = getAuthTokenSync();
     if (!token) return null;
+    const model = options.model ?? (await getSettings()).defaultModel;
     const managedOpts: Parameters<typeof openmystCompleteText>[0] = {
       token,
       messages: options.messages,
+      model,
     };
     if (options.logScope) managedOpts.logScope = options.logScope;
     return openmystCompleteText(managedOpts);
