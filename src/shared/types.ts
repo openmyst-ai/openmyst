@@ -29,7 +29,19 @@ export interface WorkspaceProject {
   updatedAt: string;
 }
 
-export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-chat';
+/**
+ * The curated list of models users can pick from in Settings. A single
+ * selection drives both chat and Deep Plan/Search — keeps cost predictable
+ * and avoids asking launch users to reason about two knobs.
+ */
+export const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2' },
+  { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+  { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
+  { id: 'z-ai/glm-4.5-air', label: 'GLM 4.5 Air' },
+];
+
+export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v3.2';
 
 export interface ProjectMeta {
   name: string;
@@ -45,7 +57,7 @@ export interface ProjectSummary {
 
 export type Result<T, E = string> = { ok: true; value: T } | { ok: false; error: E };
 
-export const DEFAULT_MODEL = 'google/gemma-4-26b-a4b-it';
+export const DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
 
 export type ChatRole = 'user' | 'assistant';
 

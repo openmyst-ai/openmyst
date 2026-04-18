@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { USE_OPENMYST } from '@shared/flags';
+import { MODEL_OPTIONS } from '@shared/types';
 import { useApp } from '../store/app';
 import { useAuth } from '../store/auth';
 import { useMe } from '../store/me';
@@ -11,18 +12,14 @@ export function SettingsModal(): JSX.Element {
   const { settings, closeSettings, refreshSettings } = useApp();
   const [key, setKey] = useState('');
   const [jinaKey, setJinaKey] = useState('');
-  const [model, setModel] = useState(settings?.defaultModel ?? '');
-  const [deepPlanModel, setDeepPlanModel] = useState(settings?.deepPlanModel ?? '');
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [showBugReport, setShowBugReport] = useState(false);
 
-  useEffect(() => {
-    if (settings) {
-      setModel(settings.defaultModel);
-      setDeepPlanModel(settings.deepPlanModel);
-    }
-  }, [settings]);
+  // One model drives both chat and Deep Plan/Search for launch — keeps the
+  // UI simple and cost predictable. We use `defaultModel` as the source of
+  // truth in the UI and mirror it to `deepPlanModel` on save.
+  const currentModel = settings?.defaultModel ?? '';
 
   const saveKey = async (): Promise<void> => {
     setLocalError(null);
@@ -48,11 +45,13 @@ export function SettingsModal(): JSX.Element {
     }
   };
 
-  const saveModel = async (): Promise<void> => {
+  const changeModel = async (next: string): Promise<void> => {
+    if (!next || next === currentModel) return;
     setLocalError(null);
     setSaving(true);
     try {
-      await bridge.settings.setDefaultModel(model);
+      await bridge.settings.setDefaultModel(next);
+      await bridge.settings.setDeepPlanModel(next);
       await refreshSettings();
     } catch (err) {
       setLocalError((err as Error).message);
@@ -85,18 +84,35 @@ export function SettingsModal(): JSX.Element {
     }
   };
 
-  const saveDeepPlanModel = async (): Promise<void> => {
-    setLocalError(null);
-    setSaving(true);
-    try {
-      await bridge.settings.setDeepPlanModel(deepPlanModel);
-      await refreshSettings();
-    } catch (err) {
-      setLocalError((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
+  // The list the dropdown renders. If the current saved model is something
+  // custom (not one of the curated options), surface it so the user can see
+  // what's selected without us silently rewriting their config.
+  const optionsWithCurrent = MODEL_OPTIONS.some((o) => o.id === currentModel)
+    ? MODEL_OPTIONS
+    : [{ id: currentModel, label: `${currentModel} (custom)` }, ...MODEL_OPTIONS];
+
+  const modelDropdown = (
+    <section className="modal-section">
+      <h3>Model</h3>
+      <p className="muted">
+        Used for chat, Deep Plan, and Deep Search.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentModel}
+          onChange={(e) => void changeModel(e.target.value)}
+          disabled={saving}
+        >
+          {optionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </section>
+  );
 
   return (
     <div className="modal-backdrop" onClick={closeSettings}>
@@ -109,7 +125,10 @@ export function SettingsModal(): JSX.Element {
         </header>
 
         {USE_OPENMYST ? (
-          <AccountSection />
+          <>
+            <AccountSection />
+            {modelDropdown}
+          </>
         ) : (
           <>
             <section className="modal-section">
@@ -144,21 +163,7 @@ export function SettingsModal(): JSX.Element {
               )}
             </section>
 
-            <section className="modal-section">
-              <h3>Default model</h3>
-              <p className="muted">OpenRouter model id used unless a project overrides it.</p>
-              <div className="row">
-                <input
-                  type="text"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="google/gemma-3-27b-it"
-                />
-                <button type="button" onClick={() => void saveModel()} disabled={saving}>
-                  Save model
-                </button>
-              </div>
-            </section>
+            {modelDropdown}
 
             <section className="modal-section">
               <h3>Jina API key</h3>
@@ -193,24 +198,6 @@ export function SettingsModal(): JSX.Element {
               )}
             </section>
 
-            <section className="modal-section">
-              <h3>Deep Plan model</h3>
-              <p className="muted">
-                OpenRouter model used by Deep Plan's planner and one-shot generator. Defaults to an
-                open-source model to keep the research loop cheap.
-              </p>
-              <div className="row">
-                <input
-                  type="text"
-                  value={deepPlanModel}
-                  onChange={(e) => setDeepPlanModel(e.target.value)}
-                  placeholder="deepseek/deepseek-chat"
-                />
-                <button type="button" onClick={() => void saveDeepPlanModel()} disabled={saving}>
-                  Save model
-                </button>
-              </div>
-            </section>
           </>
         )}
 

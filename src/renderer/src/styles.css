@@ -161,6 +161,22 @@ input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
+.model-select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
+  flex: 1;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.model-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
 
 h1,
 h2,
