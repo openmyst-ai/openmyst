@@ -188,6 +188,24 @@ export async function refreshMe(options: RefreshOptions = {}): Promise<MeStatus>
     return getStatus();
   }
 
+  // Belt-and-braces: `loadCache` scrubs non-ASCII tokens on startup, but if
+  // one slips through (e.g. a token set by a previous build that didn't
+  // validate) every fetch will throw a "Cannot convert argument to a
+  // ByteString" TypeError forever. Invalidate proactively so the user is
+  // routed back to sign-in instead of stuck on "Signing in…".
+  for (let i = 0; i < token.length; i++) {
+    if (token.charCodeAt(i) > 0xff) {
+      logError('me', 'token.nonAscii', new Error('Cached token has non-ASCII characters'));
+      await invalidateToken('invalid_token');
+      cached = null;
+      offline = false;
+      lastError = 'Your saved token is corrupted — please sign in again.';
+      loading = false;
+      notifyChanged();
+      return getStatus();
+    }
+  }
+
   const now = Date.now();
   if (!options.force && now - lastFetchAttempt < MIN_REFRESH_INTERVAL_MS && cached) {
     return getStatus();

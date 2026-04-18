@@ -69,13 +69,41 @@ function notifyChanged(): void {
   broadcast(IpcChannels.Auth.Changed);
 }
 
+/**
+ * HTTP header values must be Latin-1 (ByteString) — anything >0xFF makes
+ * undici throw before the request leaves the process. We saw tokens arrive
+ * with U+2026 HORIZONTAL ELLIPSIS embedded (most likely from a "smart
+ * punctuation" auto-replace or a copy from a visually-truncated UI). A token
+ * that fails this check is unusable for `Authorization: Bearer …`, so treat
+ * it as invalid and make the user sign in again rather than letting every
+ * `/me` refresh crash for eternity.
+ */
+function isHeaderSafe(token: string): boolean {
+  for (let i = 0; i < token.length; i++) {
+    if (token.charCodeAt(i) > 0xff) return false;
+  }
+  return true;
+}
+
 async function loadCache(): Promise<void> {
   if (cacheLoaded) return;
   try {
     const stored = await readStored();
     if (stored.tokenCipher && safeStorage.isEncryptionAvailable()) {
       const buf = Buffer.from(stored.tokenCipher, 'base64');
-      cachedToken = safeStorage.decryptString(buf);
+      const decrypted = safeStorage.decryptString(buf);
+      if (isHeaderSafe(decrypted)) {
+        cachedToken = decrypted;
+      } else {
+        // Poisoned token on disk — almost certainly a paste of a display-
+        // truncated value with a literal ellipsis. Clear it so the app
+        // returns to the sign-in screen instead of looping on refresh errors.
+        logError('auth', 'cache.load.rejected', new Error('Stored token has non-ASCII characters'));
+        cachedToken = null;
+        await writeStored({ ...stored, tokenCipher: null }).catch((err) =>
+          logError('auth', 'cache.clear.failed', err),
+        );
+      }
     } else {
       cachedToken = null;
     }
@@ -151,6 +179,12 @@ export async function completeSignInFromUrl(rawUrl: string): Promise<boolean> {
     });
     return false;
   }
+  if (!isHeaderSafe(token)) {
+    // URL round-trip should never introduce smart ellipsis, so this is a
+    // backend/transport bug worth logging rather than silently recovering.
+    logError('auth', 'callback.nonAsciiToken', new Error('Deep-link token has non-ASCII characters'));
+    return false;
+  }
 
   if (!pendingState || state !== pendingState) {
     log('auth', 'callback.stateMismatch', {
@@ -175,6 +209,16 @@ export async function completeSignInFromUrl(rawUrl: string): Promise<boolean> {
 export async function pasteToken(token: string): Promise<void> {
   const trimmed = token.trim();
   if (!trimmed) throw new Error('Token must be a non-empty string.');
+  if (!isHeaderSafe(trimmed)) {
+    // Most common cause: the user copied a display-truncated value with a
+    // literal "…" ellipsis, or smart-punctuation rewrote "..." → "…". Either
+    // way the token can't be used as an HTTP header — reject loudly instead
+    // of storing it and failing on every future request.
+    throw new Error(
+      'Token contains non-ASCII characters (likely an ellipsis "…" from a truncated copy). ' +
+        'Copy the full token from the dashboard and paste it again.',
+    );
+  }
   await persistToken(trimmed);
   log('auth', 'paste.ok', { tokenPrefix: trimmed.slice(0, 8) });
   notifyChanged();
