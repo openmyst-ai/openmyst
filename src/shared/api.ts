@@ -43,6 +43,7 @@ export interface MystApi {
     hasJinaKey: () => Promise<boolean>;
     clearJinaKey: () => Promise<void>;
     setDeepPlanModel: (model: string) => Promise<void>;
+    setSummaryModel: (model: string) => Promise<void>;
   };
   projects: {
     createNew: () => Promise<Result<ProjectMeta>>;

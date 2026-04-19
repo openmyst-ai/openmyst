@@ -1,6 +1,7 @@
 import type { SourceMeta } from '@shared/types';
 import { completeText } from '../../llm';
-import { getSettings } from '../settings';
+import { logError } from '../../platform';
+import { getSummaryModel } from '../settings';
 import { locateAnchors, type RawLlmAnchor } from './anchors';
 import type { SourceAnchor } from '@shared/types';
 
@@ -90,9 +91,9 @@ export async function generateDigest(
   hint: string,
   existingSources: SourceMeta[] = [],
 ): Promise<SourceDigest> {
-  const { defaultModel } = await getSettings();
+  const model = await getSummaryModel();
   const raw = await completeText({
-    model: defaultModel,
+    model,
     logScope: 'sources',
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -124,7 +125,15 @@ export async function generateDigest(
         typeof parsed.indexSummary === 'string' ? parsed.indexSummary : `Source: ${hint}`,
       anchors,
     };
-  } catch {
+  } catch (err) {
+    // Fallback used to be silent — made user-visible "summaries" that were
+    // just the first 500 chars of the raw text. Log the model id and a
+    // sample of the raw reply so it's obvious in the session log which
+    // summary model is failing to produce valid JSON.
+    logError('sources', 'digest.parseFailed', err, {
+      model,
+      rawHead: raw.slice(0, 200),
+    });
     return fallbackDigest(rawText, hint);
   }
 }

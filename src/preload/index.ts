@@ -42,6 +42,7 @@ const api: MystApi = {
     hasJinaKey: () => ipcRenderer.invoke(IpcChannels.Settings.HasJinaKey),
     clearJinaKey: () => ipcRenderer.invoke(IpcChannels.Settings.ClearJinaKey),
     setDeepPlanModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDeepPlanModel, model),
+    setSummaryModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetSummaryModel, model),
   },
   projects: {
     createNew: () => ipcRenderer.invoke(IpcChannels.Projects.CreateNew),

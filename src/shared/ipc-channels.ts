@@ -21,6 +21,7 @@ export const IpcChannels = {
     HasJinaKey: 'settings:has-jina-key',
     ClearJinaKey: 'settings:clear-jina-key',
     SetDeepPlanModel: 'settings:set-deep-plan-model',
+    SetSummaryModel: 'settings:set-summary-model',
   },
   Projects: {
     CreateNew: 'projects:create-new',

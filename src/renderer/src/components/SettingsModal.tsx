@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { USE_OPENMYST } from '@shared/flags';
-import { MODEL_OPTIONS } from '@shared/types';
+import { MODEL_OPTIONS, SUMMARY_MODEL_OPTIONS } from '@shared/types';
 import type { UpdateStatus } from '@shared/types';
 import { useApp } from '../store/app';
 import { useAuth } from '../store/auth';
@@ -19,8 +19,11 @@ export function SettingsModal(): JSX.Element {
 
   // One model drives both chat and Deep Plan/Search for launch — keeps the
   // UI simple and cost predictable. We use `defaultModel` as the source of
-  // truth in the UI and mirror it to `deepPlanModel` on save.
+  // truth in the UI and mirror it to `deepPlanModel` on save. The summary
+  // model (digest calls inside research) is a separate knob because it's a
+  // bounded JSON-shaped task where a fast cheap model gives a 2-3× speedup.
   const currentModel = settings?.defaultModel ?? '';
+  const currentSummaryModel = settings?.summaryModel ?? '';
 
   const saveKey = async (): Promise<void> => {
     setLocalError(null);
@@ -61,6 +64,20 @@ export function SettingsModal(): JSX.Element {
     }
   };
 
+  const changeSummaryModel = async (next: string): Promise<void> => {
+    if (!next || next === currentSummaryModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setSummaryModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveJinaKey = async (): Promise<void> => {
     setLocalError(null);
     setSaving(true);
@@ -92,11 +109,20 @@ export function SettingsModal(): JSX.Element {
     ? MODEL_OPTIONS
     : [{ id: currentModel, label: `${currentModel} (custom)` }, ...MODEL_OPTIONS];
 
+  const summaryOptionsWithCurrent = SUMMARY_MODEL_OPTIONS.some(
+    (o) => o.id === currentSummaryModel,
+  )
+    ? SUMMARY_MODEL_OPTIONS
+    : [
+        { id: currentSummaryModel, label: `${currentSummaryModel} (custom)` },
+        ...SUMMARY_MODEL_OPTIONS,
+      ];
+
   const modelDropdown = (
     <section className="modal-section">
       <h3>Model</h3>
       <p className="muted">
-        Used for chat, Deep Plan, and Deep Search.
+        Used for chat, Deep Plan, and Deep Search planning.
       </p>
       <div className="row">
         <select
@@ -106,6 +132,30 @@ export function SettingsModal(): JSX.Element {
           disabled={saving}
         >
           {optionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </section>
+  );
+
+  const summaryModelDropdown = (
+    <section className="modal-section">
+      <h3>Research summary model</h3>
+      <p className="muted">
+        Used to summarise ingested sources during Deep Search / Deep Plan. A
+        smaller model here speeds up research without affecting chat quality.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentSummaryModel}
+          onChange={(e) => void changeSummaryModel(e.target.value)}
+          disabled={saving}
+        >
+          {summaryOptionsWithCurrent.map((o) => (
             <option key={o.id} value={o.id}>
               {o.label}
             </option>
@@ -129,6 +179,7 @@ export function SettingsModal(): JSX.Element {
           <>
             <AccountSection />
             {modelDropdown}
+            {summaryModelDropdown}
           </>
         ) : (
           <>
@@ -165,6 +216,7 @@ export function SettingsModal(): JSX.Element {
             </section>
 
             {modelDropdown}
+            {summaryModelDropdown}
 
             <section className="modal-section">
               <h3>Jina API key</h3>
