@@ -253,7 +253,33 @@ function extractSourceUrl(text: string): string | undefined {
 
 export async function ingestText(text: string, title: string): Promise<SourceMeta> {
   const existing = await listSources();
-  const digest = await generateDigest(text, title, existing);
+  const digest = await prepareIngestDigest(text, title, existing);
+  return saveIngestedDigest(text, title, digest);
+}
+
+/**
+ * LLM-only half of ingestion — safe to run concurrently for a batch of
+ * sources because it touches no filesystem state. Pair with
+ * `saveIngestedDigest` (which must be serialised) to persist the result.
+ */
+export async function prepareIngestDigest(
+  text: string,
+  title: string,
+  existingSources: SourceMeta[],
+): Promise<SourceDigest> {
+  return generateDigest(text, title, existingSources);
+}
+
+/**
+ * Serial half of ingestion — writes the source file and rebuilds the
+ * sources/wiki indexes. Must not run concurrently with other ingests or
+ * index updates race and one wins.
+ */
+export async function saveIngestedDigest(
+  text: string,
+  title: string,
+  digest: SourceDigest,
+): Promise<SourceMeta> {
   const slug = await uniqueSlugFor(slugify(digest.name || title));
   const sourcePath = extractSourceUrl(text);
   const meta = await saveSource(slug, digest, 'pasted', title, text, sourcePath);
