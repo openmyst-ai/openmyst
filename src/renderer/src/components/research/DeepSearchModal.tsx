@@ -20,9 +20,10 @@ import { ResearchGraph } from './ResearchGraph';
  */
 
 export function DeepSearchModal(): JSX.Element | null {
-  const { visible, status, error, close, refresh, start, stop, addHint, clearError } =
+  const { visible, status, error, close, refresh, start, stop, reset, addHint, clearError } =
     useDeepSearch();
   const pushResearchEvent = useResearchEvents((s) => s.push);
+  const resetResearchEvents = useResearchEvents((s) => s.reset);
   const researchEvents = useResearchEvents((s) => s.events);
 
   const [taskDraft, setTaskDraft] = useState('');
@@ -238,7 +239,8 @@ export function DeepSearchModal(): JSX.Element | null {
               className="dp-btn dp-btn-secondary"
               onClick={() => {
                 setTaskDraft('');
-                void useDeepSearch.getState().refresh();
+                resetResearchEvents();
+                void reset();
               }}
             >
               Start another run

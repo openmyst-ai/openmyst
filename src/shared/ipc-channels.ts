@@ -107,6 +107,7 @@ export const IpcChannels = {
     Status: 'deep-search:status',
     Start: 'deep-search:start',
     Stop: 'deep-search:stop',
+    Reset: 'deep-search:reset',
     AddHint: 'deep-search:add-hint',
     Changed: 'deep-search:changed',
   },

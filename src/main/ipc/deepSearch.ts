@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
-import { addHint, getStatus, startSearch, stopSearch } from '../features/deepSearch';
+import { addHint, getStatus, resetSearch, startSearch, stopSearch } from '../features/deepSearch';
 
 export function registerDeepSearchIpc(): void {
   ipcMain.handle(IpcChannels.DeepSearch.Status, async () => getStatus());
@@ -13,6 +13,8 @@ export function registerDeepSearchIpc(): void {
   });
 
   ipcMain.handle(IpcChannels.DeepSearch.Stop, async () => stopSearch());
+
+  ipcMain.handle(IpcChannels.DeepSearch.Reset, async () => resetSearch());
 
   ipcMain.handle(IpcChannels.DeepSearch.AddHint, async (_event, hint: unknown) => {
     if (typeof hint !== 'string') throw new Error('Hint must be a string.');

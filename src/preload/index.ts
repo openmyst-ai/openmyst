@@ -222,6 +222,7 @@ const api: MystApi = {
     status: () => ipcRenderer.invoke(IpcChannels.DeepSearch.Status),
     start: (task) => ipcRenderer.invoke(IpcChannels.DeepSearch.Start, task),
     stop: () => ipcRenderer.invoke(IpcChannels.DeepSearch.Stop),
+    reset: () => ipcRenderer.invoke(IpcChannels.DeepSearch.Reset),
     addHint: (hint) => ipcRenderer.invoke(IpcChannels.DeepSearch.AddHint, hint),
     onChanged: (callback) => {
       const handler = (): void => {
