@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { USE_OPENMYST } from '@shared/flags';
 import { bridge } from '../api/bridge';
 import { useApp } from '../store/app';
 import { useDeepPlan } from '../store/deepPlan';
@@ -80,7 +81,12 @@ export function DeepPlanMode(): JSX.Element {
 
   const session = status?.session ?? null;
   const needsIntent = !session || session.stage === 'intent';
-  const hasOpenRouterKey = settings?.hasOpenRouterKey ?? false;
+  // Managed-mode users don't bring their own OpenRouter key — the backend
+  // supplies one via the auth-gated proxy. Only the BYOK dev build needs
+  // to block Deep Plan on `hasOpenRouterKey`. Prior to this guard,
+  // managed users were seeing "Deep Plan needs an OpenRouter API key"
+  // and couldn't start a session because the warning disabled the input.
+  const hasOpenRouterKey = USE_OPENMYST ? true : (settings?.hasOpenRouterKey ?? false);
   const isResearchStage = session?.stage === 'research';
 
   const tutorial = useTutorial('deepPlan');
