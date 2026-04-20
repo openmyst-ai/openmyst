@@ -1,4 +1,5 @@
 import type { DeepPlanRubric, DeepPlanSession, SourceMeta } from '@shared/types';
+import { WRITING_SKILL } from '../../writing';
 
 /**
  * Prompt templates for the Deep Plan planner model. Each stage has a
@@ -385,7 +386,13 @@ Output ONLY source_lookup fences (one block per lookup), and nothing else. No pr
 {"slug": "vaswani-2017", "anchor": "main-finding"}
 \`\`\`
 
-If the detailed summaries are genuinely sufficient and no verbatim text would help, output nothing at all — an empty response is valid.`;
+If the detailed summaries are genuinely sufficient and no verbatim text would help, output nothing at all — an empty response is valid.
+
+---
+
+[Writing-style guide — applies to the draft that will run after this pass. You don't need to act on this now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide in full.]
+
+${WRITING_SKILL}`;
 }
 
 export function oneShotPrompt(
@@ -437,5 +444,11 @@ Form + output rules:
 - Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
 - Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft.
 
-Output: the complete markdown draft, nothing else.`;
+Output: the complete markdown draft, nothing else.
+
+---
+
+Writing style — read and internalise before you write a single word. This is the bar the draft has to clear:
+
+${WRITING_SKILL}`;
 }
