@@ -44,7 +44,7 @@ export function WikiGraphColumn(): JSX.Element {
   );
 
   const runQueries = useMemo(
-    () => queriesForCurrentRun(researchEvents),
+    () => allQueriesNewestFirst(researchEvents),
     [researchEvents],
   );
 
@@ -106,28 +106,18 @@ export function WikiGraphColumn(): JSX.Element {
   );
 }
 
-function queriesForCurrentRun(
+function allQueriesNewestFirst(
   events: DeepPlanResearchEvent[],
 ): Array<{ queryId: string; query: string; rationale: string }> {
-  // Walk backwards to find the most recent run, then collect its queries
-  // forward so the newest query ends up at the bottom of the list.
-  let runId: string | null = null;
+  // Walk backwards across every run in the session. Continue-research
+  // kicks off a new runId but the user still wants to see what they've
+  // already searched for, so the log is per-session, not per-run. A full
+  // reset (explicit Reset button in Deep Search) is the only thing that
+  // wipes the log.
+  const out: Array<{ queryId: string; query: string; rationale: string }> = [];
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i]!;
-    if (ev.kind === 'run-start') {
-      runId = ev.runId;
-      break;
-    }
-    if ('runId' in ev && ev.runId) {
-      runId = ev.runId;
-      break;
-    }
-  }
-  if (!runId) return [];
-  const out: Array<{ queryId: string; query: string; rationale: string }> = [];
-  for (const ev of events) {
     if (ev.kind !== 'query-start') continue;
-    if (ev.runId !== runId) continue;
     out.push({ queryId: ev.queryId, query: ev.query, rationale: ev.rationale });
   }
   return out;

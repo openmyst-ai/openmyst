@@ -62,8 +62,9 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
 
 Direct links vs related slugs:
 - Inline \`[Name](slug.md)\` wikilinks in the summary are for DIRECT references — places where this source builds on, cites, rebuts, or explicitly connects to another source. Use only when there's a real, specific connection worth clicking through for.
-- \`relatedSlugs\` is for INDIRECT related-reading pointers — but ONLY ones with a TIGHT, SPECIFIC connection (same sub-topic, directly comparable method, shared core concept, or one that clearly extends/contradicts this one). Do NOT list every source that happens to touch the same broad field. A reader should look at each related entry and immediately understand why it's there — generic "both are about reinforcement learning" is NOT enough; "both propose actor-critic variants" is.
-- Be strict. If a connection isn't close, leave it out. Returning few entries — or none — is better than a bloated list. Quality over quantity.
+- \`relatedSlugs\` is for INDIRECT related-reading pointers — and the bar for inclusion is HIGH. The connection must be so close that a reader would say "obviously these two go together": same sub-topic + same angle, directly comparable method, one clearly extends/contradicts the other, or both are specific instances of the exact same concept. Generic "same broad field" is NOT enough. "Both about reinforcement learning" → no. "Both propose on-policy actor-critic variants" → yes.
+- Default to FEW links. A general/foundational source covering a whole field should usually have 0–2 related links, not 10. A narrow source that sits in a specific conversation with other sources you've seen can have more. A summary/survey/review document that explicitly catalogs a body of work is the rare case where many links are appropriate — only then.
+- When in doubt, leave it out. Fewer, tighter pointers make the graph useful; a long list of loosely-related entries makes it noise.
 - Pick slugs (without \`.md\`) ONLY from the existing-sources list provided. Never invent slugs. Do not include this source's own slug.
 
 Anchor rules (load-bearing):
@@ -137,7 +138,12 @@ function buildUserPrompt(rawText: string, hint: string, existingSources: SourceM
         .map((s) => `- ${s.name} (${s.slug}.md)`)
         .join('\n')}`
     : '';
-  return `Source hint: "${hint}"${existingBlock}\n\nRaw text:\n${preview}`;
+  // Summary models otherwise default to their training-cutoff worldview —
+  // handing them today's date lets them reason about how recent a source
+  // is relative to "now" when it matters (e.g. noting a 2024 paper as
+  // recent rather than cutting-edge, flagging pre-2020 claims as dated).
+  const today = new Date().toISOString().slice(0, 10);
+  return `Today's date: ${today}\nSource hint: "${hint}"${existingBlock}\n\nRaw text:\n${preview}`;
 }
 
 export async function generateDigest(

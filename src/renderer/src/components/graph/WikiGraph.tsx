@@ -100,7 +100,7 @@ function defaultParams(width: number, height: number): SimParams {
     width,
     height,
     repulsion: 5200 * scale,
-    spring: 0.03,
+    spring: 0.001,
     springLength: 190 * scale,
     centerGravity: 0.009,
     damping: 0.84,
@@ -137,7 +137,7 @@ export function computeDegrees(edges: { source: string; target: string }[]): Map
 }
 
 export function WikiGraph({
-  graph,
+  graph: graphProp,
   freshSlugs,
   pendingIds,
   running = false,
@@ -171,6 +171,71 @@ export function WikiGraph({
     () => ({ ...defaultParams(width, height), ...paramsOverride }),
     [width, height, paramsOverride],
   );
+
+  // Staggered reveal — when a batch of ingests lands (query-done often
+  // drops 3 sources at once), we pop them onto the graph one per second
+  // instead of slamming them in simultaneously. First-ever graph reveals
+  // everything immediately so there's no empty canvas on initial mount.
+  const revealedRef = useRef<Set<string>>(new Set());
+  const [revealTick, setRevealTick] = useState(0);
+
+  useEffect(() => {
+    if (!graphProp) {
+      if (revealedRef.current.size > 0) {
+        revealedRef.current = new Set();
+        setRevealTick((t) => t + 1);
+      }
+      return;
+    }
+    const currentIds = new Set(graphProp.nodes.map((n) => n.id));
+    let changed = false;
+    for (const id of Array.from(revealedRef.current)) {
+      if (!currentIds.has(id)) {
+        revealedRef.current.delete(id);
+        changed = true;
+      }
+    }
+    const firstLoad = revealedRef.current.size === 0;
+    const incoming: string[] = [];
+    for (const id of currentIds) {
+      if (!revealedRef.current.has(id)) incoming.push(id);
+    }
+    if (firstLoad) {
+      for (const id of incoming) revealedRef.current.add(id);
+      setRevealTick((t) => t + 1);
+      return;
+    }
+    if (incoming.length === 0) {
+      if (changed) setRevealTick((t) => t + 1);
+      return;
+    }
+    const timers: number[] = [];
+    incoming.forEach((id, i) => {
+      const handle = window.setTimeout(() => {
+        revealedRef.current.add(id);
+        setRevealTick((t) => t + 1);
+      }, i * 1000);
+      timers.push(handle);
+    });
+    if (changed) setRevealTick((t) => t + 1);
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [graphProp]);
+
+  // Reveal-filtered view of the graph. Every downstream hook (degree
+  // map, sim sync, SVG render) reads from this so the reveal cascade is
+  // invisible to the rest of the component.
+  const graph = useMemo<WikiGraphData | null>(() => {
+    if (!graphProp) return null;
+    const revealed = revealedRef.current;
+    const nodes = graphProp.nodes.filter((n) => revealed.has(n.id));
+    const edges = graphProp.edges.filter(
+      (e) => revealed.has(e.source) && revealed.has(e.target),
+    );
+    return { nodes, edges };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphProp, revealTick]);
 
   // Degree map — a source's size scales with how many edges touch it.
   const degreeById = useMemo(
@@ -229,7 +294,6 @@ export function WikiGraph({
   // Silence unused-var warning for `kickUntilRef` — kept in the closure
   // so callers that want to gate UI off a recent mutation can read it.
   void kickUntilRef;
-  void running;
 
   // ─ Zoom/pan ─────────────────────────────────────────────────────────
   const handleZoom = (factor: number): void => {
@@ -329,7 +393,9 @@ export function WikiGraph({
 
         {nodeCount === 0 ? (
           <div className="wiki-graph-empty">
-            No sources yet. Agent searching...
+            {running
+              ? 'Agent searching…'
+              : 'No sources yet. Start a research run, or drop sources into the project to build one up.'}
           </div>
         ) : (
           <svg
