@@ -21,6 +21,14 @@ export function stripDeepPlanFences(text: string): { visible: string; isWriting:
     visible = visible.replace(fullRe, '');
   }
 
+  // Malformed-lookup fallback: models sometimes emit a bare `{slug: "..."}`
+  // (JS-object style, unfenced) mid-message — usually a source_lookup they
+  // forgot to fence. Strip any such fragment that mentions a `slug` key.
+  visible = visible.replace(
+    /\{[^{}\n]*\bslug\s*:\s*["'][^"']*["'][^{}\n]*\}/g,
+    '',
+  );
+
   let isWriting = false;
   for (const tag of BLOCK_TAGS) {
     const openTag = '```' + tag;

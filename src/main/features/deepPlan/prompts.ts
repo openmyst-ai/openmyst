@@ -149,7 +149,7 @@ ${sourcesSection}Your job: look at the rubric and the task and point out what's 
 
 ${sourcesGuidance}
 
-Keep it to 3-5 short bullets or sentences, each tied to a specific gap. End with a one-line recommendation: either "I'll go find that" (if research is needed) or "I think we can proceed" (if the rubric is already tight). Do not emit a rubric_update in this stage.`;
+Keep it to 3-5 short bullets or sentences, each tied to a specific gap. End with a one-line recommendation: either "I'll go find that" (if research is needed) or "I think we can proceed" (if the rubric is already tight). Do not emit a rubric_update in this stage. Do NOT emit any source_lookup blocks or inline JSON like \`{slug: "..."}\` — this stage is a plain conversation about the rubric. Refer to sources by name, not slug.`;
 }
 
 /**
