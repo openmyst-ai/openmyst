@@ -2617,6 +2617,15 @@ img.login-logo {
 .wiki-graph-node-g:hover .wiki-graph-label {
   fill: var(--fg);
 }
+/* Transparent hit-target circle — fixed-radius hover/click zone so the
+ * visible circle can grow/shrink on hover without the hit area changing
+ * underneath the cursor (same pattern as `.rg-hit` / `.dp-graph-hit`). */
+.wiki-graph-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: pointer;
+}
 .wiki-graph-tooltip {
   margin-top: 10px;
   padding: 10px 12px;
@@ -3234,6 +3243,14 @@ img.login-logo {
   fill: #9a7a95;
   stroke: #6b4a7a;
   stroke-width: 1.2;
+}
+/* Transparent hit-target circle with a fixed, generous radius. Owns the
+ * hover events so the visible circle can grow/shrink freely without the
+ * hover zone changing underneath the cursor (same pattern as `.rg-hit`). */
+.dp-graph-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
   cursor: pointer;
 }
 .dp-graph-tooltip {

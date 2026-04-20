@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SourceMeta, WikiGraph, WikiGraphNode } from '@shared/types';
 import { bridge } from '../api/bridge';
 import { renderMarkdown } from '../utils/markdown';
+import {
+  runStatic,
+  syncNodes,
+  toArray,
+  type SimEdge,
+  type SimNode,
+  type SimParams,
+} from './graph/forceSim';
 
 /**
  * Deep Wiki — an Obsidian-style map of the research wiki. Lives next to Deep
@@ -13,99 +21,30 @@ import { renderMarkdown } from '../utils/markdown';
  * what makes the agent's citations sharp.
  */
 
-interface SimNode extends WikiGraphNode {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
-
-interface SimEdge {
-  source: string;
-  target: string;
-}
-
 const WIDTH = 820;
 const HEIGHT = 520;
-const CENTER_X = WIDTH / 2;
-const CENTER_Y = HEIGHT / 2;
-const SIM_TICKS = 520;
-const REPULSION = 5200;
-const SPRING = 0.03;
-const SPRING_LENGTH = 190;
-const CENTER_GRAVITY = 0.009;
-const DAMPING = 0.84;
+const SETTLE_TICKS_FIRST = 520;
+const SETTLE_TICKS_DELTA = 120;
 
-function runSimulation(nodes: SimNode[], edges: SimEdge[]): void {
-  if (nodes.length === 0) return;
-  const byId = new Map(nodes.map((n) => [n.id, n]));
+const PARAMS: SimParams = {
+  width: WIDTH,
+  height: HEIGHT,
+  repulsion: 5200,
+  spring: 0.03,
+  springLength: 190,
+  centerGravity: 0.009,
+  damping: 0.84,
+};
 
-  for (let tick = 0; tick < SIM_TICKS; tick++) {
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i]!;
-        const b = nodes[j]!;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const distSq = dx * dx + dy * dy || 0.01;
-        const dist = Math.sqrt(distSq);
-        const force = REPULSION / distSq;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx -= fx;
-        a.vy -= fy;
-        b.vx += fx;
-        b.vy += fy;
-      }
-    }
-
-    for (const e of edges) {
-      const a = byId.get(e.source);
-      const b = byId.get(e.target);
-      if (!a || !b) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const delta = dist - SPRING_LENGTH;
-      const fx = (dx / dist) * delta * SPRING;
-      const fy = (dy / dist) * delta * SPRING;
-      a.vx += fx;
-      a.vy += fy;
-      b.vx -= fx;
-      b.vy -= fy;
-    }
-
-    for (const n of nodes) {
-      n.vx += (CENTER_X - n.x) * CENTER_GRAVITY;
-      n.vy += (CENTER_Y - n.y) * CENTER_GRAVITY;
-      n.vx *= DAMPING;
-      n.vy *= DAMPING;
-      n.x += n.vx;
-      n.y += n.vy;
-    }
-  }
-}
-
-function seedNodes(graph: WikiGraph): SimNode[] {
-  const n = graph.nodes.length;
-  if (n === 0) return [];
-  const radius = Math.min(WIDTH, HEIGHT) * 0.35;
-  return graph.nodes.map((node, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(n, 1);
-    return {
-      ...node,
-      x: CENTER_X + Math.cos(angle) * radius,
-      y: CENTER_Y + Math.sin(angle) * radius,
-      vx: 0,
-      vy: 0,
-    };
-  });
-}
+const NODE_R = 7;
+const NODE_R_HOVER = 9;
+const HIT_R = 14;
 
 export function DeepWikiModal({ onClose }: { onClose: () => void }): JSX.Element {
   const [graph, setGraph] = useState<WikiGraph | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [previewSource, setPreviewSource] = useState<SourceMeta | null>(null);
+  const positionsRef = useRef<Map<string, SimNode>>(new Map());
 
   useEffect(() => {
     bridge.wiki.graph().then(setGraph).catch(console.error);
@@ -119,14 +58,44 @@ export function DeepWikiModal({ onClose }: { onClose: () => void }): JSX.Element
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  // Preserve positions across graph refetches — only newly-added nodes
+  // get seeded and only a short re-settle runs when new ones appear.
   const simNodes = useMemo<SimNode[]>(() => {
     if (!graph) return [];
-    const nodes = seedNodes(graph);
-    runSimulation(nodes, graph.edges);
-    return nodes;
+    const nodeIds = graph.nodes.map((n) => n.id);
+    const positions = positionsRef.current;
+    const isFirst = positions.size === 0;
+    const added = syncNodes(positions, nodeIds, PARAMS, { jitter: 10 });
+    const edges: SimEdge[] = graph.edges;
+
+    if (isFirst) {
+      runStatic(
+        Array.from(positions.values()),
+        edges,
+        PARAMS,
+        SETTLE_TICKS_FIRST,
+      );
+    } else if (added > 0) {
+      runStatic(
+        Array.from(positions.values()),
+        edges,
+        PARAMS,
+        SETTLE_TICKS_DELTA,
+      );
+    }
+    return toArray(positions, nodeIds);
   }, [graph]);
 
-  const nodeById = useMemo(() => new Map(simNodes.map((n) => [n.id, n])), [simNodes]);
+  const nodeById = useMemo(() => {
+    const m = new Map<string, SimNode & WikiGraphNode>();
+    if (!graph) return m;
+    const posById = new Map(simNodes.map((n) => [n.id, n]));
+    for (const meta of graph.nodes) {
+      const pos = posById.get(meta.id);
+      if (pos) m.set(meta.id, { ...meta, ...pos });
+    }
+    return m;
+  }, [graph, simNodes]);
   const hovered = hoverId ? nodeById.get(hoverId) ?? null : null;
 
   const sourceCount = graph?.nodes.length ?? 0;
@@ -206,29 +175,36 @@ export function DeepWikiModal({ onClose }: { onClose: () => void }): JSX.Element
                   </g>
                   <g>
                     {simNodes.map((n) => {
+                      const meta = nodeById.get(n.id);
+                      if (!meta) return null;
                       const active = hoverId === n.id || previewSource?.slug === n.id;
                       return (
-                        <g
-                          key={n.id}
-                          className="wiki-graph-node-g"
-                          onMouseEnter={() => setHoverId(n.id)}
-                          onMouseLeave={() => setHoverId(null)}
-                          onClick={() => handleNodeClick(n.id)}
-                        >
+                        <g key={n.id} className="wiki-graph-node-g">
                           <circle
                             cx={n.x}
                             cy={n.y}
-                            r={active ? 9 : 7}
+                            r={active ? NODE_R_HOVER : NODE_R}
                             className={active ? 'wiki-graph-node wiki-graph-node-active' : 'wiki-graph-node'}
+                            style={{ pointerEvents: 'none' }}
                           />
                           <text
                             x={n.x}
                             y={n.y + 20}
                             textAnchor="middle"
                             className="wiki-graph-label"
+                            style={{ pointerEvents: 'none' }}
                           >
-                            {n.name.length > 22 ? `${n.name.slice(0, 20)}…` : n.name}
+                            {meta.name.length > 22 ? `${meta.name.slice(0, 20)}…` : meta.name}
                           </text>
+                          <circle
+                            cx={n.x}
+                            cy={n.y}
+                            r={HIT_R}
+                            className="wiki-graph-hit"
+                            onMouseEnter={() => setHoverId(n.id)}
+                            onMouseLeave={() => setHoverId(null)}
+                            onClick={() => handleNodeClick(n.id)}
+                          />
                         </g>
                       );
                     })}

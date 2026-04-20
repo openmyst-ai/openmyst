@@ -1,98 +1,45 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WikiGraph, WikiGraphNode } from '@shared/types';
 import { bridge } from '../../api/bridge';
+import {
+  runStatic,
+  syncNodes,
+  toArray,
+  type SimNode,
+  type SimParams,
+} from '../graph/forceSim';
 
 /**
- * Live wiki graph for the right column of Deep Plan. Re-runs the simulation
- * whenever sources change (new research loop ingests or user-added sources).
- * Force sim is identical in spirit to WikiGraphModal but scaled to the
- * narrower column and tuned to animate subtly rather than freezing.
+ * Live wiki graph for the right column of Deep Plan. Re-settles when the
+ * set of sources changes but preserves positions for nodes we've already
+ * placed — so a fresh ingest during research doesn't snap every existing
+ * node to a new spot.
  */
-
-interface SimNode extends WikiGraphNode {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
 
 const WIDTH = 280;
 const HEIGHT = 420;
-const CENTER_X = WIDTH / 2;
-const CENTER_Y = HEIGHT / 2;
-const SIM_TICKS = 320;
-const REPULSION = 900;
-const SPRING = 0.04;
-const SPRING_LENGTH = 70;
-const CENTER_GRAVITY = 0.02;
-const DAMPING = 0.82;
+const SETTLE_TICKS_FIRST = 320;
+const SETTLE_TICKS_DELTA = 80;
 
-function runSimulation(nodes: SimNode[], edges: WikiGraph['edges']): void {
-  if (nodes.length === 0) return;
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  for (let tick = 0; tick < SIM_TICKS; tick++) {
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const a = nodes[i]!;
-        const b = nodes[j]!;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const distSq = dx * dx + dy * dy || 0.01;
-        const dist = Math.sqrt(distSq);
-        const force = REPULSION / distSq;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx -= fx;
-        a.vy -= fy;
-        b.vx += fx;
-        b.vy += fy;
-      }
-    }
-    for (const e of edges) {
-      const a = byId.get(e.source);
-      const b = byId.get(e.target);
-      if (!a || !b) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const delta = dist - SPRING_LENGTH;
-      const fx = (dx / dist) * delta * SPRING;
-      const fy = (dy / dist) * delta * SPRING;
-      a.vx += fx;
-      a.vy += fy;
-      b.vx -= fx;
-      b.vy -= fy;
-    }
-    for (const n of nodes) {
-      n.vx += (CENTER_X - n.x) * CENTER_GRAVITY;
-      n.vy += (CENTER_Y - n.y) * CENTER_GRAVITY;
-      n.vx *= DAMPING;
-      n.vy *= DAMPING;
-      n.x += n.vx;
-      n.y += n.vy;
-    }
-  }
-}
+const PARAMS: SimParams = {
+  width: WIDTH,
+  height: HEIGHT,
+  repulsion: 900,
+  spring: 0.04,
+  springLength: 70,
+  centerGravity: 0.02,
+  damping: 0.82,
+};
 
-function seedNodes(graph: WikiGraph): SimNode[] {
-  const n = graph.nodes.length;
-  if (n === 0) return [];
-  const radius = Math.min(WIDTH, HEIGHT) * 0.3;
-  return graph.nodes.map((node, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(n, 1);
-    return {
-      ...node,
-      x: CENTER_X + Math.cos(angle) * radius,
-      y: CENTER_Y + Math.sin(angle) * radius,
-      vx: 0,
-      vy: 0,
-    };
-  });
-}
+/** Visible circle stays small; hover zone is a separate generous hit target. */
+const NODE_R = 4;
+const NODE_R_HOVER = 6;
+const HIT_R = 10;
 
 export function WikiGraphColumn(): JSX.Element {
   const [graph, setGraph] = useState<WikiGraph | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const positionsRef = useRef<Map<string, SimNode>>(new Map());
 
   useEffect(() => {
     const load = (): void => {
@@ -103,14 +50,44 @@ export function WikiGraphColumn(): JSX.Element {
     return off;
   }, []);
 
+  // Top up positions for new nodes, drop stale ones, then settle. First
+  // full layout runs a long pass; incremental updates run a short one so
+  // new nodes find a spot without disturbing the existing constellation.
   const simNodes = useMemo<SimNode[]>(() => {
     if (!graph) return [];
-    const nodes = seedNodes(graph);
-    runSimulation(nodes, graph.edges);
-    return nodes;
+    const nodeIds = graph.nodes.map((n) => n.id);
+    const positions = positionsRef.current;
+    const isFirst = positions.size === 0;
+    const added = syncNodes(positions, nodeIds, PARAMS, { jitter: 6 });
+
+    if (isFirst) {
+      runStatic(
+        Array.from(positions.values()),
+        graph.edges,
+        PARAMS,
+        SETTLE_TICKS_FIRST,
+      );
+    } else if (added > 0) {
+      runStatic(
+        Array.from(positions.values()),
+        graph.edges,
+        PARAMS,
+        SETTLE_TICKS_DELTA,
+      );
+    }
+    return toArray(positions, nodeIds);
   }, [graph]);
 
-  const nodeById = useMemo(() => new Map(simNodes.map((n) => [n.id, n])), [simNodes]);
+  const nodeById = useMemo(() => {
+    const m = new Map<string, SimNode & WikiGraphNode>();
+    if (!graph) return m;
+    const posById = new Map(simNodes.map((n) => [n.id, n]));
+    for (const meta of graph.nodes) {
+      const pos = posById.get(meta.id);
+      if (pos) m.set(meta.id, { ...meta, ...pos });
+    }
+    return m;
+  }, [graph, simNodes]);
   const hovered = hoverId ? nodeById.get(hoverId) ?? null : null;
 
   return (
@@ -151,20 +128,28 @@ export function WikiGraphColumn(): JSX.Element {
               })}
             </g>
             <g>
-              {simNodes.map((n) => (
-                <g
-                  key={n.id}
-                  onMouseEnter={() => setHoverId(n.id)}
-                  onMouseLeave={() => setHoverId(null)}
-                >
-                  <circle
-                    cx={n.x}
-                    cy={n.y}
-                    r={hoverId === n.id ? 6 : 4}
-                    className="dp-graph-node"
-                  />
-                </g>
-              ))}
+              {simNodes.map((n) => {
+                const active = hoverId === n.id;
+                return (
+                  <g key={n.id}>
+                    <circle
+                      cx={n.x}
+                      cy={n.y}
+                      r={active ? NODE_R_HOVER : NODE_R}
+                      className="dp-graph-node"
+                      style={{ pointerEvents: 'none' }}
+                    />
+                    <circle
+                      cx={n.x}
+                      cy={n.y}
+                      r={HIT_R}
+                      className="dp-graph-hit"
+                      onMouseEnter={() => setHoverId(n.id)}
+                      onMouseLeave={() => setHoverId(null)}
+                    />
+                  </g>
+                );
+              })}
             </g>
           </svg>
         )}

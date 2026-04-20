@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DeepPlanResearchEvent, WikiGraph } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useSourcePreview } from '../../store/sourcePreview';
+import { tick, type SimEdge, type SimParams } from '../graph/forceSim';
 
 /**
  * Live, ticking force-directed graph of an in-flight research run. Nodes
@@ -51,72 +52,44 @@ const HEIGHT = 520;
 const CENTER_X = WIDTH / 2;
 const CENTER_Y = HEIGHT / 2;
 
-const REPULSION = 2800;
-const SPRING = 0.05;
 const QUERY_SPRING_LENGTH = 150;
 const RESULT_SPRING_LENGTH = 95;
 const SEED_SPRING_LENGTH = 140;
-const CENTER_GRAVITY = 0.008;
-const DAMPING = 0.84;
 
+const BASE_PARAMS: Omit<SimParams, 'springLength'> = {
+  width: WIDTH,
+  height: HEIGHT,
+  repulsion: 2800,
+  spring: 0.05,
+  centerGravity: 0.008,
+  damping: 0.84,
+};
+
+const ROOT_PINNED = new Set(['__root__']);
+
+/**
+ * Ticks the research graph once. Spring length is chosen per-edge based on
+ * the kinds of its endpoints — query hubs sit further from root than their
+ * results do, so the graph reads "hub → sub-hub → leaf" at a glance.
+ * Wiki-link edges between seeded sources sit in the middle so the
+ * pre-existing constellation spreads out.
+ */
 function step(nodes: Node[], edges: Edge[], byId: Map<string, Node>): void {
-  // Repulsion
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i]!;
-      const b = nodes[j]!;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const distSq = dx * dx + dy * dy || 0.01;
-      const dist = Math.sqrt(distSq);
-      const force = REPULSION / distSq;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      a.vx -= fx;
-      a.vy -= fy;
-      b.vx += fx;
-      b.vy += fy;
-    }
-  }
-
-  // Springs — query edges are longer than result edges so the graph reads
-  // "hub → sub-hub → leaf" at a glance. Wiki-link edges between seeded
-  // sources sit in the middle so the pre-existing constellation spreads.
-  for (const e of edges) {
+  const springLength = (e: SimEdge): number => {
     const a = byId.get(e.source);
     const b = byId.get(e.target);
-    if (!a || !b) continue;
-    let target: number;
-    if (a.kind === 'result' && b.kind === 'result') target = SEED_SPRING_LENGTH;
-    else if (b.kind === 'result') target = RESULT_SPRING_LENGTH;
-    else target = QUERY_SPRING_LENGTH;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-    const delta = dist - target;
-    const fx = (dx / dist) * delta * SPRING;
-    const fy = (dy / dist) * delta * SPRING;
-    a.vx += fx;
-    a.vy += fy;
-    b.vx -= fx;
-    b.vy -= fy;
-  }
-
-  for (const n of nodes) {
-    if (n.kind === 'root') {
-      // Root is pinned.
-      n.vx = 0;
-      n.vy = 0;
-      n.x = CENTER_X;
-      n.y = CENTER_Y;
-      continue;
-    }
-    n.vx += (CENTER_X - n.x) * CENTER_GRAVITY;
-    n.vy += (CENTER_Y - n.y) * CENTER_GRAVITY;
-    n.vx *= DAMPING;
-    n.vy *= DAMPING;
-    n.x += n.vx;
-    n.y += n.vy;
+    if (a && b && a.kind === 'result' && b.kind === 'result') return SEED_SPRING_LENGTH;
+    if (b && b.kind === 'result') return RESULT_SPRING_LENGTH;
+    return QUERY_SPRING_LENGTH;
+  };
+  tick(nodes, edges, { ...BASE_PARAMS, springLength }, ROOT_PINNED);
+  // Root is pinned dead-center — the shared tick freezes its velocity but
+  // doesn't reposition it, so keep the explicit snap here in case it ever
+  // drifts (e.g. the label change handler recreating the node).
+  const root = byId.get('__root__');
+  if (root) {
+    root.x = CENTER_X;
+    root.y = CENTER_Y;
   }
 }
 
