@@ -101,13 +101,13 @@ export function ConversationColumn({ session }: Props): JSX.Element {
               <div className="dp-msg-body">
                 {visible && <Markdown text={visible} />}
                 {(isWriting || !visible) && (
-                  <div className="dp-typing">
+                  <div className="dp-typing dp-typing-fade">
                     <span className="generating-dots">
                       <span className="dot" />
                       <span className="dot" />
                       <span className="dot" />
                     </span>
-                    <span className="dp-muted"> {isWriting ? 'Planning…' : 'Thinking…'}</span>
+                    <span className="dp-muted"> Thinking…</span>
                   </div>
                 )}
               </div>

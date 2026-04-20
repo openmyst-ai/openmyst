@@ -19,6 +19,14 @@ interface DeepPlanState {
   streamingBuffer: string;
   busy: boolean;
   error: string | null;
+  // Draft-generation modal state. `drafting` flips to true the moment the
+  // user hits "Generate Draft" and stays true until the main process
+  // broadcasts ChunkDone (or oneShot resolves). `draftBuffer` accumulates
+  // the streamed tokens so we can derive a live word count without
+  // showing the text itself — the user wanted a quiet "generating…"
+  // screen, not a text-spawn display.
+  drafting: boolean;
+  draftBuffer: string;
 
   refresh: () => Promise<void>;
   show: () => void;
@@ -44,6 +52,8 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   streamingBuffer: '',
   busy: false,
   error: null,
+  drafting: false,
+  draftBuffer: '',
 
   refresh: async () => {
     try {
@@ -142,14 +152,23 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   oneShot: async () => {
-    // Hide Deep Plan immediately so the user sees the draft land in the main
-    // editor live instead of watching it stream inside the planner view.
-    set({ busy: true, error: null, visible: false });
+    // Stay visible so the DraftGenerationModal can overlay the Deep Plan
+    // view while the model drafts. We hide Deep Plan only after the draft
+    // lands, so the editor revealing the finished doc is the last thing
+    // the user sees.
+    set({
+      busy: true,
+      error: null,
+      drafting: true,
+      draftBuffer: '',
+      streaming: false,
+      streamingBuffer: '',
+    });
     try {
       const status = await bridge.deepPlan.oneShot();
-      set({ status });
+      set({ status, drafting: false, draftBuffer: '', visible: false });
     } catch (err) {
-      set({ error: (err as Error).message });
+      set({ error: (err as Error).message, drafting: false, draftBuffer: '' });
     } finally {
       set({ busy: false });
     }
@@ -168,11 +187,24 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   ingestChunk: (chunk) => {
+    // During a one-shot draft, chunks feed the word-counter in the
+    // DraftGenerationModal rather than the planner's streaming bubble.
+    // We still accumulate them into a buffer so the counter can derive a
+    // live word count; the text itself is never shown.
+    if (get().drafting) {
+      set((prev) => ({ draftBuffer: prev.draftBuffer + chunk }));
+      return;
+    }
     if (!get().streaming) set({ streaming: true });
     set((prev) => ({ streamingBuffer: prev.streamingBuffer + chunk }));
   },
 
   finishStream: () => {
+    // Draft completion is handled inside `oneShot` itself — the main
+    // process broadcasts ChunkDone just before the IPC call resolves, so
+    // we ignore it here to avoid racing the modal down before the doc
+    // write lands. Planner-chat streams still need the reset.
+    if (get().drafting) return;
     set({ streaming: false, streamingBuffer: '' });
   },
 }));

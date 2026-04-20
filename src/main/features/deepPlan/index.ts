@@ -747,8 +747,6 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   // anchors / pages / raw files it wants pre-fetched. We resolve them off
   // disk and hand the formatted results to the draft prompt so the actual
   // draft call stays a single clean stream.
-  await writeDocument(target.filename, '_Looking up source passages…_\n');
-  broadcast(IpcChannels.Document.Changed);
   const prefetchedPassages = await runPreDraftLookups({
     model,
     session,
@@ -785,43 +783,26 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     promptChars: prompt.length,
   });
 
-  // Seed the doc with a visible "writing" placeholder so the user sees
-  // something the moment Deep Plan hides, before the first token arrives.
-  await writeDocument(target.filename, '_Writing draft…_\n');
-  broadcast(IpcChannels.Document.Changed);
-
-  let buffer = '';
-  let lastFlushAt = 0;
-  const FLUSH_MS = 300;
-  const flushDraft = async (): Promise<void> => {
-    const body = buffer.trimStart();
-    if (body.length === 0) return;
-    try {
-      await writeDocument(target.filename, body);
-      broadcast(IpcChannels.Document.Changed);
-    } catch (err) {
-      logError('deep-plan', 'oneshot.flushFailed', err);
-    }
-  };
+  // We deliberately do NOT stream into the document. The renderer shows a
+  // dedicated "generating…" modal driven by DeepPlan.Chunk broadcasts
+  // (used only for the live word counter), and the finished draft lands
+  // in the doc in one write at the end. Streaming into the file produced
+  // a distracting "text spawning" effect the user didn't want.
   let fullContent = '';
   try {
     fullContent = await streamChat({
       model,
       messages,
       logScope: 'deep-plan',
-      onChunk: (chunk) => {
-        buffer += chunk;
-        const now = Date.now();
-        if (now - lastFlushAt >= FLUSH_MS) {
-          lastFlushAt = now;
-          void flushDraft();
-        }
-      },
+      onChunk: (chunk) => broadcast(IpcChannels.DeepPlan.Chunk, chunk),
     });
   } catch (err) {
     logError('deep-plan', 'oneshot.failed', err);
+    broadcast(IpcChannels.DeepPlan.ChunkDone);
     throw err;
   }
+
+  broadcast(IpcChannels.DeepPlan.ChunkDone);
 
   const cleaned = fullContent.trim();
   if (cleaned.length === 0) {

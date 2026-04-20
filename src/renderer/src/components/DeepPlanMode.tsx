@@ -9,6 +9,7 @@ import { StageBar } from './deepPlan/StageBar';
 import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
 import { ConversationColumn } from './deepPlan/ConversationColumn';
+import { DraftGenerationModal } from './deepPlan/DraftGenerationModal';
 import { SourcePreviewPopup } from './SourcePreview';
 import { TutorialOverlay } from './tutorial/TutorialOverlay';
 import { DEEP_PLAN_TUTORIAL } from './tutorial/steps';
@@ -145,6 +146,7 @@ export function DeepPlanMode(): JSX.Element {
       </div>
 
       <SourcePreviewPopup />
+      <DraftGenerationModal />
       {tutorial.shouldShow && (
         <TutorialOverlay
           steps={DEEP_PLAN_TUTORIAL}
