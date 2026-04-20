@@ -54,23 +54,37 @@ export async function jinaSearch(options: {
   apiKey: string;
   query: string;
   maxResults?: number;
+  /**
+   * When true, request SERP metadata only (title + url + description) and
+   * skip the per-result page scrape. `content` is left empty and
+   * `rawContent` is null for all results. ~10× faster (1-2s vs 20-30s)
+   * because Jina doesn't fetch+parse every hit server-side. Callers that
+   * need bodies must fetch them separately via `r.jina.ai` / fetchUrlAsMarkdown.
+   */
+  lite?: boolean;
 }): Promise<JinaSearchResponse | null> {
-  const { apiKey, query, maxResults = 5 } = options;
+  const { apiKey, query, maxResults = 5, lite = false } = options;
 
-  log('deep-plan', 'jina.request', { query, maxResults });
+  log('deep-plan', 'jina.request', { query, maxResults, lite });
 
   // GET https://s.jina.ai/?q=<encoded>. The path-form
   // (`https://s.jina.ai/<query>`) works too, but using `?q=` avoids
   // url-encoding edge cases with slashes and `#` in user queries.
   const url = `${JINA_SEARCH_URL}?q=${encodeURIComponent(query)}`;
 
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    Authorization: `Bearer ${apiKey}`,
+  };
+  // Jina honors `X-Respond-With: no-content` on the search endpoint to
+  // skip the per-hit Reader pass. Main win: latency drops an order of
+  // magnitude since we stop paying for pages we're going to discard anyway.
+  if (lite) headers['X-Respond-With'] = 'no-content';
+
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
     });
 
     if (!response.ok) {

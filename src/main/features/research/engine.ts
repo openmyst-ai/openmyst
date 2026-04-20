@@ -4,6 +4,7 @@ import type { DeepPlanResearchEvent } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { listSources, prepareIngestDigest, saveIngestedDigest } from '../sources';
 import { searchWeb, type JinaResult } from './search';
+import { fetchUrlAsMarkdown } from './fetch';
 import type { ResearchQueryProposal } from '../deepPlan/parse';
 
 /**
@@ -210,21 +211,19 @@ async function runOneQuery(
   });
   if (results.length === 0) return [];
 
-  // Phase 1: cheap pre-filter in order. Emit result-seen + skip events
-  // eagerly so the graph animates as results land, and collect the
-  // candidates that survive filtering (up to MAX_INGEST_PER_QUERY).
+  // Phase 1: dedup before fetching. SERP is cheap; fetches are not, so we
+  // emit result-seen / duplicate-skip eagerly and only keep non-duplicate
+  // URLs for the fetch phase. We reserve canonicals in `seen` now so
+  // concurrent queries in the same run can't race to fetch the same URL.
   interface Candidate {
     result: JinaResult;
     resultId: string;
     canonical: string;
-    body: string;
     title: string;
-    text: string;
   }
   const candidates: Candidate[] = [];
   for (const result of results) {
     if (ctx.isCancelled()) break;
-    if (candidates.length >= MAX_INGEST_PER_QUERY) break;
 
     const resultId = randomUUID();
     emit(ctx, {
@@ -242,51 +241,80 @@ async function runOneQuery(
       emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId, reason: 'duplicate' });
       continue;
     }
-
-    const body = result.rawContent || result.content;
-    if (!body || body.length < MIN_CONTENT_CHARS) {
-      log('research', 'skipTooShort', { url: result.url, len: body?.length ?? 0 });
-      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId, reason: 'too-short' });
-      continue;
-    }
-    if (looksLikeBotBlock(body)) {
-      log('research', 'skipBotBlock', { url: result.url });
-      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId, reason: 'bot-block' });
-      continue;
-    }
-
-    // Reserve the URL now so concurrent digests + later queries in the
-    // same run can't re-pick it. Ingest failures below leave it marked,
-    // which is fine — a failing URL shouldn't be retried this run.
     seen.add(canonical);
-    const title = `${result.title} (${new URL(result.url).hostname})`;
     candidates.push({
       result,
       resultId,
       canonical,
-      body,
-      title,
-      text: `Source URL: ${result.url}\n\n${body}`,
+      title: `${result.title} (${new URL(result.url).hostname})`,
     });
   }
 
   if (candidates.length === 0) return [];
 
-  // Phase 2: kick off all digest LLM calls in parallel. Each uses the
+  // Phase 2: fetch page bodies in parallel. When the SERP response already
+  // carries a scraped body (managed-mode backends that don't yet honor
+  // `content: false`), reuse it and skip the extra Reader roundtrip.
+  const bodies = await Promise.allSettled(
+    candidates.map(async (c) => {
+      const pre = c.result.rawContent;
+      if (pre && pre.length > 0) return pre;
+      const page = await fetchUrlAsMarkdown(c.result.url);
+      return page.markdown;
+    }),
+  );
+
+  // Phase 3: post-fetch filter (too-short, bot-block, fetch-failed) and
+  // cap to MAX_INGEST_PER_QUERY so one fat query can't dominate.
+  interface ReadyCandidate extends Candidate {
+    body: string;
+    text: string;
+  }
+  const ready: ReadyCandidate[] = [];
+  for (let i = 0; i < candidates.length; i++) {
+    if (ready.length >= MAX_INGEST_PER_QUERY) break;
+    const c = candidates[i]!;
+    const b = bodies[i]!;
+    if (b.status === 'rejected') {
+      logError('research', 'fetchFailed', b.reason, { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
+      continue;
+    }
+    const body = b.value;
+    if (!body || body.length < MIN_CONTENT_CHARS) {
+      log('research', 'skipTooShort', { url: c.result.url, len: body?.length ?? 0 });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'too-short' });
+      continue;
+    }
+    if (looksLikeBotBlock(body)) {
+      log('research', 'skipBotBlock', { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'bot-block' });
+      continue;
+    }
+    ready.push({
+      ...c,
+      body,
+      text: `Source URL: ${c.result.url}\n\n${body}`,
+    });
+  }
+
+  if (ready.length === 0) return [];
+
+  // Phase 4: kick off all digest LLM calls in parallel. Each uses the
   // same snapshot of existing sources for cross-linking — digests in the
   // same batch won't link to each other, which is a minor quality
   // tradeoff for a 3× speedup on the ingest phase.
   const existingSources = await listSources();
   const digests = await Promise.allSettled(
-    candidates.map((c) => prepareIngestDigest(c.text, c.title, existingSources)),
+    ready.map((c) => prepareIngestDigest(c.text, c.title, existingSources)),
   );
 
-  // Phase 3: serialise the saves (index writes race otherwise). Emit
+  // Phase 5: serialise the saves (index writes race otherwise). Emit
   // result-ingested / result-skipped in candidate order.
   const ingested: JinaResult[] = [];
-  for (let i = 0; i < candidates.length; i++) {
+  for (let i = 0; i < ready.length; i++) {
     if (ctx.isCancelled()) break;
-    const c = candidates[i]!;
+    const c = ready[i]!;
     const d = digests[i]!;
     if (d.status === 'rejected') {
       logError('research', 'ingestFailed', d.reason, { url: c.result.url });
