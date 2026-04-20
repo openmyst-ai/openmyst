@@ -3400,6 +3400,40 @@ img.login-logo {
   position: relative;
   overflow: hidden;
 }
+
+/* Floating "Researching… <query>" indicator pinned to the top of the
+ * graph stage. Lives above the canvas with pulsing dots so the user
+ * always knows the run is live and what it's reaching for right now. */
+.dp-research-thinking {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 6px 14px;
+  background: rgba(20, 20, 20, 0.82);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  z-index: 2;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.dp-research-thinking-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dp-research-thinking-query {
+  color: var(--fg);
+  font-style: italic;
+}
 /* Full-bleed variant — graph owns the entire container, no header, no
  * tooltip row. Used in the Deep Plan right column (non-research) and in
  * the research-stage center column via .dp-research-graph-wrap. */
@@ -3479,6 +3513,11 @@ img.login-logo {
   color: var(--fg);
   line-height: 1.35;
   font-weight: 500;
+}
+.dp-query-log-prefix {
+  color: var(--muted);
+  font-weight: 400;
+  margin-right: 2px;
 }
 .dp-query-log-rationale {
   margin-top: 6px;

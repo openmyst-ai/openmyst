@@ -185,6 +185,7 @@ function ResearchStageView({
     () => pendingNodesFromEvents(researchEvents),
     [researchEvents],
   );
+  const currentQuery = useMemo(() => latestQueryText(researchEvents), [researchEvents]);
 
   // Synthesize the graph we hand to WikiGraph: real wiki nodes plus any
   // transient "pending" result nodes that haven't graduated to ingested
@@ -229,6 +230,19 @@ function ResearchStageView({
   return (
     <div className="dp-chat dp-chat-research">
       <div className="dp-research-graph-wrap">
+        {researchRunning && (
+          <div className="dp-research-thinking">
+            <span className="generating-dots">
+              <span className="dot" />
+              <span className="dot" />
+              <span className="dot" />
+            </span>
+            <span className="dp-research-thinking-label">
+              Researching
+              {currentQuery ? <> <span className="dp-research-thinking-query">{currentQuery}</span></> : '…'}
+            </span>
+          </div>
+        )}
         <WikiGraph
           graph={mergedGraph}
           freshSlugs={freshSlugs}
@@ -278,6 +292,23 @@ function ResearchStageView({
       </div>
     </div>
   );
+}
+
+function latestQueryText(events: Array<{ kind: string; runId?: string; query?: string }>): string | null {
+  // Walk backwards within the current run so a newly-kicked query's text
+  // lights up immediately. Resets on run-start so stale text from a
+  // previous run doesn't bleed through.
+  let runId: string | null = null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i]!;
+    if (!runId && ev.runId) runId = ev.runId;
+    if (ev.kind === 'run-start') return null;
+    if (ev.runId !== runId) break;
+    if (ev.kind === 'query-start' && typeof ev.query === 'string') {
+      return ev.query;
+    }
+  }
+  return null;
 }
 
 function MessageBubble({ message }: { message: DeepPlanMessage }): JSX.Element {

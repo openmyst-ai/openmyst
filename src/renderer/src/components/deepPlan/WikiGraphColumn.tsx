@@ -72,7 +72,9 @@ export function WikiGraphColumn(): JSX.Element {
             <ul className="dp-query-log-list">
               {runQueries.map((q) => (
                 <li key={q.queryId} className="dp-query-log-item">
-                  <div className="dp-query-log-query">{q.query}</div>
+                  <div className="dp-query-log-query">
+                    <span className="dp-query-log-prefix">Search:</span> {q.query}
+                  </div>
                   {q.rationale && (
                     <div className="dp-query-log-rationale">{q.rationale}</div>
                   )}
