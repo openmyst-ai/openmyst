@@ -303,15 +303,25 @@ export function WikiGraph({
     }
   }, [graph, params]);
 
-  // Always-on raf loop. The sim runs whenever the component is mounted,
-  // same as Obsidian — opening the graph is supposed to feel alive. It
-  // settles quickly (spring damping), but any disturbance (new node,
-  // zoom change, the initial jittered seed) re-kicks it.
+  // Self-freezing raf loop. The sim ticks while there's motion to draw —
+  // on mount, on new-node arrival, on any explicit kick — and stops
+  // rescheduling itself once the constellation has settled (total kinetic
+  // energy below threshold for a handful of frames in a row). An idle
+  // graph costs zero frames. Any change to `graph` (added/removed node,
+  // reveal cascade) tears this effect down and a fresh loop re-kicks.
   useEffect(() => {
     let raf = 0;
+    let idleFrames = 0;
     const loop = (): void => {
-      tick(Array.from(positionsRef.current.values()), graph?.edges ?? [], params);
+      const nodes = Array.from(positionsRef.current.values());
+      tick(nodes, graph?.edges ?? [], params);
+      let ke = 0;
+      for (const n of nodes) ke += n.vx * n.vx + n.vy * n.vy;
+      const withinKick = Date.now() < kickUntilRef.current;
+      if (!withinKick && ke < 0.02) idleFrames++;
+      else idleFrames = 0;
       forceRender((n) => n + 1);
+      if (idleFrames > 10) return;
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
