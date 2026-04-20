@@ -1,6 +1,6 @@
 import type { SourceMeta } from '@shared/types';
 import { completeText } from '../../llm';
-import { logError } from '../../platform';
+import { log, logError } from '../../platform';
 import { getSummaryModel } from '../settings';
 import { locateAnchors, type RawLlmAnchor } from './anchors';
 import type { SourceAnchor } from '@shared/types';
@@ -65,8 +65,11 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
       "excerpt": "A VERBATIM substring of the raw source, copy-pasted exactly. Aim for a couple of sentences — longer or shorter is fine, but it must be long enough to be unique in the source and short enough to be citable. The excerpt MUST appear word-for-word in the raw text."
     }
   ],
-  "relatedSlugs": ["other_slug", "another_slug"]
+  "relatedSlugs": ["other_slug", "another_slug"],
+  "isNonContent": false
 }
+
+isNonContent: set to true ONLY when the source text doesn't contain real, citable content on the topic implied by its title — examples: 404 / "page not found" error pages, login walls, cookie-consent shells, empty navigation skeletons, anti-bot / captcha pages, paywall stubs with no abstract. When true, leave summary/indexSummary/anchors/relatedSlugs as minimal placeholders (the system will drop the source entirely, so it doesn't matter). Default to false — a thin but real summary still counts as content. This flag is load-bearing: a wrong true will silently delete the source; a wrong false pollutes the wiki with junk.
 
 Direct links vs related slugs:
 - Inline \`[Name](slug.md)\` wikilinks in the summary are for DIRECT references — places where this source builds on, cites, rebuts, or explicitly connects to another source. Use only when there's a real, specific connection worth clicking through for.
@@ -180,7 +183,15 @@ export async function generateDigest(
       indexSummary?: unknown;
       anchors?: unknown;
       relatedSlugs?: unknown;
+      isNonContent?: unknown;
     };
+    if (parsed.isNonContent === true) {
+      // Summary model flagged this as a non-content page (404, login
+      // wall, empty shell). Reuse the fallback path so the research
+      // pipeline's isFallback check drops it before it hits the wiki.
+      log('sources', 'digest.nonContent', { model, hint });
+      return fallbackDigest(rawText, hint);
+    }
     const llmAnchors: RawLlmAnchor[] = Array.isArray(parsed.anchors)
       ? (parsed.anchors as RawLlmAnchor[])
       : [];
