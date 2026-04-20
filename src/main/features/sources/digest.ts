@@ -61,8 +61,10 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
 }
 
 Direct links vs related slugs:
-- Inline \`[Name](slug.md)\` wikilinks in the summary are for DIRECT references — places where this source builds on, cites, rebuts, or explicitly connects to another source.
-- \`relatedSlugs\` is for INDIRECT related-reading pointers — sources this one didn't cite but that cover adjacent ground, shared concepts, or would help a reader exploring the topic. Pick slugs (without \`.md\`) ONLY from the existing-sources list provided. Never invent slugs. Do not include this source's own slug. An empty array is fine when nothing obvious relates.
+- Inline \`[Name](slug.md)\` wikilinks in the summary are for DIRECT references — places where this source builds on, cites, rebuts, or explicitly connects to another source. Use only when there's a real, specific connection worth clicking through for.
+- \`relatedSlugs\` is for INDIRECT related-reading pointers — but ONLY ones with a TIGHT, SPECIFIC connection (same sub-topic, directly comparable method, shared core concept, or one that clearly extends/contradicts this one). Do NOT list every source that happens to touch the same broad field. A reader should look at each related entry and immediately understand why it's there — generic "both are about reinforcement learning" is NOT enough; "both propose actor-critic variants" is.
+- Be strict. If a connection isn't close, leave it out. Returning few entries — or none — is better than a bloated list. Quality over quantity.
+- Pick slugs (without \`.md\`) ONLY from the existing-sources list provided. Never invent slugs. Do not include this source's own slug.
 
 Anchor rules (load-bearing):
 - Every excerpt MUST be a verbatim substring of the raw source. Do not paraphrase, do not fix typos, do not add ellipses.

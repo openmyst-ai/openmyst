@@ -329,7 +329,7 @@ export function WikiGraph({
 
         {nodeCount === 0 ? (
           <div className="wiki-graph-empty">
-            No sources yet. Ingest something and the graph starts weaving itself together here.
+            No sources yet. Agent searching...
           </div>
         ) : (
           <svg

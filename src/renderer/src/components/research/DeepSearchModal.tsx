@@ -105,6 +105,7 @@ export function DeepSearchModal(): JSX.Element | null {
   );
 
   const freshSlugs = useMemo(() => freshSlugsFromEvents(researchEvents), [researchEvents]);
+  const currentQuery = useMemo(() => latestQueryText(researchEvents), [researchEvents]);
 
   useEffect(() => {
     if (!visible) {
@@ -130,10 +131,9 @@ export function DeepSearchModal(): JSX.Element | null {
             <div>
               <h2>Deep Wiki</h2>
               <p className="muted ds-modal-sub">
-                Your project's research graph. Search to send the agent hunting —
+                Your project's research graph. Search to send the agent hunting,
                 whatever it ingests lands here and links up with what's already
-                in the wiki. Bigger nodes = more connections = the sources your
-                LLM reaches for most.
+                in the wiki.
               </p>
             </div>
             <button type="button" className="titlebar-btn" onClick={close}>
@@ -212,13 +212,32 @@ export function DeepSearchModal(): JSX.Element | null {
               {edgeCount === 1 ? '' : 's'}
               {freshSlugs.size > 0 && ` · ${freshSlugs.size} new this run`}
             </div>
-            <WikiGraph
-              graph={graph}
-              freshSlugs={freshSlugs}
-              running={running}
-              onNodeOpen={handleNodeOpen}
-              selectedSlug={previewSource?.slug ?? null}
-            />
+            <div className="ds-graph-wrap">
+              {running && (
+                <div className="dp-research-thinking">
+                  <span className="generating-dots">
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </span>
+                  <span className="dp-research-thinking-label">
+                    Researching
+                    {currentQuery ? (
+                      <> <span className="dp-research-thinking-query">{currentQuery}</span></>
+                    ) : (
+                      '…'
+                    )}
+                  </span>
+                </div>
+              )}
+              <WikiGraph
+                graph={graph}
+                freshSlugs={freshSlugs}
+                running={running}
+                onNodeOpen={handleNodeOpen}
+                selectedSlug={previewSource?.slug ?? null}
+              />
+            </div>
           </section>
 
           {running && (
@@ -298,4 +317,23 @@ export function DeepSearchModal(): JSX.Element | null {
       </div>
     </div>
   );
+}
+
+function latestQueryText(
+  events: Array<{ kind: string; runId?: string; query?: string }>,
+): string | null {
+  // Newest-first walk within the current run, so the banner flips to the
+  // latest query text the instant the engine fires one. Bails on
+  // run-start so text from a previous run can't leak through.
+  let runId: string | null = null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i]!;
+    if (!runId && ev.runId) runId = ev.runId;
+    if (ev.kind === 'run-start') return null;
+    if (ev.runId !== runId) break;
+    if (ev.kind === 'query-start' && typeof ev.query === 'string') {
+      return ev.query;
+    }
+  }
+  return null;
 }

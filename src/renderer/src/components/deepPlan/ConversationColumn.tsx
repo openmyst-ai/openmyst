@@ -6,11 +6,7 @@ import { useResearchEvents } from '../../store/researchEvents';
 import { useSourcePreview } from '../../store/sourcePreview';
 import { renderMarkdown } from '../../utils/markdown';
 import { stripDeepPlanFences } from './stripFences';
-import {
-  WikiGraph,
-  freshSlugsFromEvents,
-  pendingNodesFromEvents,
-} from '../graph/WikiGraph';
+import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -181,46 +177,9 @@ function ResearchStageView({
     () => freshSlugsFromEvents(researchEvents),
     [researchEvents],
   );
-  const pending = useMemo(
-    () => pendingNodesFromEvents(researchEvents),
-    [researchEvents],
-  );
   const currentQuery = useMemo(() => latestQueryText(researchEvents), [researchEvents]);
 
-  // Synthesize the graph we hand to WikiGraph: real wiki nodes plus any
-  // transient "pending" result nodes that haven't graduated to ingested
-  // yet. Pending entries have no edges and float free until they either
-  // vanish (skipped) or get lifted into the real graph (ingested).
-  const mergedGraph = useMemo<WikiGraphData | null>(() => {
-    if (!graph) {
-      if (pending.ids.size === 0) return null;
-      return {
-        nodes: Array.from(pending.names.entries()).map(([id, name]) => ({
-          id,
-          name,
-          indexSummary: '',
-          addedAt: new Date().toISOString(),
-        })),
-        edges: [],
-      };
-    }
-    if (pending.ids.size === 0) return graph;
-    const existing = new Set(graph.nodes.map((n) => n.id));
-    const extras = Array.from(pending.names.entries())
-      .filter(([id]) => !existing.has(id))
-      .map(([id, name]) => ({
-        id,
-        name,
-        indexSummary: '',
-        addedAt: new Date().toISOString(),
-      }));
-    return { nodes: [...graph.nodes, ...extras], edges: graph.edges };
-  }, [graph, pending]);
-
   const handleNodeOpen = (slug: string): void => {
-    // Pending result ids aren't slugs yet — only open the preview for
-    // real wiki nodes. A pending click is a no-op.
-    if (pending.ids.has(slug)) return;
     void bridge.sources.list().then((all) => {
       const full = all.find((s) => s.slug === slug);
       if (full) openPreview(full);
@@ -244,9 +203,8 @@ function ResearchStageView({
           </div>
         )}
         <WikiGraph
-          graph={mergedGraph}
+          graph={graph}
           freshSlugs={freshSlugs}
-          pendingIds={pending.ids}
           running={researchRunning}
           onNodeOpen={handleNodeOpen}
           fillContainer

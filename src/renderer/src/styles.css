@@ -2559,6 +2559,7 @@ img.login-logo {
   margin-bottom: 10px;
 }
 .wiki-graph-canvas-wrap {
+  position: relative;
   flex: 1;
   min-height: 420px;
   background: var(--bg);
@@ -4055,6 +4056,15 @@ img.login-logo {
 }
 .ds-graph-section .research-graph-svg {
   min-height: 380px;
+}
+/* Wraps the WikiGraph inside the Deep Wiki modal so the "Researching…"
+ * thinking pill can be absolutely positioned over the canvas. */
+.ds-graph-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 .ds-hints-list {
   display: flex;
