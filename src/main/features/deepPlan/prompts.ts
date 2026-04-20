@@ -284,7 +284,13 @@ Your job: ask 3-6 sharp, opinionated questions that would materially change the 
 
 Format as a short numbered list. Keep each question to one sentence. End with "Hit Continue when you're happy with these."
 
-Append a rubric_update block capturing any decisions you've already inferred.`;
+IMPORTANT: At the end of EVERY reply, emit a fenced code block tagged \`rubric_update\` with a JSON object capturing any decisions you've already inferred. Only include fields that changed. Example:
+
+\`\`\`rubric_update
+{"mustCover": ["NVIDIA Jetson Orin series", "Raspberry Pi 5"], "mustAvoid": ["Luxonis OAK-D"]}
+\`\`\`
+
+Use the keys: title, form, audience, lengthTarget, thesis, mustCover (array), mustAvoid (array), notes. Omit unchanged fields entirely. If nothing changed, emit an empty object \`{}\`. Never emit raw JSON outside of the fenced block — the user sees everything outside the fence.`;
 }
 
 export function reviewPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
