@@ -2136,6 +2136,108 @@ img.login-logo {
   margin-top: 14px;
   justify-content: flex-end;
 }
+
+/* First-run tutorial overlay. Four shades around the target make the hole,
+   a ring outlines it, and a bubble parks next to it with Next / Back /
+   Skip. Sits at z-index 2000 so it's above modals. */
+.tutorial-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  animation: modal-fade 160ms var(--ease);
+  -webkit-app-region: no-drag;
+}
+.tutorial-shade {
+  position: fixed;
+  background: rgba(6, 8, 12, 0.62);
+  pointer-events: auto;
+}
+.tutorial-ring {
+  position: fixed;
+  border: 2px solid var(--accent, #c6a1d8);
+  border-radius: 10px;
+  box-shadow: 0 0 0 3px rgba(198, 161, 216, 0.25), 0 0 22px rgba(198, 161, 216, 0.45);
+  pointer-events: none;
+  animation: tutorial-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tutorial-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(198, 161, 216, 0.25), 0 0 22px rgba(198, 161, 216, 0.45); }
+  50% { box-shadow: 0 0 0 4px rgba(198, 161, 216, 0.38), 0 0 32px rgba(198, 161, 216, 0.62); }
+}
+.tutorial-bubble {
+  position: fixed;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-lg);
+  animation: modal-rise 200ms var(--ease);
+  pointer-events: auto;
+}
+.tutorial-bubble-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.tutorial-bubble-step {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+}
+.tutorial-bubble-skip {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.tutorial-bubble-skip:hover {
+  color: var(--fg);
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.06));
+}
+.tutorial-bubble-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: var(--fg);
+}
+.tutorial-bubble-body {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.tutorial-bubble-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tutorial-bubble-back,
+.tutorial-bubble-next {
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg);
+}
+.tutorial-bubble-back:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tutorial-bubble-next {
+  background: var(--accent, #c6a1d8);
+  color: #1a1226;
+  border-color: transparent;
+  font-weight: 600;
+}
+.tutorial-bubble-next:hover {
+  filter: brightness(1.08);
+}
 .modal-section {
   border-top: 1px solid var(--border);
   padding-top: 16px;
