@@ -56,15 +56,34 @@ function sourcesBlock(sources: SourceMeta[]): string {
 }
 
 /**
- * Plain source block for the one-shot draft pass. Deliberately omits anchor
- * ids so the generator doesn't copy that shape into citations — it just sees
- * the slug and a short summary, and is told to cite as `[name](slug.md)`.
+ * Rich source block for the one-shot draft pass. Each source gets its full
+ * wiki-style detailed summary (the `sources/<slug>.md` body produced at
+ * ingest) plus the anchor list so the drafter can pull verbatim passages
+ * via `source_lookup` when quoting or making a precise claim.
+ *
+ * This replaced a one-line `indexSummary`-only block that left the drafter
+ * hallucinating claims against sources it had never actually read. The
+ * detailed summaries are 2-4 paragraphs each — the drafter now reads the
+ * same thing a human researcher would skim before writing.
  */
-function plainSourcesBlock(sources: SourceMeta[]): string {
+function richSourcesBlock(
+  sources: SourceMeta[],
+  detailedSummaries: Map<string, string>,
+): string {
   if (sources.length === 0) return '_No sources yet._';
   return sources
-    .map((s) => `- **${s.name}** (${s.slug}): ${s.indexSummary}`)
-    .join('\n');
+    .map((s) => {
+      const detail = detailedSummaries.get(s.slug)?.trim() || s.indexSummary;
+      const anchorsBlock =
+        s.anchors && s.anchors.length > 0
+          ? `\n\nVerbatim anchors (pull via \`source_lookup\` for exact text):\n` +
+            s.anchors
+              .map((a) => `- \`${s.slug}#${a.id}\` [${a.type}] ${a.label}`)
+              .join('\n')
+          : '';
+      return `### ${s.name} (\`${s.slug}\`)\n\n${detail}${anchorsBlock}`;
+    })
+    .join('\n\n---\n\n');
 }
 
 export const DEEP_REFERENCE_RIDER = `[Deep reference] Each source above may list anchor ids (format \`slug#anchor-id\`) beneath it. To pull the EXACT verbatim passage for an anchor, emit a fenced \`source_lookup\` block. The system will resolve it deterministically and inject the verbatim text into the conversation before your next turn. Never paraphrase quotes from memory — use the lookup.
@@ -311,25 +330,52 @@ Your job: produce a short, human-readable summary of what you're about to write 
 No rubric_update in this stage. No questions — this is the handoff summary.`;
 }
 
-export function oneShotPrompt(session: DeepPlanSession, sources: SourceMeta[], docLabel: string): string {
-  return `You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session.
+export function oneShotPrompt(
+  session: DeepPlanSession,
+  sources: SourceMeta[],
+  detailedSummaries: Map<string, string>,
+  plannerSynthesis: string,
+  researchSummary: string,
+  docLabel: string,
+): string {
+  const synthesisBlock = plannerSynthesis.trim()
+    ? `Planning conversation — what the user and planner agreed on:\n${plannerSynthesis.trim()}\n\n`
+    : '';
+  const researchBlock = researchSummary.trim()
+    ? `Research phase summary:\n${researchSummary.trim()}\n\n`
+    : '';
+
+  return `You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist — not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
 
 User's task: "${session.task}"
 
 Rubric (your marching orders):
 ${rubricBlock(session.rubric)}
 
-Sources available (slugs are in parentheses):
-${plainSourcesBlock(sources)}
+${synthesisBlock}${researchBlock}Wiki — sources with full detailed summaries and anchor lists:
 
-Rules for the draft:
-1. Ground most lines in the sources. Any claim carrying facts, numbers, arguments, or positions must be inline-cited as a parenthesised markdown link to the slug — the citation is just the source name inside round brackets, nothing else:
-     ([Name](slug.md))
-   where **Name** is the source's short label (first-author surname if a paper, or a short sensible label otherwise). Example: \`([Michael](michaelpaper.md))\`. The surrounding parentheses are required — never emit a bare \`[Name](slug.md)\` without them. Do NOT include a year — you don't have reliable year information and we'd rather have no year than a wrong one. Do NOT wrap citations in backticks. Do NOT append \`#anchor\` fragments or any other suffix to the slug — just the plain \`slug.md\` link. Descriptive or connective prose can go uncited; err on the side of citing.
-2. Include a counter-argument pass — briefly address the strongest objection to your thesis before rebutting or conceding.
-3. Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
-4. No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
-5. Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
+${richSourcesBlock(sources, detailedSummaries)}
 
-Output the complete draft as markdown, nothing else.`;
+${DEEP_REFERENCE_RIDER}
+
+How to approach this draft (read carefully):
+
+1. **Explore before you write.** The detailed summaries above are your first read. Before committing to a paragraph, think: is there a verbatim passage that would carry this point better than your own prose? If yes, emit a \`source_lookup\` block to pull the anchor, read it, then write. You can look up as many anchors or source pages as you want — lookups are free and the system will resolve them deterministically.
+2. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections. Describe disagreements where they exist. A draft that just walks through one source at a time reads like a book report — don't do that.
+3. **Quote verbatim where precision matters.** Numbers, definitions, direct claims, specific arguments — pull the anchor and quote. Don't paraphrase from memory. If you're tempted to write "Smith argues that…", emit a \`source_lookup\` first and use Smith's actual words.
+4. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the rubric's thesis).
+5. **Counter-argument pass.** Briefly address the strongest objection to your thesis before rebutting or conceding.
+
+Citation format (strict):
+Any claim carrying facts, numbers, arguments, or positions must be inline-cited as a parenthesised markdown link to the slug — the citation is just the source name inside round brackets, nothing else:
+   ([Name](slug.md))
+where **Name** is the source's short label (first-author surname if a paper, or a short sensible label otherwise). Example: \`([Michael](michaelpaper.md))\`. The surrounding parentheses are required — never emit a bare \`[Name](slug.md)\` without them. Do NOT include a year — we'd rather have no year than a wrong one. Do NOT wrap citations in backticks. Do NOT append \`#anchor\` fragments or any other suffix to the slug — just the plain \`slug.md\` link. Descriptive or connective prose can go uncited; err on the side of citing.
+
+Form + output rules:
+- Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
+- No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
+- Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
+- Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft. If you want to quote something, \`source_lookup\` the anchor first.
+
+Output: the complete markdown draft, nothing else. (You may emit \`source_lookup\` fences at any point — they'll be resolved and fed back to you before you continue.)`;
 }
