@@ -99,6 +99,34 @@ export function DeepSearchModal(): JSX.Element | null {
     });
   }, []);
 
+  // Wikilinks inside a summary render as `<a href="slug.md">Name</a>`.
+  // Left alone, the click bubbles out to Electron which either routes
+  // through setWindowOpenHandler (→ shell.openExternal, window slides
+  // *behind* the app) or fires a frame-level navigation that would
+  // reload the renderer. ALWAYS preventDefault on anchor clicks inside
+  // the preview, then pattern-match the href to find the slug. We pull
+  // the slug from `target.href` (full resolved URL) instead of the raw
+  // attribute so we also catch cases where markdown-it normalised it to
+  // an absolute URL.
+  const handlePreviewClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const anchor = (e.target as HTMLElement).closest('a');
+      if (!anchor) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const raw =
+        anchor.getAttribute('href') ?? (anchor as HTMLAnchorElement).href ?? '';
+      // Take the last path segment, strip query/fragment, then require
+      // it to end in .md. Handles "slug.md", "./slug.md",
+      // "http://host/path/slug.md", and "slug.md?x=1" uniformly.
+      const lastSeg = raw.split(/[?#]/)[0]!.split('/').pop() ?? '';
+      const match = /^(.+)\.md$/i.exec(lastSeg);
+      if (!match) return;
+      handleNodeOpen(match[1]!);
+    },
+    [handleNodeOpen],
+  );
+
   const previewHtml = useMemo(
     () => (previewSource ? renderMarkdown(previewSource.summary) : ''),
     [previewSource],
@@ -305,6 +333,7 @@ export function DeepSearchModal(): JSX.Element | null {
             </div>
             <div
               className="ds-modal-preview-body dp-md"
+              onClick={handlePreviewClick}
               dangerouslySetInnerHTML={{ __html: previewHtml }}
             />
             {previewSource.sourcePath && (
