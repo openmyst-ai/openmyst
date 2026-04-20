@@ -34,6 +34,14 @@ export interface SourceDigest {
   indexSummary: string;
   anchors: SourceAnchor[];
   relatedSlugs: string[];
+  /**
+   * True when the digest LLM call failed (missing key, network error,
+   * invalid JSON) and we fell back to truncated raw text. Research
+   * auto-ingest uses this to drop the source before persisting — a
+   * paywalled / JS-heavy page producing a junk digest isn't worth
+   * cluttering the wiki over. Manual ingests still save through.
+   */
+  isFallback?: boolean;
 }
 
 // Raw text cap the digest LLM sees. 24k chars ≈ 6k tokens, or ~5 pages of
@@ -83,6 +91,7 @@ function fallbackDigest(rawText: string, hint: string): SourceDigest {
     indexSummary: `Source: ${hint}`,
     anchors: [],
     relatedSlugs: [],
+    isFallback: true,
   };
 }
 

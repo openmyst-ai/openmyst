@@ -321,6 +321,15 @@ async function runOneQuery(
       emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
       continue;
     }
+    if (d.value.isFallback) {
+      // Digest LLM fell back to raw-text truncation — usually a paywalled
+      // or JS-heavy page where the scrape yielded too little for a real
+      // summary. Drop the source instead of polluting the wiki with a
+      // junk "summary" that's just the first 500 chars of the page.
+      log('research', 'skipDigestFallback', { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
+      continue;
+    }
     try {
       const meta = await saveIngestedDigest(c.text, c.title, d.value);
       ingested.push(c.result);
