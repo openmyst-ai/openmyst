@@ -33,6 +33,7 @@ export interface SourceDigest {
   summary: string;
   indexSummary: string;
   anchors: SourceAnchor[];
+  relatedSlugs: string[];
 }
 
 // Raw text cap the digest LLM sees. 24k chars ≈ 6k tokens, or ~5 pages of
@@ -55,8 +56,13 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
       "keywords": ["3-6 terms a future reader might match against"],
       "excerpt": "A VERBATIM substring of the raw source, copy-pasted exactly. Aim for a couple of sentences — longer or shorter is fine, but it must be long enough to be unique in the source and short enough to be citable. The excerpt MUST appear word-for-word in the raw text."
     }
-  ]
+  ],
+  "relatedSlugs": ["other_slug", "another_slug"]
 }
+
+Direct links vs related slugs:
+- Inline \`[Name](slug.md)\` wikilinks in the summary are for DIRECT references — places where this source builds on, cites, rebuts, or explicitly connects to another source.
+- \`relatedSlugs\` is for INDIRECT related-reading pointers — sources this one didn't cite but that cover adjacent ground, shared concepts, or would help a reader exploring the topic. Pick slugs (without \`.md\`) ONLY from the existing-sources list provided. Never invent slugs. Do not include this source's own slug. An empty array is fine when nothing obvious relates.
 
 Anchor rules (load-bearing):
 - Every excerpt MUST be a verbatim substring of the raw source. Do not paraphrase, do not fix typos, do not add ellipses.
@@ -73,7 +79,53 @@ function fallbackDigest(rawText: string, hint: string): SourceDigest {
     summary: rawText.slice(0, 500),
     indexSummary: `Source: ${hint}`,
     anchors: [],
+    relatedSlugs: [],
   };
+}
+
+/**
+ * Keep only slugs that refer to real, other sources in this project. Dedupe
+ * and drop any self-reference. The LLM is asked to pick from the provided
+ * list, but it occasionally hallucinates — this is the load-bearing check.
+ */
+export function sanitizeRelatedSlugs(
+  raw: unknown,
+  existingSources: SourceMeta[],
+  selfHint: string,
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const known = new Map(existingSources.map((s) => [s.slug, s]));
+  const selfSlug = existingSources.find((s) => s.name === selfHint)?.slug ?? null;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const slug = item.replace(/\.md$/i, '').trim();
+    if (!slug || slug === selfSlug) continue;
+    if (!known.has(slug)) continue;
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    out.push(slug);
+  }
+  return out;
+}
+
+/**
+ * Append a `## Related` section of wikilinks to the summary so the graph
+ * builder's regex picks them up as edges — same mechanism as inline direct
+ * references, just isolated at the end for readability. Returns the summary
+ * unchanged when there's nothing to append.
+ */
+export function appendRelatedSection(
+  summary: string,
+  relatedSlugs: string[],
+  existingSources: SourceMeta[],
+): string {
+  if (relatedSlugs.length === 0) return summary;
+  const nameBySlug = new Map(existingSources.map((s) => [s.slug, s.name]));
+  const lines = relatedSlugs.map((slug) => `- [${nameBySlug.get(slug) ?? slug}](${slug}.md)`);
+  const trimmed = summary.replace(/\s+$/, '');
+  return `${trimmed}\n\n## Related\n${lines.join('\n')}`;
 }
 
 function buildUserPrompt(rawText: string, hint: string, existingSources: SourceMeta[]): string {
@@ -110,6 +162,7 @@ export async function generateDigest(
       summary?: unknown;
       indexSummary?: unknown;
       anchors?: unknown;
+      relatedSlugs?: unknown;
     };
     const llmAnchors: RawLlmAnchor[] = Array.isArray(parsed.anchors)
       ? (parsed.anchors as RawLlmAnchor[])
@@ -118,12 +171,18 @@ export async function generateDigest(
     // exactly what we persist to raw.txt. Keeps indexOf honest.
     const anchorInput = rawText.slice(0, MAX_PREVIEW_CHARS);
     const anchors = locateAnchors(anchorInput, llmAnchors);
+    const name = typeof parsed.name === 'string' ? parsed.name : hint;
+    const rawSummary =
+      typeof parsed.summary === 'string' ? parsed.summary : rawText.slice(0, 500);
+    const relatedSlugs = sanitizeRelatedSlugs(parsed.relatedSlugs, existingSources, name);
+    const summary = appendRelatedSection(rawSummary, relatedSlugs, existingSources);
     return {
-      name: typeof parsed.name === 'string' ? parsed.name : hint,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : rawText.slice(0, 500),
+      name,
+      summary,
       indexSummary:
         typeof parsed.indexSummary === 'string' ? parsed.indexSummary : `Source: ${hint}`,
       anchors,
+      relatedSlugs,
     };
   } catch (err) {
     // Fallback used to be silent — made user-visible "summaries" that were

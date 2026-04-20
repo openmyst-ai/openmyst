@@ -1,170 +1,132 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { WikiGraph, WikiGraphNode } from '@shared/types';
+import { useEffect, useMemo, useState } from 'react';
+import type { WikiGraph as WikiGraphData, DeepPlanResearchEvent } from '@shared/types';
 import { bridge } from '../../api/bridge';
-import {
-  runStatic,
-  syncNodes,
-  toArray,
-  type SimNode,
-  type SimParams,
-} from '../graph/forceSim';
+import { useResearchEvents } from '../../store/researchEvents';
+import { useDeepPlan } from '../../store/deepPlan';
+import { useSourcePreview } from '../../store/sourcePreview';
+import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
 
 /**
- * Live wiki graph for the right column of Deep Plan. Re-settles when the
- * set of sources changes but preserves positions for nodes we've already
- * placed — so a fresh ingest during research doesn't snap every existing
- * node to a new spot.
+ * Deep Plan's right column. Two modes:
+ *   - Non-research stages → the wiki graph fills the column, full-bleed.
+ *   - Research stage → the graph moves to the center column (next to the
+ *     steer input), and this column becomes a live query log showing each
+ *     planner query alongside the rationale the LLM gave for running it.
+ *
+ * The log scopes to the current run (via runId) so a new run wipes the
+ * list instead of leaking queries from the previous exploration.
  */
 
-const WIDTH = 280;
-const HEIGHT = 420;
-const SETTLE_TICKS_FIRST = 320;
-const SETTLE_TICKS_DELTA = 80;
-
-const PARAMS: SimParams = {
-  width: WIDTH,
-  height: HEIGHT,
-  repulsion: 900,
-  spring: 0.04,
-  springLength: 70,
-  centerGravity: 0.02,
-  damping: 0.82,
-};
-
-/** Visible circle stays small; hover zone is a separate generous hit target. */
-const NODE_R = 4;
-const NODE_R_HOVER = 6;
-const HIT_R = 10;
-
 export function WikiGraphColumn(): JSX.Element {
-  const [graph, setGraph] = useState<WikiGraph | null>(null);
-  const [hoverId, setHoverId] = useState<string | null>(null);
-  const positionsRef = useRef<Map<string, SimNode>>(new Map());
+  const [graph, setGraph] = useState<WikiGraphData | null>(null);
+  const researchEvents = useResearchEvents((s) => s.events);
+  const openPreview = useSourcePreview((s) => s.open);
+  const status = useDeepPlan((s) => s.status);
+
+  const session = status?.session;
+  const stage = session?.stage;
+  const researchRunning = status?.researchRunning ?? false;
+  const isResearchStage = stage === 'research';
 
   useEffect(() => {
+    if (isResearchStage) return;
     const load = (): void => {
       bridge.wiki.graph().then(setGraph).catch(console.error);
     };
     load();
     const off = bridge.sources.onChanged(load);
     return off;
-  }, []);
+  }, [isResearchStage]);
 
-  // Top up positions for new nodes, drop stale ones, then settle. First
-  // full layout runs a long pass; incremental updates run a short one so
-  // new nodes find a spot without disturbing the existing constellation.
-  const simNodes = useMemo<SimNode[]>(() => {
-    if (!graph) return [];
-    const nodeIds = graph.nodes.map((n) => n.id);
-    const positions = positionsRef.current;
-    const isFirst = positions.size === 0;
-    const added = syncNodes(positions, nodeIds, PARAMS, { jitter: 6 });
+  const freshSlugs = useMemo(
+    () => freshSlugsFromEvents(researchEvents),
+    [researchEvents],
+  );
 
-    if (isFirst) {
-      runStatic(
-        Array.from(positions.values()),
-        graph.edges,
-        PARAMS,
-        SETTLE_TICKS_FIRST,
-      );
-    } else if (added > 0) {
-      runStatic(
-        Array.from(positions.values()),
-        graph.edges,
-        PARAMS,
-        SETTLE_TICKS_DELTA,
-      );
-    }
-    return toArray(positions, nodeIds);
-  }, [graph]);
+  const runQueries = useMemo(
+    () => queriesForCurrentRun(researchEvents),
+    [researchEvents],
+  );
 
-  const nodeById = useMemo(() => {
-    const m = new Map<string, SimNode & WikiGraphNode>();
-    if (!graph) return m;
-    const posById = new Map(simNodes.map((n) => [n.id, n]));
-    for (const meta of graph.nodes) {
-      const pos = posById.get(meta.id);
-      if (pos) m.set(meta.id, { ...meta, ...pos });
-    }
-    return m;
-  }, [graph, simNodes]);
-  const hovered = hoverId ? nodeById.get(hoverId) ?? null : null;
+  const handleNodeOpen = (slug: string): void => {
+    void bridge.sources.list().then((all) => {
+      const full = all.find((s) => s.slug === slug);
+      if (full) openPreview(full);
+    });
+  };
+
+  if (isResearchStage) {
+    return (
+      <div className="dp-query-log">
+        <div className="dp-query-log-header">
+          <span className={`ds-dot${researchRunning ? ' ds-dot-running' : ''}`} />
+          <span>Queries</span>
+          <span className="dp-query-log-count">{runQueries.length}</span>
+        </div>
+        <div className="dp-query-log-scroll">
+          {runQueries.length === 0 ? (
+            <div className="dp-query-log-empty">
+              Waiting for the first query…
+            </div>
+          ) : (
+            <ul className="dp-query-log-list">
+              {runQueries.map((q) => (
+                <li key={q.queryId} className="dp-query-log-item">
+                  <div className="dp-query-log-query">{q.query}</div>
+                  {q.rationale && (
+                    <div className="dp-query-log-rationale">{q.rationale}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="dp-graph">
-      <div className="dp-col-header">
-        <h3>Wiki graph</h3>
-        <span className="dp-muted">
-          {graph?.nodes.length ?? 0} · {graph?.edges.length ?? 0}
-        </span>
-      </div>
-
-      <div className="dp-graph-wrap">
-        {!graph || graph.nodes.length === 0 ? (
-          <div className="dp-empty dp-graph-empty">
-            As sources land, you'll watch them wire themselves together here.
-          </div>
-        ) : (
-          <svg
-            className="dp-graph-svg"
-            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            preserveAspectRatio="xMidYMid meet"
-          >
-            <g>
-              {graph.edges.map((e, i) => {
-                const a = nodeById.get(e.source);
-                const b = nodeById.get(e.target);
-                if (!a || !b) return null;
-                return (
-                  <line
-                    key={`${e.source}->${e.target}-${i}`}
-                    x1={a.x}
-                    y1={a.y}
-                    x2={b.x}
-                    y2={b.y}
-                    className="dp-graph-edge"
-                  />
-                );
-              })}
-            </g>
-            <g>
-              {simNodes.map((n) => {
-                const active = hoverId === n.id;
-                return (
-                  <g key={n.id}>
-                    <circle
-                      cx={n.x}
-                      cy={n.y}
-                      r={active ? NODE_R_HOVER : NODE_R}
-                      className="dp-graph-node"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    <circle
-                      cx={n.x}
-                      cy={n.y}
-                      r={HIT_R}
-                      className="dp-graph-hit"
-                      onMouseEnter={() => setHoverId(n.id)}
-                      onMouseLeave={() => setHoverId(null)}
-                    />
-                  </g>
-                );
-              })}
-            </g>
-          </svg>
-        )}
-      </div>
-
-      <div className="dp-graph-tooltip">
-        {hovered ? (
-          <>
-            <div className="dp-graph-tooltip-name">{hovered.name}</div>
-            <div className="dp-graph-tooltip-summary">{hovered.indexSummary}</div>
-          </>
-        ) : (
-          <div className="dp-muted">Hover a node to peek at its summary.</div>
-        )}
-      </div>
+    <div className="dp-graph dp-graph-fullbleed">
+      <WikiGraph
+        graph={graph}
+        freshSlugs={freshSlugs}
+        running={researchRunning}
+        onNodeOpen={handleNodeOpen}
+        fillContainer
+        hideTooltip
+        showLabels={false}
+        enableZoom={false}
+        baseRadius={3.5}
+        radiusPerEdge={1.2}
+        hitRadiusPad={6}
+      />
     </div>
   );
+}
+
+function queriesForCurrentRun(
+  events: DeepPlanResearchEvent[],
+): Array<{ queryId: string; query: string; rationale: string }> {
+  // Walk backwards to find the most recent run, then collect its queries
+  // forward so the newest query ends up at the bottom of the list.
+  let runId: string | null = null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i]!;
+    if (ev.kind === 'run-start') {
+      runId = ev.runId;
+      break;
+    }
+    if ('runId' in ev && ev.runId) {
+      runId = ev.runId;
+      break;
+    }
+  }
+  if (!runId) return [];
+  const out: Array<{ queryId: string; query: string; rationale: string }> = [];
+  for (const ev of events) {
+    if (ev.kind !== 'query-start') continue;
+    if (ev.runId !== runId) continue;
+    out.push({ queryId: ev.queryId, query: ev.query, rationale: ev.rationale });
+  }
+  return out;
 }

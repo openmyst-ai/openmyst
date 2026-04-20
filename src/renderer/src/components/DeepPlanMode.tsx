@@ -78,6 +78,7 @@ export function DeepPlanMode(): JSX.Element {
   const session = status?.session ?? null;
   const needsIntent = !session || session.stage === 'intent';
   const hasOpenRouterKey = settings?.hasOpenRouterKey ?? false;
+  const isResearchStage = session?.stage === 'research';
 
   return (
     <div className="dp-root">
@@ -104,7 +105,7 @@ export function DeepPlanMode(): JSX.Element {
         </div>
       )}
 
-      <div className="dp-body">
+      <div className={`dp-body${isResearchStage ? ' dp-body-research' : ''}`}>
         <aside className="dp-col dp-col-left">
           <SourcesColumn />
         </aside>

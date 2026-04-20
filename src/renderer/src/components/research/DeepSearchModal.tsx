@@ -1,21 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { SourceMeta, WikiGraph } from '@shared/types';
+import type { SourceMeta, WikiGraph as WikiGraphData } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useDeepSearch } from '../../store/deepSearch';
 import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
-import { ResearchGraph } from './ResearchGraph';
+import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
 
 /**
- * Deep Search modal — the research-only slice. Opens from the editor
- * toolbar so the user can fire off a research run without leaving what
- * they're writing. Everything it finds lands in the project wiki, which
- * is exactly the same pool the main chat reads from.
+ * Deep Wiki — the unified surface for browsing and extending the project's
+ * research wiki. Entry point is the search box: typing a task kicks off a
+ * research run, and whatever the agent ingests lands on the graph as new
+ * source nodes (no query/root hubs — those were clutter). Well-connected
+ * sources render visibly larger via sqrt-of-degree sizing so "impactful"
+ * nodes pop without tooltips.
+ *
+ * Previously two separate surfaces:
+ *   - Deep Search (query-and-result subgraph, modal)
+ *   - Deep Wiki   (static graph of all sources, separate modal)
+ * Collapsed into one because they were showing the same underlying graph
+ * through different lenses — and a graph whose only nodes are sources is
+ * the lens that actually matters.
  *
  * Lifecycle:
  *   - open → refresh status so we see if there's already a run in flight
- *   - subscribe to deepSearch.onChanged (state mutations) and
- *     deepPlan.onResearchEvent (graph events)
+ *   - subscribe to deepSearch.onChanged (state) + deepPlan.onResearchEvent
+ *     (graph events, used only for the "fresh this run" highlight) +
+ *     sources.onChanged (to pull new wiki snapshots when a source is ingested)
  *   - close on ESC / backdrop click
  */
 
@@ -28,25 +38,25 @@ export function DeepSearchModal(): JSX.Element | null {
 
   const [taskDraft, setTaskDraft] = useState('');
   const [hintDraft, setHintDraft] = useState('');
-  // Side-by-side preview: while the modal is open, clicking an ingested
-  // node shifts the content left and mounts the source summary here
-  // instead of triggering the global preview popup.
   const [previewSource, setPreviewSource] = useState<SourceMeta | null>(null);
-  // Wiki snapshot used to seed the graph so the user starts with the
-  // existing constellation instead of an empty canvas.
-  const [wikiSeed, setWikiSeed] = useState<WikiGraph | null>(null);
+  const [graph, setGraph] = useState<WikiGraphData | null>(null);
 
+  // Pull (and re-pull) the live wiki snapshot — refetched on source
+  // changes so an ingest during a run shows up on the graph immediately.
   useEffect(() => {
     if (!visible) return;
     void refresh();
-    // Snapshot the existing wiki so the graph can start with the full
-    // constellation already in place.
-    bridge.wiki.graph().then(setWikiSeed).catch(console.error);
+    const load = (): void => {
+      bridge.wiki.graph().then(setGraph).catch(console.error);
+    };
+    load();
+    const offSources = bridge.sources.onChanged(load);
     const offChanged = bridge.deepSearch.onChanged(() => {
       void refresh();
     });
     const offEvent = bridge.deepPlan.onResearchEvent(pushResearchEvent);
     return () => {
+      offSources();
       offChanged();
       offEvent();
     };
@@ -94,19 +104,20 @@ export function DeepSearchModal(): JSX.Element | null {
     [previewSource],
   );
 
-  // Drop the side pane and seed whenever the modal closes so reopening
-  // pulls a fresh wiki snapshot and clears any stale preview.
+  const freshSlugs = useMemo(() => freshSlugsFromEvents(researchEvents), [researchEvents]);
+
   useEffect(() => {
     if (!visible) {
       setPreviewSource(null);
-      setWikiSeed(null);
+      setGraph(null);
     }
   }, [visible]);
 
   if (!visible) return null;
 
   const running = status?.running ?? false;
-  const rootLabel = status?.task ?? (taskDraft || 'Deep Search');
+  const nodeCount = graph?.nodes.length ?? 0;
+  const edgeCount = graph?.edges.length ?? 0;
 
   return (
     <div className="modal-backdrop" onClick={close}>
@@ -115,138 +126,148 @@ export function DeepSearchModal(): JSX.Element | null {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="ds-modal-main">
-        <header className="modal-header">
-          <div>
-            <h2>Deep Search</h2>
-            <p className="muted ds-modal-sub">
-              Run autonomous research against your wiki without touching what
-              you're writing. Sources land in the project wiki for the main
-              chat to pick up.
-            </p>
-          </div>
-          <button type="button" className="titlebar-btn" onClick={close}>
-            Close
-          </button>
-        </header>
-
-        {error && (
-          <div className="error">
-            <span>{error}</span>
-            <button type="button" className="link" onClick={clearError}>
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {(running || status?.task) && (
-          <section className="modal-section">
-            <div className="ds-task-row">
-              <div>
-                <div className="ds-task-label">Researching</div>
-                <div className="ds-task-text">{status?.task}</div>
-              </div>
+          <header className="modal-header">
+            <div>
+              <h2>Deep Wiki</h2>
+              <p className="muted ds-modal-sub">
+                Your project's research graph. Search to send the agent hunting —
+                whatever it ingests lands here and links up with what's already
+                in the wiki. Bigger nodes = more connections = the sources your
+                LLM reaches for most.
+              </p>
             </div>
-          </section>
-        )}
+            <button type="button" className="titlebar-btn" onClick={close}>
+              Close
+            </button>
+          </header>
 
-        <section className="modal-section ds-graph-section">
-          <ResearchGraph
-            events={researchEvents}
-            rootLabel={rootLabel}
-            running={running}
-            onNodeOpen={handleNodeOpen}
-            seedGraph={wikiSeed}
-            onStopResearch={() => void stop()}
-          />
-        </section>
+          {error && (
+            <div className="error">
+              <span>{error}</span>
+              <button type="button" className="link" onClick={clearError}>
+                Dismiss
+              </button>
+            </div>
+          )}
 
-        {!running && !status?.task && (
-          <section className="modal-section">
+          <section className="modal-section ds-search-section">
             <form className="ds-start-form" onSubmit={(e) => void handleStart(e)}>
               <input
-                autoFocus
+                autoFocus={!running && !status?.task}
                 type="text"
                 className="ds-start-input"
-                placeholder="What should I research?"
+                placeholder={
+                  running
+                    ? 'Research is running…'
+                    : status?.task
+                      ? 'Start another search…'
+                      : 'Search the wiki — or send the agent to grow it'
+                }
                 value={taskDraft}
                 onChange={(e) => setTaskDraft(e.target.value)}
+                disabled={running}
               />
               <button
                 type="submit"
                 className="dp-btn dp-btn-primary dp-btn-small"
-                disabled={taskDraft.trim().length === 0}
+                disabled={taskDraft.trim().length === 0 || running}
               >
-                Start
+                Search
               </button>
+              {running && (
+                <button
+                  type="button"
+                  className="dp-btn dp-btn-secondary dp-btn-small"
+                  onClick={() => void stop()}
+                >
+                  Stop
+                </button>
+              )}
+              {!running && status?.task && (
+                <button
+                  type="button"
+                  className="dp-btn dp-btn-secondary dp-btn-small"
+                  onClick={() => {
+                    setTaskDraft('');
+                    resetResearchEvents();
+                    void reset();
+                  }}
+                >
+                  Reset
+                </button>
+              )}
             </form>
-          </section>
-        )}
-
-        {running && (
-          <section className="modal-section">
-            <form className="dp-hint-form" onSubmit={(e) => void handleAddHint(e)}>
-              <input
-                className="dp-hint-input"
-                placeholder="Steer research…"
-                value={hintDraft}
-                onChange={(e) => setHintDraft(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="dp-btn dp-btn-secondary dp-btn-small"
-                disabled={hintDraft.trim().length === 0}
-              >
-                Add hint
-              </button>
-            </form>
-            {status?.hints && status.hints.length > 0 && (
-              <div className="ds-hints-list">
-                {status.hints.map((h, i) => (
-                  <div key={i} className="ds-hint-chip">
-                    {h}
-                  </div>
-                ))}
+            {status?.task && (
+              <div className="ds-task-row ds-task-row-compact">
+                <span className={`ds-dot${running ? ' ds-dot-running' : ''}`} />
+                <span className="muted">{running ? 'Researching' : 'Last run'} ·</span>
+                <span className="ds-task-text">{status.task}</span>
               </div>
             )}
           </section>
-        )}
 
-        {status && status.queries.length > 0 && (
-          <section className="modal-section ds-queries-section">
-            <h3>Queries tried{status.task ? ` · ${status.queries.length}` : ''}</h3>
-            <p className="muted">
-              Previous searches against your wiki. Helpful context for the next run so the model
-              (and you) don't repeat ground.
-            </p>
-            <ul className="ds-query-list">
-              {status.queries.map((q) => (
-                <li key={q.queryId} className="ds-query-item">
-                  <div className="ds-query-text">{q.query}</div>
-                  {q.rationale && <div className="ds-query-rationale muted">{q.rationale}</div>}
-                  <div className="ds-query-meta muted">
-                    {q.ingestedCount} ingested
-                  </div>
-                </li>
-              ))}
-            </ul>
+          <section className="modal-section ds-graph-section">
+            <div className="ds-modal-stats muted">
+              {nodeCount} source{nodeCount === 1 ? '' : 's'} · {edgeCount} link
+              {edgeCount === 1 ? '' : 's'}
+              {freshSlugs.size > 0 && ` · ${freshSlugs.size} new this run`}
+            </div>
+            <WikiGraph
+              graph={graph}
+              freshSlugs={freshSlugs}
+              running={running}
+              onNodeOpen={handleNodeOpen}
+              selectedSlug={previewSource?.slug ?? null}
+            />
           </section>
-        )}
 
-        {!running && status?.task && (
-          <section className="modal-section ds-actions">
-            <button
-              type="button"
-              className="dp-btn dp-btn-secondary"
-              onClick={() => {
-                setTaskDraft('');
-                resetResearchEvents();
-                void reset();
-              }}
-            >
-              Start another run
-            </button>
-          </section>
-        )}
+          {running && (
+            <section className="modal-section">
+              <form className="dp-hint-form" onSubmit={(e) => void handleAddHint(e)}>
+                <input
+                  className="dp-hint-input"
+                  placeholder="Steer research…"
+                  value={hintDraft}
+                  onChange={(e) => setHintDraft(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="dp-btn dp-btn-secondary dp-btn-small"
+                  disabled={hintDraft.trim().length === 0}
+                >
+                  Add hint
+                </button>
+              </form>
+              {status?.hints && status.hints.length > 0 && (
+                <div className="ds-hints-list">
+                  {status.hints.map((h, i) => (
+                    <div key={i} className="ds-hint-chip">
+                      {h}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {status && status.queries.length > 0 && (
+            <section className="modal-section ds-queries-section">
+              <h3>Queries tried · {status.queries.length}</h3>
+              <p className="muted">
+                Previous searches against your wiki. Helpful context for the next run so the model
+                (and you) don't repeat ground.
+              </p>
+              <ul className="ds-query-list">
+                {status.queries.map((q) => (
+                  <li key={q.queryId} className="ds-query-item">
+                    <div className="ds-query-text">{q.query}</div>
+                    {q.rationale && <div className="ds-query-rationale muted">{q.rationale}</div>}
+                    <div className="ds-query-meta muted">{q.ingestedCount} ingested</div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
 
         {previewSource && (

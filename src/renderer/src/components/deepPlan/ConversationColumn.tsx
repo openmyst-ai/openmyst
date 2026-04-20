@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DeepPlanMessage, DeepPlanSession } from '@shared/types';
+import type { DeepPlanMessage, DeepPlanSession, WikiGraph as WikiGraphData } from '@shared/types';
+import { bridge } from '../../api/bridge';
 import { useDeepPlan } from '../../store/deepPlan';
 import { useResearchEvents } from '../../store/researchEvents';
+import { useSourcePreview } from '../../store/sourcePreview';
 import { renderMarkdown } from '../../utils/markdown';
 import { stripDeepPlanFences } from './stripFences';
-import { ResearchGraph } from '../research/ResearchGraph';
+import {
+  WikiGraph,
+  freshSlugsFromEvents,
+  pendingNodesFromEvents,
+} from '../graph/WikiGraph';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -27,7 +33,6 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   const [draft, setDraft] = useState('');
   const [steerAck, setSteerAck] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const researchEvents = useResearchEvents((s) => s.events);
   const researchRunning = status?.researchRunning ?? false;
 
   // Transient "✓ Steering: …" ack under the input — dismisses itself so
@@ -68,51 +73,19 @@ export function ConversationColumn({ session }: Props): JSX.Element {
     [draft, busy, isResearchStage, researchRunning, sendMessage, addResearchHint],
   );
 
-  // During research we hide the chat stream entirely. The graph IS the
-  // view; the only affordance is the steer input pinned at the bottom.
+  // During research the center column becomes the stage: the wiki graph
+  // fills it, new sources arrive as pending purple dots that glow when
+  // ingested, and a steer input sits pinned at the bottom. The right
+  // column meanwhile switches to a query-with-rationale log.
   if (isResearchStage) {
     return (
-      <div className="dp-chat dp-chat-research">
-        <div className="dp-research-graph-full">
-          <ResearchGraph
-            events={researchEvents}
-            rootLabel={session.task}
-            running={researchRunning}
-          />
-        </div>
-        <div className="dp-chat-footer">
-          {steerAck && (
-            <div className="dp-steer-ack" key={steerAck}>
-              <span className="dp-steer-ack-mark">✓</span>
-              <span className="dp-steer-ack-label">Steering:</span>
-              <span className="dp-steer-ack-text">{steerAck}</span>
-            </div>
-          )}
-          <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
-            <textarea
-              className="dp-chat-input"
-              placeholder="Steer research…"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSend(e);
-                }
-              }}
-              disabled={!researchRunning}
-              rows={2}
-            />
-            <button
-              type="submit"
-              className="dp-btn"
-              disabled={!researchRunning || draft.trim().length === 0}
-            >
-              Steer
-            </button>
-          </form>
-        </div>
-      </div>
+      <ResearchStageView
+        draft={draft}
+        setDraft={setDraft}
+        steerAck={steerAck}
+        handleSend={handleSend}
+        researchRunning={researchRunning}
+      />
     );
   }
 
@@ -169,6 +142,137 @@ export function ConversationColumn({ session }: Props): JSX.Element {
             disabled={isDone || draft.trim().length === 0 || busy}
           >
             Send
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+interface ResearchStageViewProps {
+  draft: string;
+  setDraft: (s: string) => void;
+  steerAck: string | null;
+  handleSend: (e: React.FormEvent) => Promise<void>;
+  researchRunning: boolean;
+}
+
+function ResearchStageView({
+  draft,
+  setDraft,
+  steerAck,
+  handleSend,
+  researchRunning,
+}: ResearchStageViewProps): JSX.Element {
+  const [graph, setGraph] = useState<WikiGraphData | null>(null);
+  const researchEvents = useResearchEvents((s) => s.events);
+  const openPreview = useSourcePreview((s) => s.open);
+
+  useEffect(() => {
+    const load = (): void => {
+      bridge.wiki.graph().then(setGraph).catch(console.error);
+    };
+    load();
+    const off = bridge.sources.onChanged(load);
+    return off;
+  }, []);
+
+  const freshSlugs = useMemo(
+    () => freshSlugsFromEvents(researchEvents),
+    [researchEvents],
+  );
+  const pending = useMemo(
+    () => pendingNodesFromEvents(researchEvents),
+    [researchEvents],
+  );
+
+  // Synthesize the graph we hand to WikiGraph: real wiki nodes plus any
+  // transient "pending" result nodes that haven't graduated to ingested
+  // yet. Pending entries have no edges and float free until they either
+  // vanish (skipped) or get lifted into the real graph (ingested).
+  const mergedGraph = useMemo<WikiGraphData | null>(() => {
+    if (!graph) {
+      if (pending.ids.size === 0) return null;
+      return {
+        nodes: Array.from(pending.names.entries()).map(([id, name]) => ({
+          id,
+          name,
+          indexSummary: '',
+          addedAt: new Date().toISOString(),
+        })),
+        edges: [],
+      };
+    }
+    if (pending.ids.size === 0) return graph;
+    const existing = new Set(graph.nodes.map((n) => n.id));
+    const extras = Array.from(pending.names.entries())
+      .filter(([id]) => !existing.has(id))
+      .map(([id, name]) => ({
+        id,
+        name,
+        indexSummary: '',
+        addedAt: new Date().toISOString(),
+      }));
+    return { nodes: [...graph.nodes, ...extras], edges: graph.edges };
+  }, [graph, pending]);
+
+  const handleNodeOpen = (slug: string): void => {
+    // Pending result ids aren't slugs yet — only open the preview for
+    // real wiki nodes. A pending click is a no-op.
+    if (pending.ids.has(slug)) return;
+    void bridge.sources.list().then((all) => {
+      const full = all.find((s) => s.slug === slug);
+      if (full) openPreview(full);
+    });
+  };
+
+  return (
+    <div className="dp-chat dp-chat-research">
+      <div className="dp-research-graph-wrap">
+        <WikiGraph
+          graph={mergedGraph}
+          freshSlugs={freshSlugs}
+          pendingIds={pending.ids}
+          running={researchRunning}
+          onNodeOpen={handleNodeOpen}
+          fillContainer
+          hideTooltip
+          showLabels
+          enableZoom
+          baseRadius={5}
+          radiusPerEdge={2}
+          hitRadiusPad={8}
+        />
+      </div>
+      <div className="dp-chat-footer">
+        {steerAck && (
+          <div className="dp-steer-ack" key={steerAck}>
+            <span className="dp-steer-ack-mark">✓</span>
+            <span className="dp-steer-ack-label">Steering:</span>
+            <span className="dp-steer-ack-text">{steerAck}</span>
+          </div>
+        )}
+        <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
+          <textarea
+            className="dp-chat-input"
+            placeholder="Steer research…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend(e);
+              }
+            }}
+            disabled={!researchRunning}
+            rows={2}
+          />
+          <button
+            type="submit"
+            className="dp-btn"
+            disabled={!researchRunning || draft.trim().length === 0}
+          >
+            Steer
           </button>
         </form>
       </div>
