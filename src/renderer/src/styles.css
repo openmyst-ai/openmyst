@@ -2110,6 +2110,32 @@ img.login-logo {
   color: var(--fg);
   font-size: 18px;
 }
+.update-modal {
+  width: 420px;
+}
+.update-modal-progress {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.06));
+  overflow: hidden;
+  margin: 12px 0 4px;
+}
+.update-modal-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent, #c6a1d8);
+  transition: width 200ms var(--ease);
+}
+.update-modal-progress-label {
+  display: block;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.update-modal-actions {
+  margin-top: 14px;
+  justify-content: flex-end;
+}
 .modal-section {
   border-top: 1px solid var(--border);
   padding-top: 16px;

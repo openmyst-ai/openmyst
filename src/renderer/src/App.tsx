@@ -9,6 +9,7 @@ import { Welcome } from './components/Welcome';
 import { Login } from './components/Login';
 import { SettingsModal } from './components/SettingsModal';
 import { DeepPlanMode } from './components/DeepPlanMode';
+import { UpdateAvailableModal } from './components/UpdateAvailableModal';
 
 export function App(): JSX.Element {
   const { project, settingsOpen, init, error, dismissError } = useApp();
@@ -58,6 +59,7 @@ export function App(): JSX.Element {
         <Welcome />
       )}
       {settingsOpen && <SettingsModal />}
+      <UpdateAvailableModal />
       {error && (
         <div className="error-toast" role="alert">
           <span>{error}</span>
