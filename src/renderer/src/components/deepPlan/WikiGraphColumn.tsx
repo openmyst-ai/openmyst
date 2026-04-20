@@ -66,7 +66,7 @@ export function WikiGraphColumn(): JSX.Element {
         <div className="dp-query-log-scroll">
           {runQueries.length === 0 ? (
             <div className="dp-query-log-empty">
-              Waiting for the first query…
+              Generating queries…
             </div>
           ) : (
             <ul className="dp-query-log-list">

@@ -172,19 +172,53 @@ export function WikiGraph({
     [width, height, paramsOverride],
   );
 
-  // Staggered reveal — when a batch of ingests lands (query-done often
-  // drops 3 sources at once), we pop them onto the graph one per second
-  // instead of slamming them in simultaneously. First-ever graph reveals
-  // everything immediately so there's no empty canvas on initial mount.
+  // Staggered reveal — ingests pop onto the graph one per second so a
+  // batch of 3 ingests doesn't slam in simultaneously. The first graph
+  // we ever see reveals everything immediately (no blank canvas on
+  // mount); after that, any new node joins a queue and the scheduler
+  // drains it 1s at a time.
+  //
+  // Critical: the queue + scheduler live in refs so they survive
+  // `graphProp` churn. The wiki snapshot re-fetches on every
+  // `sources.onChanged`, so any cleanup-based approach would cancel
+  // pending reveals the moment the next ingest arrived.
   const revealedRef = useRef<Set<string>>(new Set());
+  const queueRef = useRef<string[]>([]);
+  const timerRef = useRef<number | null>(null);
   const [revealTick, setRevealTick] = useState(0);
+  const bump = (): void => setRevealTick((t) => t + 1);
+
+  const drainQueue = (): void => {
+    if (timerRef.current !== null) return;
+    const pop = (): void => {
+      const next = queueRef.current.shift();
+      if (!next) {
+        timerRef.current = null;
+        return;
+      }
+      revealedRef.current.add(next);
+      bump();
+      if (queueRef.current.length === 0) {
+        timerRef.current = null;
+        return;
+      }
+      timerRef.current = window.setTimeout(pop, 1000);
+    };
+    // Reveal the first queued node immediately so a lone ingest doesn't
+    // sit invisible for a second. Subsequent pops space out by 1s.
+    pop();
+  };
 
   useEffect(() => {
     if (!graphProp) {
-      if (revealedRef.current.size > 0) {
-        revealedRef.current = new Set();
-        setRevealTick((t) => t + 1);
+      const had = revealedRef.current.size > 0 || queueRef.current.length > 0;
+      revealedRef.current = new Set();
+      queueRef.current = [];
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
+      if (had) bump();
       return;
     }
     const currentIds = new Set(graphProp.nodes.map((n) => n.id));
@@ -195,33 +229,41 @@ export function WikiGraph({
         changed = true;
       }
     }
-    const firstLoad = revealedRef.current.size === 0;
+    const prevQueueLen = queueRef.current.length;
+    queueRef.current = queueRef.current.filter((id) => currentIds.has(id));
+    if (queueRef.current.length !== prevQueueLen) changed = true;
+
+    const queued = new Set(queueRef.current);
     const incoming: string[] = [];
     for (const id of currentIds) {
-      if (!revealedRef.current.has(id)) incoming.push(id);
+      if (!revealedRef.current.has(id) && !queued.has(id)) incoming.push(id);
     }
+    const firstLoad = revealedRef.current.size === 0 && queueRef.current.length === 0;
     if (firstLoad) {
       for (const id of incoming) revealedRef.current.add(id);
-      setRevealTick((t) => t + 1);
+      if (incoming.length > 0 || changed) bump();
       return;
     }
     if (incoming.length === 0) {
-      if (changed) setRevealTick((t) => t + 1);
+      if (changed) bump();
       return;
     }
-    const timers: number[] = [];
-    incoming.forEach((id, i) => {
-      const handle = window.setTimeout(() => {
-        revealedRef.current.add(id);
-        setRevealTick((t) => t + 1);
-      }, i * 1000);
-      timers.push(handle);
-    });
-    if (changed) setRevealTick((t) => t + 1);
-    return () => {
-      for (const t of timers) window.clearTimeout(t);
-    };
+    for (const id of incoming) queueRef.current.push(id);
+    if (changed) bump();
+    drainQueue();
+    // drainQueue + queueRef are stable across renders by design — eslint
+    // would otherwise demand they go in deps and force re-runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphProp]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
 
   // Reveal-filtered view of the graph. Every downstream hook (degree
   // map, sim sync, SVG render) reads from this so the reveal cascade is
