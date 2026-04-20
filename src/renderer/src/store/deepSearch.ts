@@ -19,6 +19,7 @@ interface DeepSearchState {
   refresh: () => Promise<void>;
   start: (task: string) => Promise<void>;
   stop: () => Promise<void>;
+  reset: () => Promise<void>;
   addHint: (hint: string) => Promise<void>;
   clearError: () => void;
 }
@@ -54,6 +55,16 @@ export const useDeepSearch = create<DeepSearchState>((set) => ({
   stop: async () => {
     try {
       const status = await bridge.deepSearch.stop();
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
+  },
+
+  reset: async () => {
+    set({ error: null });
+    try {
+      const status = await bridge.deepSearch.reset();
       set({ status });
     } catch (err) {
       set({ error: (err as Error).message });

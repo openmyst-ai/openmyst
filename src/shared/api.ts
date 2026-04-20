@@ -43,6 +43,7 @@ export interface MystApi {
     hasJinaKey: () => Promise<boolean>;
     clearJinaKey: () => Promise<void>;
     setDeepPlanModel: (model: string) => Promise<void>;
+    setSummaryModel: (model: string) => Promise<void>;
   };
   projects: {
     createNew: () => Promise<Result<ProjectMeta>>;
@@ -141,6 +142,7 @@ export interface MystApi {
     status: () => Promise<DeepSearchStatus>;
     start: (task: string) => Promise<DeepSearchStatus>;
     stop: () => Promise<DeepSearchStatus>;
+    reset: () => Promise<DeepSearchStatus>;
     addHint: (hint: string) => Promise<DeepSearchStatus>;
     onChanged: (callback: () => void) => () => void;
   };

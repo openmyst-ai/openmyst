@@ -21,6 +21,7 @@ export const IpcChannels = {
     HasJinaKey: 'settings:has-jina-key',
     ClearJinaKey: 'settings:clear-jina-key',
     SetDeepPlanModel: 'settings:set-deep-plan-model',
+    SetSummaryModel: 'settings:set-summary-model',
   },
   Projects: {
     CreateNew: 'projects:create-new',
@@ -107,6 +108,7 @@ export const IpcChannels = {
     Status: 'deep-search:status',
     Start: 'deep-search:start',
     Stop: 'deep-search:stop',
+    Reset: 'deep-search:reset',
     AddHint: 'deep-search:add-hint',
     Changed: 'deep-search:changed',
   },

@@ -9,6 +9,9 @@ import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
 import { ConversationColumn } from './deepPlan/ConversationColumn';
 import { SourcePreviewPopup } from './SourcePreview';
+import { TutorialOverlay } from './tutorial/TutorialOverlay';
+import { DEEP_PLAN_TUTORIAL } from './tutorial/steps';
+import { useTutorial } from './tutorial/useTutorial';
 
 /**
  * Full-screen Deep Plan mode. Takes over the whole app when a new project is
@@ -78,6 +81,9 @@ export function DeepPlanMode(): JSX.Element {
   const session = status?.session ?? null;
   const needsIntent = !session || session.stage === 'intent';
   const hasOpenRouterKey = settings?.hasOpenRouterKey ?? false;
+  const isResearchStage = session?.stage === 'research';
+
+  const tutorial = useTutorial('deepPlan');
 
   return (
     <div className="dp-root">
@@ -104,12 +110,12 @@ export function DeepPlanMode(): JSX.Element {
         </div>
       )}
 
-      <div className="dp-body">
-        <aside className="dp-col dp-col-left">
+      <div className={`dp-body${isResearchStage ? ' dp-body-research' : ''}`}>
+        <aside className="dp-col dp-col-left" data-tutorial="dp-sources">
           <SourcesColumn />
         </aside>
 
-        <section className="dp-col dp-col-center">
+        <section className="dp-col dp-col-center" data-tutorial="dp-conversation">
           {needsIntent ? (
             <IntentForm
               project={project?.name ?? 'this project'}
@@ -127,12 +133,19 @@ export function DeepPlanMode(): JSX.Element {
           )}
         </section>
 
-        <aside className="dp-col dp-col-right">
+        <aside className="dp-col dp-col-right" data-tutorial="dp-wiki">
           <WikiGraphColumn />
         </aside>
       </div>
 
       <SourcePreviewPopup />
+      {tutorial.shouldShow && (
+        <TutorialOverlay
+          steps={DEEP_PLAN_TUTORIAL}
+          onDone={tutorial.markDone}
+          onSkip={tutorial.markDone}
+        />
+      )}
     </div>
   );
 }

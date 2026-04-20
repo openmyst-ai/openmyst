@@ -72,7 +72,7 @@ export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
   }
 
   return (
-    <div className="dp-stagebar">
+    <div className="dp-stagebar" data-tutorial="dp-stagebar">
       <div className="dp-stagebar-title">
         <span className="dp-stagebar-brand">Deep Plan</span>
         <span className="dp-stagebar-stage">· {STAGE_LABELS[stage]}</span>
@@ -103,6 +103,7 @@ export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
         {action && (
           <button
             type="button"
+            data-tutorial="dp-advance"
             className={
               action.kind === 'danger'
                 ? 'dp-btn dp-btn-danger dp-btn-small'
@@ -117,6 +118,7 @@ export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
         {!isDone && (
           <button
             type="button"
+            data-tutorial="dp-skip"
             className="dp-btn dp-btn-ghost dp-btn-small"
             onClick={() => void skip()}
             disabled={busy}
@@ -127,6 +129,7 @@ export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
         )}
         <button
           type="button"
+          data-tutorial="dp-settings"
           className="dp-stagebar-skip"
           onClick={onOpenSettings}
           title="Settings"

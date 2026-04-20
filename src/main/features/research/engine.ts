@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { DeepPlanResearchEvent } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
-import { ingestText } from '../sources';
+import { listSources, prepareIngestDigest, saveIngestedDigest } from '../sources';
 import { searchWeb, type JinaResult } from './search';
+import { fetchUrlAsMarkdown } from './fetch';
 import type { ResearchQueryProposal } from '../deepPlan/parse';
 
 /**
@@ -210,10 +211,19 @@ async function runOneQuery(
   });
   if (results.length === 0) return [];
 
-  const ingested: JinaResult[] = [];
+  // Phase 1: dedup before fetching. SERP is cheap; fetches are not, so we
+  // emit result-seen / duplicate-skip eagerly and only keep non-duplicate
+  // URLs for the fetch phase. We reserve canonicals in `seen` now so
+  // concurrent queries in the same run can't race to fetch the same URL.
+  interface Candidate {
+    result: JinaResult;
+    resultId: string;
+    canonical: string;
+    title: string;
+  }
+  const candidates: Candidate[] = [];
   for (const result of results) {
     if (ctx.isCancelled()) break;
-    if (ingested.length >= MAX_INGEST_PER_QUERY) break;
 
     const resultId = randomUUID();
     emit(ctx, {
@@ -228,62 +238,112 @@ async function runOneQuery(
     const canonical = canonicalUrl(result.url);
     if (seen.has(canonical)) {
       log('research', 'dedupSkip', { url: result.url });
-      emit(ctx, {
-        kind: 'result-skipped',
-        runId: ctx.runId,
-        queryId,
-        resultId,
-        reason: 'duplicate',
-      });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId, reason: 'duplicate' });
       continue;
     }
+    seen.add(canonical);
+    candidates.push({
+      result,
+      resultId,
+      canonical,
+      title: `${result.title} (${new URL(result.url).hostname})`,
+    });
+  }
 
-    const body = result.rawContent || result.content;
+  if (candidates.length === 0) return [];
+
+  // Phase 2: fetch page bodies in parallel. When the SERP response already
+  // carries a scraped body (managed-mode backends that don't yet honor
+  // `content: false`), reuse it and skip the extra Reader roundtrip.
+  const bodies = await Promise.allSettled(
+    candidates.map(async (c) => {
+      const pre = c.result.rawContent;
+      if (pre && pre.length > 0) return pre;
+      const page = await fetchUrlAsMarkdown(c.result.url);
+      return page.markdown;
+    }),
+  );
+
+  // Phase 3: post-fetch filter (too-short, bot-block, fetch-failed) and
+  // cap to MAX_INGEST_PER_QUERY so one fat query can't dominate.
+  interface ReadyCandidate extends Candidate {
+    body: string;
+    text: string;
+  }
+  const ready: ReadyCandidate[] = [];
+  for (let i = 0; i < candidates.length; i++) {
+    if (ready.length >= MAX_INGEST_PER_QUERY) break;
+    const c = candidates[i]!;
+    const b = bodies[i]!;
+    if (b.status === 'rejected') {
+      logError('research', 'fetchFailed', b.reason, { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
+      continue;
+    }
+    const body = b.value;
     if (!body || body.length < MIN_CONTENT_CHARS) {
-      log('research', 'skipTooShort', { url: result.url, len: body?.length ?? 0 });
-      emit(ctx, {
-        kind: 'result-skipped',
-        runId: ctx.runId,
-        queryId,
-        resultId,
-        reason: 'too-short',
-      });
+      log('research', 'skipTooShort', { url: c.result.url, len: body?.length ?? 0 });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'too-short' });
       continue;
     }
     if (looksLikeBotBlock(body)) {
-      log('research', 'skipBotBlock', { url: result.url });
-      emit(ctx, {
-        kind: 'result-skipped',
-        runId: ctx.runId,
-        queryId,
-        resultId,
-        reason: 'bot-block',
-      });
+      log('research', 'skipBotBlock', { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'bot-block' });
       continue;
     }
+    ready.push({
+      ...c,
+      body,
+      text: `Source URL: ${c.result.url}\n\n${body}`,
+    });
+  }
 
+  if (ready.length === 0) return [];
+
+  // Phase 4: kick off all digest LLM calls in parallel. Each uses the
+  // same snapshot of existing sources for cross-linking — digests in the
+  // same batch won't link to each other, which is a minor quality
+  // tradeoff for a 3× speedup on the ingest phase.
+  const existingSources = await listSources();
+  const digests = await Promise.allSettled(
+    ready.map((c) => prepareIngestDigest(c.text, c.title, existingSources)),
+  );
+
+  // Phase 5: serialise the saves (index writes race otherwise). Emit
+  // result-ingested / result-skipped in candidate order.
+  const ingested: JinaResult[] = [];
+  for (let i = 0; i < ready.length; i++) {
+    if (ctx.isCancelled()) break;
+    const c = ready[i]!;
+    const d = digests[i]!;
+    if (d.status === 'rejected') {
+      logError('research', 'ingestFailed', d.reason, { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
+      continue;
+    }
+    if (d.value.isFallback) {
+      // Digest LLM fell back to raw-text truncation — usually a paywalled
+      // or JS-heavy page where the scrape yielded too little for a real
+      // summary. Drop the source instead of polluting the wiki with a
+      // junk "summary" that's just the first 500 chars of the page.
+      log('research', 'skipDigestFallback', { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
+      continue;
+    }
     try {
-      const title = `${result.title} (${new URL(result.url).hostname})`;
-      const meta = await ingestText(`Source URL: ${result.url}\n\n${body}`, title);
-      seen.add(canonical);
-      ingested.push(result);
+      const meta = await saveIngestedDigest(c.text, c.title, d.value);
+      ingested.push(c.result);
       emit(ctx, {
         kind: 'result-ingested',
         runId: ctx.runId,
         queryId,
-        resultId,
+        resultId: c.resultId,
         slug: meta.slug,
         name: meta.name,
       });
     } catch (err) {
-      logError('research', 'ingestFailed', err, { url: result.url });
-      emit(ctx, {
-        kind: 'result-skipped',
-        runId: ctx.runId,
-        queryId,
-        resultId,
-        reason: 'ingest-failed',
-      });
+      logError('research', 'ingestFailed', err, { url: c.result.url });
+      emit(ctx, { kind: 'result-skipped', runId: ctx.runId, queryId, resultId: c.resultId, reason: 'ingest-failed' });
     }
   }
   return ingested;

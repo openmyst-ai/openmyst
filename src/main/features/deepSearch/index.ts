@@ -157,6 +157,16 @@ export async function stopSearch(): Promise<DeepSearchStatus> {
   return getStatus();
 }
 
+export async function resetSearch(): Promise<DeepSearchStatus> {
+  if (state.running) {
+    throw new Error('Stop the current run before resetting.');
+  }
+  state = freshState(currentProjectRootOrNull());
+  await clearState().catch((err) => logError('deep-search', 'state.clear.failed', err));
+  touch();
+  return getStatus();
+}
+
 export async function addHint(hint: string): Promise<DeepSearchStatus> {
   const trimmed = hint.trim();
   if (!trimmed) return getStatus();

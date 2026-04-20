@@ -25,6 +25,14 @@ mac:
       arch:
         - arm64
         - x64
+    # electron-updater on macOS can only apply updates from a `.zip` — the
+    # .dmg is the user-facing installer, the .zip is the machine-readable
+    # payload its differential updater actually consumes. Missing the zip
+    # was the "ZIP file not provided" error from the 0.1.1 → 0.1.2 update.
+    - target: zip
+      arch:
+        - arm64
+        - x64
   # Signed + notarized build. Requires a Developer ID Application cert
   # in the keychain and the APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD env
   # vars for notarization.

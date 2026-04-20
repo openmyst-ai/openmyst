@@ -8,6 +8,7 @@ import {
   setDeepPlanModel,
   setJinaKey,
   setOpenRouterKey,
+  setSummaryModel,
 } from '../features/settings';
 
 export function registerSettingsIpc(): void {
@@ -53,5 +54,12 @@ export function registerSettingsIpc(): void {
       throw new Error('Model id must be a non-empty string.');
     }
     await setDeepPlanModel(model.trim());
+  });
+
+  ipcMain.handle(IpcChannels.Settings.SetSummaryModel, async (_event, model: unknown) => {
+    if (typeof model !== 'string' || model.trim().length === 0) {
+      throw new Error('Model id must be a non-empty string.');
+    }
+    await setSummaryModel(model.trim());
   });
 }

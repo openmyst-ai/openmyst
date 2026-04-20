@@ -33,6 +33,14 @@ export async function ensureSearchReady(): Promise<void> {
   }
 }
 
+/**
+ * SERP-only: request just title + url + short description for each hit,
+ * skipping the per-result page scrape. Callers that need page bodies
+ * fetch them separately via `fetchUrlAsMarkdown` — typically in parallel
+ * and only for the hits that survive pre-filtering. This split cuts
+ * per-query latency dramatically because Jina's SERP pass is ~1-2s vs
+ * ~20-30s when scraping all 5 hits server-side.
+ */
 export async function searchWeb(options: {
   query: string;
   maxResults?: number;
@@ -43,7 +51,12 @@ export async function searchWeb(options: {
   }
   const jinaKey = await getJinaKey();
   if (!jinaKey) return [];
-  const resp = await jinaSearch({ apiKey: jinaKey, query: options.query, maxResults: options.maxResults });
+  const resp = await jinaSearch({
+    apiKey: jinaKey,
+    query: options.query,
+    maxResults: options.maxResults,
+    lite: true,
+  });
   return resp?.results ?? [];
 }
 
@@ -74,6 +87,10 @@ async function openmystSearch(options: {
   const version = app.getVersion();
   const body: Record<string, unknown> = { query: options.query };
   if (options.maxResults !== undefined) body['num_results'] = options.maxResults;
+  // Hint to the backend that we don't need per-hit page bodies — we fetch
+  // surviving hits ourselves. Backends that don't honor this yet just
+  // return the scraped body anyway, which we'll still reuse (see engine).
+  body['content'] = false;
 
   try {
     const response = await fetch(`${OPENMYST_API_BASE_URL}/api/v1/search`, {

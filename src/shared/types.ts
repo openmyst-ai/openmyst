@@ -3,6 +3,7 @@ export interface AppSettings {
   hasOpenRouterKey: boolean;
   hasJinaKey: boolean;
   deepPlanModel: string;
+  summaryModel: string;
   recentProjects: string[];
   /**
    * Folder under which the user keeps all their Open Myst projects. Each
@@ -41,7 +42,25 @@ export const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
   { id: 'qwen/qwen3.5-flash-02-23', label: 'Qwen 3.5 Flash' },
 ];
 
+/**
+ * Research-summary model options. Digest is a bounded "produce JSON with
+ * name/summary/indexSummary/anchors[]" task where anchors contain verbatim
+ * source spans. Sub-15B models (e.g. Mistral Nemo) frequently fail to
+ * produce valid JSON on this prompt — when parsing fails we silently fall
+ * back to the first 500 chars of the raw source as the "summary", which
+ * looks like a bug to the user. Default to a model proven to be fast AND
+ * reliable at structured output.
+ */
+export const SUMMARY_MODEL_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: 'google/gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite (fast, reliable)' },
+  { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
+  { id: 'deepseek/deepseek-v3.2', label: 'DeepSeek V3.2' },
+  { id: 'qwen/qwen3.5-flash-02-23', label: 'Qwen 3.5 Flash' },
+  { id: 'mistralai/mistral-nemo', label: 'Mistral Nemo (fastest — JSON output unreliable)' },
+];
+
 export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v3.2';
+export const DEFAULT_SUMMARY_MODEL = 'google/gemini-2.5-flash-lite';
 
 export interface ProjectMeta {
   name: string;

@@ -1,6 +1,7 @@
 import type { SourceMeta } from '@shared/types';
 import { completeText } from '../../llm';
-import { getSettings } from '../settings';
+import { log, logError } from '../../platform';
+import { getSummaryModel } from '../settings';
 import { locateAnchors, type RawLlmAnchor } from './anchors';
 import type { SourceAnchor } from '@shared/types';
 
@@ -32,6 +33,15 @@ export interface SourceDigest {
   summary: string;
   indexSummary: string;
   anchors: SourceAnchor[];
+  relatedSlugs: string[];
+  /**
+   * True when the digest LLM call failed (missing key, network error,
+   * invalid JSON) and we fell back to truncated raw text. Research
+   * auto-ingest uses this to drop the source before persisting — a
+   * paywalled / JS-heavy page producing a junk digest isn't worth
+   * cluttering the wiki over. Manual ingests still save through.
+   */
+  isFallback?: boolean;
 }
 
 // Raw text cap the digest LLM sees. 24k chars ≈ 6k tokens, or ~5 pages of
@@ -54,8 +64,19 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
       "keywords": ["3-6 terms a future reader might match against"],
       "excerpt": "A VERBATIM substring of the raw source, copy-pasted exactly. Aim for a couple of sentences — longer or shorter is fine, but it must be long enough to be unique in the source and short enough to be citable. The excerpt MUST appear word-for-word in the raw text."
     }
-  ]
+  ],
+  "relatedSlugs": ["other_slug", "another_slug"],
+  "isNonContent": false
 }
+
+isNonContent: set to true ONLY when the source text doesn't contain real, citable content on the topic implied by its title — examples: 404 / "page not found" error pages, login walls, cookie-consent shells, empty navigation skeletons, anti-bot / captcha pages, paywall stubs with no abstract. When true, leave summary/indexSummary/anchors/relatedSlugs as minimal placeholders (the system will drop the source entirely, so it doesn't matter). Default to false — a thin but real summary still counts as content. This flag is load-bearing: a wrong true will silently delete the source; a wrong false pollutes the wiki with junk.
+
+Direct links vs related slugs:
+- Inline \`[Name](slug.md)\` wikilinks in the summary are for DIRECT references — places where this source builds on, cites, rebuts, or explicitly connects to another source. Use only when there's a real, specific connection worth clicking through for.
+- \`relatedSlugs\` is for INDIRECT related-reading pointers — and the bar for inclusion is HIGH. The connection must be so close that a reader would say "obviously these two go together": same sub-topic + same angle, directly comparable method, one clearly extends/contradicts the other, or both are specific instances of the exact same concept. Generic "same broad field" is NOT enough. "Both about reinforcement learning" → no. "Both propose on-policy actor-critic variants" → yes.
+- Default to FEW links. A general/foundational source covering a whole field should usually have 0–2 related links, not 10. A narrow source that sits in a specific conversation with other sources you've seen can have more. A summary/survey/review document that explicitly catalogs a body of work is the rare case where many links are appropriate — only then.
+- When in doubt, leave it out. Fewer, tighter pointers make the graph useful; a long list of loosely-related entries makes it noise.
+- Pick slugs (without \`.md\`) ONLY from the existing-sources list provided. Never invent slugs. Do not include this source's own slug.
 
 Anchor rules (load-bearing):
 - Every excerpt MUST be a verbatim substring of the raw source. Do not paraphrase, do not fix typos, do not add ellipses.
@@ -72,7 +93,54 @@ function fallbackDigest(rawText: string, hint: string): SourceDigest {
     summary: rawText.slice(0, 500),
     indexSummary: `Source: ${hint}`,
     anchors: [],
+    relatedSlugs: [],
+    isFallback: true,
   };
+}
+
+/**
+ * Keep only slugs that refer to real, other sources in this project. Dedupe
+ * and drop any self-reference. The LLM is asked to pick from the provided
+ * list, but it occasionally hallucinates — this is the load-bearing check.
+ */
+export function sanitizeRelatedSlugs(
+  raw: unknown,
+  existingSources: SourceMeta[],
+  selfHint: string,
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const known = new Map(existingSources.map((s) => [s.slug, s]));
+  const selfSlug = existingSources.find((s) => s.name === selfHint)?.slug ?? null;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const slug = item.replace(/\.md$/i, '').trim();
+    if (!slug || slug === selfSlug) continue;
+    if (!known.has(slug)) continue;
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    out.push(slug);
+  }
+  return out;
+}
+
+/**
+ * Append a `## Related` section of wikilinks to the summary so the graph
+ * builder's regex picks them up as edges — same mechanism as inline direct
+ * references, just isolated at the end for readability. Returns the summary
+ * unchanged when there's nothing to append.
+ */
+export function appendRelatedSection(
+  summary: string,
+  relatedSlugs: string[],
+  existingSources: SourceMeta[],
+): string {
+  if (relatedSlugs.length === 0) return summary;
+  const nameBySlug = new Map(existingSources.map((s) => [s.slug, s.name]));
+  const lines = relatedSlugs.map((slug) => `- [${nameBySlug.get(slug) ?? slug}](${slug}.md)`);
+  const trimmed = summary.replace(/\s+$/, '');
+  return `${trimmed}\n\n## Related\n${lines.join('\n')}`;
 }
 
 function buildUserPrompt(rawText: string, hint: string, existingSources: SourceMeta[]): string {
@@ -82,7 +150,12 @@ function buildUserPrompt(rawText: string, hint: string, existingSources: SourceM
         .map((s) => `- ${s.name} (${s.slug}.md)`)
         .join('\n')}`
     : '';
-  return `Source hint: "${hint}"${existingBlock}\n\nRaw text:\n${preview}`;
+  // Summary models otherwise default to their training-cutoff worldview —
+  // handing them today's date lets them reason about how recent a source
+  // is relative to "now" when it matters (e.g. noting a 2024 paper as
+  // recent rather than cutting-edge, flagging pre-2020 claims as dated).
+  const today = new Date().toISOString().slice(0, 10);
+  return `Today's date: ${today}\nSource hint: "${hint}"${existingBlock}\n\nRaw text:\n${preview}`;
 }
 
 export async function generateDigest(
@@ -90,9 +163,9 @@ export async function generateDigest(
   hint: string,
   existingSources: SourceMeta[] = [],
 ): Promise<SourceDigest> {
-  const { defaultModel } = await getSettings();
+  const model = await getSummaryModel();
   const raw = await completeText({
-    model: defaultModel,
+    model,
     logScope: 'sources',
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -109,7 +182,16 @@ export async function generateDigest(
       summary?: unknown;
       indexSummary?: unknown;
       anchors?: unknown;
+      relatedSlugs?: unknown;
+      isNonContent?: unknown;
     };
+    if (parsed.isNonContent === true) {
+      // Summary model flagged this as a non-content page (404, login
+      // wall, empty shell). Reuse the fallback path so the research
+      // pipeline's isFallback check drops it before it hits the wiki.
+      log('sources', 'digest.nonContent', { model, hint });
+      return fallbackDigest(rawText, hint);
+    }
     const llmAnchors: RawLlmAnchor[] = Array.isArray(parsed.anchors)
       ? (parsed.anchors as RawLlmAnchor[])
       : [];
@@ -117,14 +199,28 @@ export async function generateDigest(
     // exactly what we persist to raw.txt. Keeps indexOf honest.
     const anchorInput = rawText.slice(0, MAX_PREVIEW_CHARS);
     const anchors = locateAnchors(anchorInput, llmAnchors);
+    const name = typeof parsed.name === 'string' ? parsed.name : hint;
+    const rawSummary =
+      typeof parsed.summary === 'string' ? parsed.summary : rawText.slice(0, 500);
+    const relatedSlugs = sanitizeRelatedSlugs(parsed.relatedSlugs, existingSources, name);
+    const summary = appendRelatedSection(rawSummary, relatedSlugs, existingSources);
     return {
-      name: typeof parsed.name === 'string' ? parsed.name : hint,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : rawText.slice(0, 500),
+      name,
+      summary,
       indexSummary:
         typeof parsed.indexSummary === 'string' ? parsed.indexSummary : `Source: ${hint}`,
       anchors,
+      relatedSlugs,
     };
-  } catch {
+  } catch (err) {
+    // Fallback used to be silent — made user-visible "summaries" that were
+    // just the first 500 chars of the raw text. Log the model id and a
+    // sample of the raw reply so it's obvious in the session log which
+    // summary model is failing to produce valid JSON.
+    logError('sources', 'digest.parseFailed', err, {
+      model,
+      rawHead: raw.slice(0, 200),
+    });
     return fallbackDigest(rawText, hint);
   }
 }

@@ -2,7 +2,7 @@ import { app, safeStorage } from 'electron';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings } from '@shared/types';
-import { DEFAULT_DEEP_PLAN_MODEL, DEFAULT_MODEL } from '@shared/types';
+import { DEFAULT_DEEP_PLAN_MODEL, DEFAULT_MODEL, DEFAULT_SUMMARY_MODEL } from '@shared/types';
 
 /**
  * User-wide settings, stored outside any project. Lives at
@@ -17,6 +17,7 @@ import { DEFAULT_DEEP_PLAN_MODEL, DEFAULT_MODEL } from '@shared/types';
 interface StoredSettings {
   defaultModel: string;
   deepPlanModel: string;
+  summaryModel: string;
   openRouterKeyCipher: string | null;
   jinaKeyCipher: string | null;
   recentProjects: string[];
@@ -26,6 +27,7 @@ interface StoredSettings {
 const DEFAULTS: StoredSettings = {
   defaultModel: DEFAULT_MODEL,
   deepPlanModel: DEFAULT_DEEP_PLAN_MODEL,
+  summaryModel: DEFAULT_SUMMARY_MODEL,
   openRouterKeyCipher: null,
   jinaKeyCipher: null,
   recentProjects: [],
@@ -70,6 +72,7 @@ export async function getSettings(): Promise<AppSettings> {
   return {
     defaultModel: stored.defaultModel,
     deepPlanModel: stored.deepPlanModel,
+    summaryModel: stored.summaryModel,
     hasOpenRouterKey: stored.openRouterKeyCipher !== null,
     hasJinaKey: stored.jinaKeyCipher !== null,
     recentProjects: stored.recentProjects,
@@ -145,6 +148,16 @@ export async function setDeepPlanModel(model: string): Promise<void> {
 export async function getDeepPlanModel(): Promise<string> {
   const stored = await readStored();
   return stored.deepPlanModel;
+}
+
+export async function setSummaryModel(model: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, summaryModel: model });
+}
+
+export async function getSummaryModel(): Promise<string> {
+  const stored = await readStored();
+  return stored.summaryModel;
 }
 
 export async function pushRecentProject(path: string): Promise<void> {

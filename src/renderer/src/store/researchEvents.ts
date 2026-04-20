@@ -25,15 +25,18 @@ export const useResearchEvents = create<ResearchEventsState>((set) => ({
   currentRunId: null,
   push: (event) =>
     set((prev) => {
-      if (event.kind === 'run-start') {
-        return { events: [event], currentRunId: event.runId };
-      }
       const nextEvents = [...prev.events, event];
       const trimmed =
         nextEvents.length > MAX_EVENTS
           ? nextEvents.slice(nextEvents.length - MAX_EVENTS)
           : nextEvents;
-      return { events: trimmed };
+      const patch: Partial<ResearchEventsState> = { events: trimmed };
+      // run-start still updates currentRunId so the per-run helpers
+      // (freshSlugsFromEvents, pendingNodesFromEvents) can rescope their
+      // walks — but we no longer wipe the event log. "Continue
+      // researching" is meant to extend the existing log, not erase it.
+      if (event.kind === 'run-start') patch.currentRunId = event.runId;
+      return patch as ResearchEventsState;
     }),
   reset: () => set({ events: [], currentRunId: null }),
 }));

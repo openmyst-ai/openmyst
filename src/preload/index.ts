@@ -42,6 +42,7 @@ const api: MystApi = {
     hasJinaKey: () => ipcRenderer.invoke(IpcChannels.Settings.HasJinaKey),
     clearJinaKey: () => ipcRenderer.invoke(IpcChannels.Settings.ClearJinaKey),
     setDeepPlanModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDeepPlanModel, model),
+    setSummaryModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetSummaryModel, model),
   },
   projects: {
     createNew: () => ipcRenderer.invoke(IpcChannels.Projects.CreateNew),
@@ -222,6 +223,7 @@ const api: MystApi = {
     status: () => ipcRenderer.invoke(IpcChannels.DeepSearch.Status),
     start: (task) => ipcRenderer.invoke(IpcChannels.DeepSearch.Start, task),
     stop: () => ipcRenderer.invoke(IpcChannels.DeepSearch.Stop),
+    reset: () => ipcRenderer.invoke(IpcChannels.DeepSearch.Reset),
     addHint: (hint) => ipcRenderer.invoke(IpcChannels.DeepSearch.AddHint, hint),
     onChanged: (callback) => {
       const handler = (): void => {
