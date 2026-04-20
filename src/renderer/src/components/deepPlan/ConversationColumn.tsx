@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DeepPlanMessage, DeepPlanSession, WikiGraph as WikiGraphData } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useDeepPlan } from '../../store/deepPlan';
@@ -29,6 +29,12 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   const [draft, setDraft] = useState('');
   const [steerAck, setSteerAck] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Sticky-bottom behavior. `pinned` means the user is parked at (or
+  // very near) the bottom of the scroll region, so new chunks should
+  // keep it glued there. The moment they scroll up to re-read something
+  // we flip it off and stop yanking them back down — that's the
+  // "can't scroll up while the model is generating" bug.
+  const pinnedRef = useRef(true);
   const researchRunning = status?.researchRunning ?? false;
 
   // Transient "✓ Steering: …" ack under the input — dismisses itself so
@@ -40,7 +46,24 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   }, [steerAck]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = (): void => {
+      // 48px of slack — if the user is within a few lines of the
+      // bottom we treat them as pinned and keep auto-scrolling; once
+      // they scroll further up, we back off until they return.
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      pinnedRef.current = distance < 48;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!pinnedRef.current) return;
+    el.scrollTo({ top: el.scrollHeight });
   }, [session.messages.length, streamingBuffer]);
 
   const stage = session.stage;
@@ -118,19 +141,13 @@ export function ConversationColumn({ session }: Props): JSX.Element {
 
       <div className="dp-chat-footer">
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
-          <textarea
+          <AutoResizeTextarea
             className="dp-chat-input"
             placeholder={isDone ? 'Deep Plan complete.' : 'Write a reply…'}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend(e);
-              }
-            }}
+            onChange={setDraft}
+            onSubmit={() => void handleSend(new Event('submit') as unknown as React.FormEvent)}
             disabled={isDone || busy}
-            rows={2}
           />
           <button
             type="submit"
@@ -142,6 +159,57 @@ export function ConversationColumn({ session }: Props): JSX.Element {
         </form>
       </div>
     </div>
+  );
+}
+
+interface AutoResizeProps {
+  className?: string;
+  placeholder?: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  disabled?: boolean;
+}
+
+/**
+ * Textarea that grows with its content. Starts at ~2 lines and expands
+ * up to ~40% of the viewport before it switches to internal scrolling,
+ * so pasting or typing a long prompt doesn't get cramped into a tiny
+ * 2-line box. Enter submits; Shift+Enter inserts a newline (standard
+ * chat convention).
+ */
+function AutoResizeTextarea({
+  className,
+  placeholder,
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+}: AutoResizeProps): JSX.Element {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const max = Math.max(160, Math.floor(window.innerHeight * 0.4));
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      className={className}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+      disabled={disabled}
+      rows={2}
+    />
   );
 }
 
@@ -230,19 +298,13 @@ function ResearchStageView({
           </div>
         )}
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
-          <textarea
+          <AutoResizeTextarea
             className="dp-chat-input"
             placeholder="Steer research…"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend(e);
-              }
-            }}
+            onChange={setDraft}
+            onSubmit={() => void handleSend(new Event('submit') as unknown as React.FormEvent)}
             disabled={!researchRunning}
-            rows={2}
           />
           <button
             type="submit"

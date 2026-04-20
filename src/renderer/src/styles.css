@@ -3326,6 +3326,12 @@ img.login-logo {
   border-radius: 10px;
   padding: 12px 14px;
   resize: none;
+  /* Min matches the old 2-row baseline so an empty input doesn't
+   * collapse to a single line; the JS auto-resize grows it from here
+   * up to ~40% of viewport before scrolling internally. */
+  min-height: 70px;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 .dp-chat-input:focus {
   outline: none;

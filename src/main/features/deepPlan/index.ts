@@ -509,9 +509,17 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
       seenUrls,
     );
 
-    const summary = summariseRunResult(result);
+    // Research is not a conversation — the graph + source counter tell
+    // the user what happened. Appending a "Coverage looks good…" chat
+    // message here leaks across stages and shows up as a stray bubble
+    // in later stages, so we only keep the token accounting.
+    log('deep-plan', 'research.loop.done', {
+      reason: result.reason,
+      totalIngested: result.totalIngested,
+      totalQueries: result.totalQueries,
+    });
     await updateSession((s) => ({
-      ...appendMessage(s, 'assistant', summary, 'research-note'),
+      ...s,
       tokensUsedK: s.tokensUsedK + tokensThisLoop,
     }));
   } finally {
@@ -521,29 +529,6 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
   }
 
   return buildStatus();
-}
-
-function summariseRunResult(result: {
-  totalIngested: number;
-  totalQueries: number;
-  reason: 'target-reached' | 'converged' | 'cancelled' | 'query-cap' | 'error';
-}): string {
-  const counts = `${result.totalIngested} source${
-    result.totalIngested === 1 ? '' : 's'
-  } added across ${result.totalQueries} queries`;
-  switch (result.reason) {
-    case 'target-reached':
-      return `Coverage looks good — ${counts}. Hit Continue to move on, or "Keep researching" if you want more.`;
-    case 'converged':
-      return `The planner thinks the wiki is covered — ${counts}. Hit Continue to move on, or "Keep researching" to push further.`;
-    case 'cancelled':
-      return `Stopped early — ${counts}. Hit Continue to move on, or "Keep researching" to resume.`;
-    case 'query-cap':
-      return `Hit the query cap — ${counts}. Hit Continue to move on, or "Keep researching" for another pass.`;
-    case 'error':
-    default:
-      return `Research stopped with an error — ${counts}. Hit Continue to move on, or "Keep researching" to retry.`;
-  }
 }
 
 export async function skipSession(): Promise<DeepPlanStatus> {
