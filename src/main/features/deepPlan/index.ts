@@ -28,6 +28,7 @@ import {
   gapsPrompt,
   intentPrompt,
   oneShotPrompt,
+  preDraftLookupPrompt,
   researchPlannerPrompt,
   reviewPrompt,
   scopingPrompt,
@@ -654,22 +655,72 @@ function buildResearchSummary(session: DeepPlanSession): string {
 }
 
 /**
- * Remove `source_lookup` fences (complete or in-progress) from a draft
- * buffer before flushing it to the document. Mirrors the renderer-side
- * stripDeepPlanFences but scoped to just source_lookup since that's the
- * only fence the drafter is allowed to emit.
+ * One-shot pre-draft pass. Asks the model which verbatim anchors / source
+ * pages it wants pulled before the actual draft call. Non-streaming —
+ * we only care about the source_lookup fences it emits. Any prose the
+ * model accidentally adds is discarded; if no lookups come back, we
+ * return an empty string and the drafter runs with summaries alone.
+ *
+ * Failures (missing LLM, malformed output) degrade silently to "no
+ * prefetch" rather than blocking the draft — the drafter always has
+ * the detailed summaries to fall back on.
  */
-function stripLookupFencesForDraft(text: string): string {
-  let out = text.replace(/```source_lookup\s*\n[\s\S]*?```/g, '');
-  const openIdx = out.lastIndexOf('```source_lookup');
-  if (openIdx !== -1) {
-    const after = out.slice(openIdx + '```source_lookup'.length);
-    if (!after.includes('```')) out = out.slice(0, openIdx);
-  }
-  return out;
-}
+async function runPreDraftLookups(args: {
+  model: string;
+  session: DeepPlanSession;
+  sources: SourceMeta[];
+  detailedSummaries: Map<string, string>;
+  plannerSynthesis: string;
+  researchSummary: string;
+  docLabel: string;
+}): Promise<string> {
+  const prompt = preDraftLookupPrompt(
+    args.session,
+    args.sources,
+    args.detailedSummaries,
+    args.plannerSynthesis,
+    args.researchSummary,
+    args.docLabel,
+  );
+  const messages: LlmMessage[] = [
+    { role: 'system', content: prompt },
+    {
+      role: 'user',
+      content:
+        'Emit source_lookup fences only — no prose. If nothing worth pulling, emit nothing.',
+    },
+  ];
 
-const MAX_DRAFT_LOOKUP_ROUNDS = 4;
+  let reply: string | null = null;
+  try {
+    reply = await completeText({ model: args.model, messages, logScope: 'deep-plan' });
+  } catch (err) {
+    logError('deep-plan', 'oneshot.preDraft.failed', err);
+    return '';
+  }
+  if (!reply || reply.trim().length === 0) {
+    log('deep-plan', 'oneshot.preDraft.empty', {});
+    return '';
+  }
+
+  const { requests } = parseSourceLookups(reply);
+  if (requests.length === 0) {
+    log('deep-plan', 'oneshot.preDraft.noLookups', { replyChars: reply.length });
+    return '';
+  }
+  log('deep-plan', 'oneshot.preDraft.requests', {
+    count: requests.length,
+    slugs: requests.map((r) => r.slug),
+  });
+
+  const resolved = await resolveSourceLookups(requests);
+  const formatted = formatLookupReply(resolved);
+  log('deep-plan', 'oneshot.preDraft.resolved', {
+    count: resolved.length,
+    chars: formatted.length,
+  });
+  return formatted;
+}
 
 export async function runOneShot(): Promise<DeepPlanStatus> {
   const session = await readSession();
@@ -691,20 +742,38 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   const plannerSynthesis = buildPlannerSynthesis(session);
   const researchSummary = buildResearchSummary(session);
 
+  // Pre-draft lookup pass. One non-streaming LLM call that reads the same
+  // context as the drafter and emits source_lookup fences for any verbatim
+  // anchors / pages / raw files it wants pre-fetched. We resolve them off
+  // disk and hand the formatted results to the draft prompt so the actual
+  // draft call stays a single clean stream.
+  await writeDocument(target.filename, '_Looking up source passages…_\n');
+  broadcast(IpcChannels.Document.Changed);
+  const prefetchedPassages = await runPreDraftLookups({
+    model,
+    session,
+    sources,
+    detailedSummaries,
+    plannerSynthesis,
+    researchSummary,
+    docLabel: target.label,
+  });
+
   const prompt = oneShotPrompt(
     session,
     sources,
     detailedSummaries,
     plannerSynthesis,
     researchSummary,
+    prefetchedPassages,
     target.label,
   );
-  let messages: LlmMessage[] = [
+  const messages: LlmMessage[] = [
     { role: 'system', content: prompt },
     {
       role: 'user',
       content:
-        'Write the full draft now. Use `source_lookup` freely before and during the draft whenever you want a verbatim passage, an exact number, or the anchor list for a source. Output only the markdown of the draft itself — no preamble.',
+        'Write the full draft now. Output only the markdown of the draft itself — no preamble.',
     },
   ];
 
@@ -721,89 +790,40 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   await writeDocument(target.filename, '_Writing draft…_\n');
   broadcast(IpcChannels.Document.Changed);
 
-  // Multi-round streaming with source_lookup resolution. Each round streams
-  // a fresh draft attempt into the document (overwriting the previous
-  // round's output as the model re-incorporates freshly-resolved verbatim
-  // text). Lookup fences are stripped from the live stream so the reader
-  // never sees raw JSON blocks in their draft. When a round finishes with
-  // no more lookups, we break and keep its content as the final draft.
-  let finalContent = '';
-  let totalPromptChars = prompt.length;
-  try {
-    for (let round = 0; round < MAX_DRAFT_LOOKUP_ROUNDS; round++) {
-      let buffer = '';
-      let lastFlushAt = 0;
-      const FLUSH_MS = 300;
-      const flushDraft = async (): Promise<void> => {
-        const body = stripLookupFencesForDraft(buffer).trimStart();
-        if (body.length === 0) return;
-        try {
-          await writeDocument(target.filename, body);
-          broadcast(IpcChannels.Document.Changed);
-        } catch (err) {
-          logError('deep-plan', 'oneshot.flushFailed', err);
-        }
-      };
-      const content = await streamChat({
-        model,
-        messages,
-        logScope: 'deep-plan',
-        onChunk: (chunk) => {
-          buffer += chunk;
-          const now = Date.now();
-          if (now - lastFlushAt >= FLUSH_MS) {
-            lastFlushAt = now;
-            void flushDraft();
-          }
-        },
-      });
-      totalPromptChars += messages.reduce((sum, m) => sum + m.content.length, 0);
-      await flushDraft();
-
-      const { requests, stripped } = parseSourceLookups(content);
-      if (requests.length === 0) {
-        finalContent = stripped || content;
-        log('deep-plan', 'oneshot.done', { round, chars: finalContent.length });
-        break;
-      }
-      log('deep-plan', 'oneshot.lookupRound', {
-        round,
-        count: requests.length,
-        slugs: requests.map((r) => r.slug),
-      });
-
-      // Surface a quick "looking up" placeholder so the user knows the
-      // draft is about to be rewritten rather than frozen.
-      await writeDocument(
-        target.filename,
-        (stripLookupFencesForDraft(stripped).trimStart() || '') +
-          `\n\n_Looking up ${requests.length} source passage${requests.length === 1 ? '' : 's'}…_\n`,
-      );
+  let buffer = '';
+  let lastFlushAt = 0;
+  const FLUSH_MS = 300;
+  const flushDraft = async (): Promise<void> => {
+    const body = buffer.trimStart();
+    if (body.length === 0) return;
+    try {
+      await writeDocument(target.filename, body);
       broadcast(IpcChannels.Document.Changed);
-
-      const resolved = await resolveSourceLookups(requests);
-      const followUp =
-        formatLookupReply(resolved) +
-        '\n\nNow continue — write (or rewrite) the full draft, weaving these verbatim passages in where they make the point sharpest. Remember: no preamble, markdown only.';
-      messages = [
-        ...messages,
-        { role: 'assistant', content },
-        { role: 'user', content: followUp },
-      ];
-
-      // On the last round, if we still hit lookups, accept the stripped
-      // content as the best we've got.
-      if (round === MAX_DRAFT_LOOKUP_ROUNDS - 1) {
-        finalContent = stripped || content;
-        log('deep-plan', 'oneshot.lookupCap', { rounds: MAX_DRAFT_LOOKUP_ROUNDS });
-      }
+    } catch (err) {
+      logError('deep-plan', 'oneshot.flushFailed', err);
     }
+  };
+  let fullContent = '';
+  try {
+    fullContent = await streamChat({
+      model,
+      messages,
+      logScope: 'deep-plan',
+      onChunk: (chunk) => {
+        buffer += chunk;
+        const now = Date.now();
+        if (now - lastFlushAt >= FLUSH_MS) {
+          lastFlushAt = now;
+          void flushDraft();
+        }
+      },
+    });
   } catch (err) {
     logError('deep-plan', 'oneshot.failed', err);
     throw err;
   }
 
-  const cleaned = stripLookupFencesForDraft(finalContent).trim();
+  const cleaned = fullContent.trim();
   if (cleaned.length === 0) {
     throw new Error('The generator returned an empty draft. Try again.');
   }
@@ -813,7 +833,7 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     ...s,
     stage: 'done',
     completed: true,
-    tokensUsedK: s.tokensUsedK + estimateTokensK(totalPromptChars + cleaned.length),
+    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length),
   }));
   await clearAutoStart();
   broadcast(IpcChannels.Document.Changed);

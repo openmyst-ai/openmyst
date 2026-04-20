@@ -58,13 +58,10 @@ function sourcesBlock(sources: SourceMeta[]): string {
 /**
  * Rich source block for the one-shot draft pass. Each source gets its full
  * wiki-style detailed summary (the `sources/<slug>.md` body produced at
- * ingest) plus the anchor list so the drafter can pull verbatim passages
- * via `source_lookup` when quoting or making a precise claim.
- *
- * This replaced a one-line `indexSummary`-only block that left the drafter
- * hallucinating claims against sources it had never actually read. The
- * detailed summaries are 2-4 paragraphs each — the drafter now reads the
- * same thing a human researcher would skim before writing.
+ * ingest) — 2-4 paragraphs that capture the arguments, data, and
+ * conclusions of the source. This replaced a one-line `indexSummary`-only
+ * block that left the drafter hallucinating claims against sources it had
+ * never actually read.
  */
 function richSourcesBlock(
   sources: SourceMeta[],
@@ -76,10 +73,8 @@ function richSourcesBlock(
       const detail = detailedSummaries.get(s.slug)?.trim() || s.indexSummary;
       const anchorsBlock =
         s.anchors && s.anchors.length > 0
-          ? `\n\nVerbatim anchors (pull via \`source_lookup\` for exact text):\n` +
-            s.anchors
-              .map((a) => `- \`${s.slug}#${a.id}\` [${a.type}] ${a.label}`)
-              .join('\n')
+          ? `\n\nKey anchors in this source (specific claims/arguments/findings to weave in where they're relevant):\n` +
+            s.anchors.map((a) => `- [${a.type}] ${a.label}`).join('\n')
           : '';
       return `### ${s.name} (\`${s.slug}\`)\n\n${detail}${anchorsBlock}`;
     })
@@ -330,7 +325,16 @@ Your job: produce a short, human-readable summary of what you're about to write 
 No rubric_update in this stage. No questions — this is the handoff summary.`;
 }
 
-export function oneShotPrompt(
+/**
+ * Pre-draft lookup pass. The model reads the rubric, synthesis, and wiki
+ * summaries, and emits `source_lookup` fences for any anchors / source
+ * pages / raw files it wants verbatim before committing to the draft.
+ * The system resolves these deterministically off disk and feeds the
+ * results into the final oneShotPrompt as a pre-fetched passages block,
+ * so the actual draft call is a clean single stream with quotes already
+ * in hand.
+ */
+export function preDraftLookupPrompt(
   session: DeepPlanSession,
   sources: SourceMeta[],
   detailedSummaries: Map<string, string>,
@@ -345,6 +349,64 @@ export function oneShotPrompt(
     ? `Research phase summary:\n${researchSummary.trim()}\n\n`
     : '';
 
+  return `You are Myst's pre-draft researcher. The next step is a one-shot draft of "${docLabel}" — but BEFORE that draft runs, you get one pass to pull any verbatim source passages you think will make the draft sharper. The draft model will see everything you pull, pre-fetched, with no further chance to look anything up.
+
+Your ONLY job right now is to decide which anchors (and optionally which full source pages) to pull. You are NOT writing the draft in this turn.
+
+User's task: "${session.task}"
+
+Rubric (what the draft will aim at):
+${rubricBlock(session.rubric)}
+
+${synthesisBlock}${researchBlock}Wiki — sources with full detailed summaries and anchor labels:
+
+${richSourcesBlock(sources, detailedSummaries)}
+
+${DEEP_REFERENCE_RIDER}
+
+Think about the draft you'd write from the summaries above, then ask yourself:
+- Which specific claims, numbers, definitions, or arguments will the draft lean on hardest? Pull those anchors.
+- Are there quotes that would carry a point better verbatim than paraphrased? Pull those.
+- Are there sources whose one-paragraph summary feels thin for what the draft needs? Pull the full source page.
+- Are there anchors whose labels look important but whose exact wording you can't reconstruct? Pull them.
+
+Budget guidance:
+- Pulling 5-15 anchors is typical and cheap. Don't be shy — lookups are free and the draft model will thank you.
+- Don't pull anchors you won't use. Don't pull every anchor reflexively.
+- Prefer specific anchors over whole source pages unless the summary is genuinely insufficient.
+
+Output ONLY source_lookup fences (one block per lookup), and nothing else. No prose, no explanation, no draft. Example:
+
+\`\`\`source_lookup
+{"slug": "smith-attention", "anchor": "law-1-2"}
+\`\`\`
+
+\`\`\`source_lookup
+{"slug": "vaswani-2017", "anchor": "main-finding"}
+\`\`\`
+
+If the detailed summaries are genuinely sufficient and no verbatim text would help, output nothing at all — an empty response is valid.`;
+}
+
+export function oneShotPrompt(
+  session: DeepPlanSession,
+  sources: SourceMeta[],
+  detailedSummaries: Map<string, string>,
+  plannerSynthesis: string,
+  researchSummary: string,
+  prefetchedPassages: string,
+  docLabel: string,
+): string {
+  const synthesisBlock = plannerSynthesis.trim()
+    ? `Planning conversation — what the user and planner agreed on:\n${plannerSynthesis.trim()}\n\n`
+    : '';
+  const researchBlock = researchSummary.trim()
+    ? `Research phase summary:\n${researchSummary.trim()}\n\n`
+    : '';
+  const passagesBlock = prefetchedPassages.trim()
+    ? `\nPre-fetched verbatim passages (pulled from the wiki off-disk for this draft — these are EXACT text, safe to quote directly):\n\n${prefetchedPassages.trim()}\n`
+    : '';
+
   return `You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist — not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
 
 User's task: "${session.task}"
@@ -352,18 +414,16 @@ User's task: "${session.task}"
 Rubric (your marching orders):
 ${rubricBlock(session.rubric)}
 
-${synthesisBlock}${researchBlock}Wiki — sources with full detailed summaries and anchor lists:
+${synthesisBlock}${researchBlock}Wiki — sources with full detailed summaries and key anchor labels:
 
 ${richSourcesBlock(sources, detailedSummaries)}
-
-${DEEP_REFERENCE_RIDER}
-
+${passagesBlock}
 How to approach this draft (read carefully):
 
-1. **Explore before you write.** The detailed summaries above are your first read. Before committing to a paragraph, think: is there a verbatim passage that would carry this point better than your own prose? If yes, emit a \`source_lookup\` block to pull the anchor, read it, then write. You can look up as many anchors or source pages as you want — lookups are free and the system will resolve them deterministically.
-2. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections. Describe disagreements where they exist. A draft that just walks through one source at a time reads like a book report — don't do that.
-3. **Quote verbatim where precision matters.** Numbers, definitions, direct claims, specific arguments — pull the anchor and quote. Don't paraphrase from memory. If you're tempted to write "Smith argues that…", emit a \`source_lookup\` first and use Smith's actual words.
-4. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the rubric's thesis).
+1. **Read the wiki first.** The detailed summaries above are not one-liners — they're multi-paragraph reads of each source. Hold them in mind before committing to a paragraph. Don't treat a source as a bullet point to cite once; treat it as something you've actually read.
+2. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections. A draft that just walks through one source at a time reads like a book report — don't do that.
+3. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the rubric's thesis).
+4. **Quote sparingly but precisely.** When you do quote a source directly, prefer the pre-fetched verbatim passages above (if present) — those are exact text safe to reproduce. Otherwise only quote text that actually appears in the detailed summaries. Do not fabricate quotes. If you're not certain of the exact wording, paraphrase and cite.
 5. **Counter-argument pass.** Briefly address the strongest objection to your thesis before rebutting or conceding.
 
 Citation format (strict):
@@ -375,7 +435,7 @@ Form + output rules:
 - Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
 - No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
 - Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
-- Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft. If you want to quote something, \`source_lookup\` the anchor first.
+- Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft.
 
-Output: the complete markdown draft, nothing else. (You may emit \`source_lookup\` fences at any point — they'll be resolved and fed back to you before you continue.)`;
+Output: the complete markdown draft, nothing else.`;
 }
