@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SourceMeta, WikiGraph as WikiGraphData } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useDeepSearch } from '../../store/deepSearch';
@@ -106,6 +106,7 @@ export function DeepSearchModal(): JSX.Element | null {
 
   const freshSlugs = useMemo(() => freshSlugsFromEvents(researchEvents), [researchEvents]);
   const currentQuery = useMemo(() => latestQueryText(researchEvents), [researchEvents]);
+  const flashQuery = useQueryFlash(currentQuery);
 
   useEffect(() => {
     if (!visible) {
@@ -214,19 +215,19 @@ export function DeepSearchModal(): JSX.Element | null {
             </div>
             <div className="ds-graph-wrap">
               {running && (
-                <div className="dp-research-thinking">
+                <div
+                  className={`dp-research-thinking${flashQuery ? ' dp-research-thinking-flashing' : ''}`}
+                >
                   <span className="generating-dots">
                     <span className="dot" />
                     <span className="dot" />
                     <span className="dot" />
                   </span>
-                  <span className="dp-research-thinking-label">
-                    Researching
-                    {currentQuery ? (
-                      <> <span className="dp-research-thinking-query">{currentQuery}</span></>
-                    ) : (
-                      '…'
-                    )}
+                  <span className="dp-research-thinking-label">Researching</span>
+                  <span
+                    className={`dp-research-thinking-query${flashQuery ? ' dp-research-thinking-query-open' : ''}`}
+                  >
+                    {flashQuery ?? ''}
                   </span>
                 </div>
               )}
@@ -317,6 +318,25 @@ export function DeepSearchModal(): JSX.Element | null {
       </div>
     </div>
   );
+}
+
+/**
+ * Flash the most recent query into the "Researching" pill for ~3.5s,
+ * then collapse back. Each new query resets the timer so rapid-fire
+ * queries visibly chain through the bubble.
+ */
+function useQueryFlash(query: string | null): string | null {
+  const [flash, setFlash] = useState<string | null>(null);
+  const lastSeenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!query) return;
+    if (query === lastSeenRef.current) return;
+    lastSeenRef.current = query;
+    setFlash(query);
+    const t = window.setTimeout(() => setFlash(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [query]);
+  return flash;
 }
 
 function latestQueryText(

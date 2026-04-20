@@ -3404,7 +3404,9 @@ img.login-logo {
 
 /* Floating "Researching… <query>" indicator pinned to the top of the
  * graph stage. Lives above the canvas with pulsing dots so the user
- * always knows the run is live and what it's reaching for right now. */
+ * always knows the run is live. When a query fires, the pill expands
+ * to reveal the query text, holds for ~3.5s, then collapses back to
+ * just "Researching". */
 .dp-research-thinking {
   position: absolute;
   top: 12px;
@@ -3425,6 +3427,22 @@ img.login-logo {
   z-index: 2;
   font-size: 12px;
   color: var(--fg-muted);
+  transition: box-shadow 300ms ease;
+}
+.dp-research-thinking-flashing {
+  box-shadow: 0 2px 18px rgba(198, 161, 216, 0.28);
+  animation: dp-research-thinking-pop 520ms cubic-bezier(0.22, 0.95, 0.3, 1.25);
+}
+@keyframes dp-research-thinking-pop {
+  0% {
+    transform: translateX(-50%) scale(0.96);
+  }
+  45% {
+    transform: translateX(-50%) scale(1.035);
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
 }
 .dp-research-thinking-label {
   white-space: nowrap;
@@ -3432,8 +3450,28 @@ img.login-logo {
   text-overflow: ellipsis;
 }
 .dp-research-thinking-query {
+  display: inline-block;
+  max-width: 0;
+  opacity: 0;
+  margin-left: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--fg);
   font-style: italic;
+  transform: scale(0.9);
+  transform-origin: left center;
+  transition:
+    max-width 420ms cubic-bezier(0.22, 0.95, 0.3, 1.15),
+    opacity 260ms ease,
+    margin-left 420ms cubic-bezier(0.22, 0.95, 0.3, 1.15),
+    transform 420ms cubic-bezier(0.22, 0.95, 0.3, 1.15);
+}
+.dp-research-thinking-query-open {
+  max-width: 440px;
+  opacity: 1;
+  margin-left: 2px;
+  transform: scale(1);
 }
 /* Full-bleed variant — graph owns the entire container, no header, no
  * tooltip row. Used in the Deep Plan right column (non-research) and in

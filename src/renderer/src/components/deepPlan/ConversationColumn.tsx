@@ -178,6 +178,7 @@ function ResearchStageView({
     [researchEvents],
   );
   const currentQuery = useMemo(() => latestQueryText(researchEvents), [researchEvents]);
+  const flashQuery = useQueryFlash(currentQuery);
 
   const handleNodeOpen = (slug: string): void => {
     void bridge.sources.list().then((all) => {
@@ -190,15 +191,19 @@ function ResearchStageView({
     <div className="dp-chat dp-chat-research">
       <div className="dp-research-graph-wrap">
         {researchRunning && (
-          <div className="dp-research-thinking">
+          <div
+            className={`dp-research-thinking${flashQuery ? ' dp-research-thinking-flashing' : ''}`}
+          >
             <span className="generating-dots">
               <span className="dot" />
               <span className="dot" />
               <span className="dot" />
             </span>
-            <span className="dp-research-thinking-label">
-              Researching
-              {currentQuery ? <> <span className="dp-research-thinking-query">{currentQuery}</span></> : '…'}
+            <span className="dp-research-thinking-label">Researching</span>
+            <span
+              className={`dp-research-thinking-query${flashQuery ? ' dp-research-thinking-query-open' : ''}`}
+            >
+              {flashQuery ?? ''}
             </span>
           </div>
         )}
@@ -250,6 +255,27 @@ function ResearchStageView({
       </div>
     </div>
   );
+}
+
+/**
+ * When the live query text changes to a new non-null value, flash it in
+ * the "Researching …" pill for ~3.5s, then collapse the pill back to
+ * just "Researching". Each new query resets the timer so rapid-fire
+ * queries visibly chain through the bubble instead of a single one
+ * sticking.
+ */
+function useQueryFlash(query: string | null): string | null {
+  const [flash, setFlash] = useState<string | null>(null);
+  const lastSeenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!query) return;
+    if (query === lastSeenRef.current) return;
+    lastSeenRef.current = query;
+    setFlash(query);
+    const t = window.setTimeout(() => setFlash(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [query]);
+  return flash;
 }
 
 function latestQueryText(events: Array<{ kind: string; runId?: string; query?: string }>): string | null {
