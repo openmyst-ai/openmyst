@@ -1,5 +1,6 @@
 import { IpcChannels } from '@shared/ipc-channels';
 import type {
+  ChairAnswerMap,
   ChairOutput,
   DeepPlanSession,
   PanelOutput,
@@ -25,6 +26,7 @@ export async function runChair(args: {
   newlyIngestedSourceSlugs: string[];
   roundNumber: number;
   sources: SourceMeta[];
+  lastAnswers: ChairAnswerMap | null;
 }): Promise<ChairOutput> {
   broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-start' });
 
@@ -35,6 +37,7 @@ export async function runChair(args: {
     newlyIngestedSourceSlugs: args.newlyIngestedSourceSlugs,
     roundNumber: args.roundNumber,
     sources: args.sources,
+    lastAnswers: args.lastAnswers,
   });
 
   const messages: LlmMessage[] = [

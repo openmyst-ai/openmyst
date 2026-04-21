@@ -7,6 +7,7 @@ import type {
   PanelOutput,
   PanelResearchRequest,
   PanelRole,
+  PlanRequirements,
 } from '@shared/types';
 
 /**
@@ -233,6 +234,31 @@ function sanitizeChairQuestion(item: unknown, index: number): ChairQuestion | nu
   return out;
 }
 
+/**
+ * Tolerantly pull a requirements patch out of the Chair's JSON. Accepts
+ * any subset of the four fields; tolerates snake_case aliases; returns
+ * null when nothing usable was present (so the caller doesn't overwrite
+ * existing requirements with empty data).
+ */
+function sanitizeRequirementsPatch(item: unknown): Partial<PlanRequirements> | null {
+  if (!item || typeof item !== 'object') return null;
+  const rec = item as Record<string, unknown>;
+  const patch: Partial<PlanRequirements> = {};
+  const minRaw = rec.wordCountMin ?? rec.word_count_min;
+  const maxRaw = rec.wordCountMax ?? rec.word_count_max;
+  if (typeof minRaw === 'number' && Number.isFinite(minRaw)) patch.wordCountMin = Math.round(minRaw);
+  if (typeof maxRaw === 'number' && Number.isFinite(maxRaw)) patch.wordCountMax = Math.round(maxRaw);
+  const form = typeof rec.form === 'string' ? rec.form.trim() : '';
+  if (form) patch.form = form;
+  const audience = typeof rec.audience === 'string' ? rec.audience.trim() : '';
+  if (audience) patch.audience = audience;
+  const notes = typeof (rec.styleNotes ?? rec.style_notes) === 'string'
+    ? String(rec.styleNotes ?? rec.style_notes).trim()
+    : '';
+  if (notes) patch.styleNotes = notes;
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
 export function parseChairOutput(raw: string): ChairOutput | null {
   const parsed = extractJsonBlob(raw);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
@@ -253,10 +279,15 @@ export function parseChairOutput(raw: string): ChairOutput | null {
   const phaseAdvance =
     rec.phaseAdvance === true || rec.phase_advance === true;
 
+  const requirementsPatch = sanitizeRequirementsPatch(
+    rec.requirementsPatch ?? rec.requirements_patch,
+  );
+
   return {
     summary,
     plan,
     questions: questions.slice(0, 3),
     phaseAdvance,
+    requirementsPatch,
   };
 }

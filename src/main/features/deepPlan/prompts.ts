@@ -320,14 +320,35 @@ export interface ChairPromptArgs {
   newlyIngestedSourceSlugs: string[];
   roundNumber: number;
   sources: SourceMeta[];
+  /**
+   * Answers the user submitted to the PREVIOUS round's Chair questions.
+   * Crucial for emitting `requirementsPatch` — without this the Chair has
+   * no way to know what the user picked for word count / form / audience
+   * and will re-ask the same questions every round.
+   */
+  lastAnswers: ChairAnswerMap | null;
 }
 
 export function chairPrompt(args: ChairPromptArgs): string {
-  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources } = args;
+  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources, lastAnswers } = args;
   const phase = session.phase;
   const priorSummaries = priorChairDigest(session);
   const missing = missingRequirements(session.requirements);
   const requirementsComplete = missing.length === 0;
+
+  // Match the user's last answers up with the previous round's questions so
+  // the Chair can read them in context. Without this block the Chair can't
+  // populate requirementsPatch — it would see a user-answers event but have
+  // no idea which option was picked for "what word count?".
+  const lastChairQuestions = (() => {
+    const lastChairMsg = [...session.messages]
+      .reverse()
+      .find((m) => m.kind === 'chair-turn' && m.chair);
+    return lastChairMsg?.chair?.questions ?? [];
+  })();
+  const lastAnswersSection = lastAnswers && Object.keys(lastAnswers).length > 0
+    ? `\n\nUser's answers to the previous round's questions (use these to decide what to patch into requirementsPatch this round):\n${answersBlock(lastAnswers, lastChairQuestions)}`
+    : '';
   const softLimitHit = roundNumber >= DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE;
   const researchNote =
     newlyIngestedSourceSlugs.length > 0
@@ -354,7 +375,7 @@ Current round in this phase: ${roundNumber}${advanceNudge}
 User's task: "${session.task}"
 
 Task requirements (hard constraints — the plan MUST honour these; echo the word-count range inside the plan body where relevant):
-${requirementsBlock(session.requirements)}${requirementsGap}
+${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection}
 
 ${searchBudgetBlock(session)}
 
@@ -412,6 +433,15 @@ Question rules:
 phaseAdvance rule:
 - NEVER \`true\` while any hard requirement (word count, form, audience) is still "(not specified)". The plan can't mature without these.
 - \`true\` when (a) all hard requirements are filled, (b) the panel surfaced no substantive new tensions this round, and (c) plan.md has what it needs for this phase. Err toward \`false\` until round ${DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE} — then err toward \`true\` (but still gated on (a)).
+
+requirementsPatch rule (critical — the system mutates session state from this):
+- When the user's last answers (visible in the "Last Chair summary" / panel context above) answered a question about a hard requirement, POPULATE the corresponding fields in \`requirementsPatch\`. The system shallow-merges this into session.requirements so those fields become "specified" and you don't re-ask next round.
+- \`wordCountMin\` / \`wordCountMax\`: integers in words. If the user picked "1500–2500", set both. If they picked a single number ("around 2000"), set both min and max equal. If they delegated, pick sensible defaults for the form (essay: 1500–2500; blog post: 800–1500; report: 2500–4000) and use those.
+- \`form\`: short lowercase label ("exploratory essay", "blog post", "op-ed", "report").
+- \`audience\`: short lowercase label ("general educated reader", "economists and policy professionals", etc.).
+- \`styleNotes\`: free text — ONLY when the user stated specific style constraints. Otherwise \`null\`.
+- Emit \`null\` (or omit) when the user's answers this round didn't touch hard requirements. Do NOT echo fields that are already specified unchanged — include only what's new or actually changed.
+- If you ASKED about a requirement this round but the user hasn't answered yet, do NOT patch those fields. Leave the question in \`questions\` and wait for next round.
 
 Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.`;
 }

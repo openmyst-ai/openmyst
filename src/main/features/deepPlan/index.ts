@@ -263,14 +263,25 @@ async function runPanelAndChair(): Promise<void> {
       newlyIngestedSourceSlugs,
       roundNumber,
       sources: sourcesForChair,
+      lastAnswers,
     });
 
     await updateSession((s) => {
       const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
       });
+      // Fold the Chair's requirements patch into session.requirements so
+      // the next round's prompt sees the user's answers to "what word
+      // count?" / "what form?" / "who's the audience?" as specified.
+      // Without this, the Chair would re-ask those same questions every
+      // round because missingRequirements() only looks at session state.
+      const patch = chairOutput.requirementsPatch;
+      const mergedRequirements = patch
+        ? { ...next.requirements, ...patch }
+        : next.requirements;
       return {
         ...next,
+        requirements: mergedRequirements,
         plan: chairOutput.plan || next.plan,
         pendingQuestions: chairOutput.questions,
         searchesUsed: next.searchesUsed + searchesDispatched,
