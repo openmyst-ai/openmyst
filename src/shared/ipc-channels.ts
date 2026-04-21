@@ -91,18 +91,24 @@ export const IpcChannels = {
   DeepPlan: {
     Status: 'deep-plan:status',
     Start: 'deep-plan:start',
+    /** Submit a free-text turn (e.g. a follow-up question during ideation). */
     SendMessage: 'deep-plan:send-message',
+    /** Submit answers to the Chair's pending questions. */
+    SubmitAnswers: 'deep-plan:submit-answers',
+    /** Force-advance to the next phase even if the Chair hasn't signalled. */
     Advance: 'deep-plan:advance',
-    RunResearch: 'deep-plan:run-research',
-    StopResearch: 'deep-plan:stop-research',
-    AddResearchHint: 'deep-plan:add-research-hint',
     Skip: 'deep-plan:skip',
+    /** Final handoff from `reviewing` to the drafter. */
     OneShot: 'deep-plan:one-shot',
     Reset: 'deep-plan:reset',
     Changed: 'deep-plan:changed',
+    /** Streaming chunks from the drafter (one-shot only now). */
     Chunk: 'deep-plan:chunk',
     ChunkDone: 'deep-plan:chunk-done',
+    /** Live research-engine events (panelist-dispatched queries). */
     ResearchEvent: 'deep-plan:research-event',
+    /** Live panel-round progress (role-start / role-done / chair-start / …). */
+    PanelProgress: 'deep-plan:panel-progress',
   },
   DeepSearch: {
     Status: 'deep-search:status',

@@ -1,11 +1,12 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
+  DeepPlanPhase,
   DeepPlanRubric,
   DeepPlanSession,
-  DeepPlanStage,
   DeepPlanStatus,
 } from '@shared/types';
+import { DEEP_PLAN_PHASE_ORDER } from '@shared/types';
 import { projectPath, projectRoot, ensureDir, log } from '../../platform';
 
 /**
@@ -41,6 +42,10 @@ function emptyRubric(): DeepPlanRubric {
   };
 }
 
+function emptyRoundsPerPhase(): Record<DeepPlanPhase, number> {
+  return { ideation: 0, planning: 0, reviewing: 0, done: 0 };
+}
+
 export async function ensureDeepPlanDir(): Promise<void> {
   await ensureDir(deepPlanDir());
 }
@@ -69,21 +74,55 @@ export async function shouldAutoStart(): Promise<boolean> {
   }
 }
 
+/**
+ * Best-effort backfill of legacy session files. Sessions written before the
+ * phase rewrite had `stage` / `researchHints` / `skipped` at the top level.
+ * We map the old stage family to a coarse phase so returning users don't
+ * hit a crash — the loop will iterate from there.
+ */
+function backfillLegacy(parsed: Record<string, unknown>): void {
+  if (!parsed.phase && typeof parsed.stage === 'string') {
+    const stage = parsed.stage;
+    const mapping: Record<string, DeepPlanPhase> = {
+      intent: 'ideation',
+      sources: 'ideation',
+      scoping: 'ideation',
+      gaps: 'planning',
+      research: 'planning',
+      synthesis: 'planning',
+      handoff: 'reviewing',
+      clarify: 'planning',
+      review: 'reviewing',
+      done: 'done',
+    };
+    parsed.phase = mapping[stage] ?? 'ideation';
+    delete parsed.stage;
+  }
+  if (!parsed.phase) parsed.phase = 'ideation';
+  if (!Array.isArray(parsed.researchQueries)) parsed.researchQueries = [];
+  if (!Array.isArray(parsed.pendingQuestions)) parsed.pendingQuestions = [];
+  if (
+    !parsed.roundsPerPhase ||
+    typeof parsed.roundsPerPhase !== 'object'
+  ) {
+    parsed.roundsPerPhase = emptyRoundsPerPhase();
+  } else {
+    const merged = { ...emptyRoundsPerPhase(), ...(parsed.roundsPerPhase as Record<string, number>) };
+    parsed.roundsPerPhase = merged;
+  }
+  if (typeof parsed.skipped !== 'boolean') parsed.skipped = false;
+  if (typeof parsed.completed !== 'boolean') parsed.completed = false;
+  if (typeof parsed.tokensUsedK !== 'number') parsed.tokensUsedK = 0;
+  // Drop fields that no longer exist so we don't carry dead weight forward.
+  delete (parsed as { researchHints?: unknown }).researchHints;
+}
+
 export async function readSession(): Promise<DeepPlanSession | null> {
   try {
     const raw = await fs.readFile(sessionPath(), 'utf-8');
-    const parsed = JSON.parse(raw) as DeepPlanSession;
-    // Backfill for sessions written before researchHints existed, so old
-    // on-disk sessions keep working without a migration pass.
-    if (!Array.isArray(parsed.researchHints)) parsed.researchHints = [];
-    // The old two-stage tail (`clarify` → `review`) collapsed into a single
-    // `synthesis` stage. Map stale values on read so in-flight sessions
-    // from previous app versions land on the new pipeline without surgery.
-    const stage = parsed.stage as unknown as string;
-    if (stage === 'clarify' || stage === 'review') {
-      parsed.stage = 'synthesis';
-    }
-    return parsed;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    backfillLegacy(parsed);
+    return parsed as unknown as DeepPlanSession;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -110,12 +149,13 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
   const session: DeepPlanSession = {
     id: randomUUID(),
     projectPath: root,
-    stage: 'intent',
+    phase: 'ideation',
     task: task.trim(),
     rubric: emptyRubric(),
     messages: [],
     researchQueries: [],
-    researchHints: [],
+    pendingQuestions: [],
+    roundsPerPhase: emptyRoundsPerPhase(),
     tokensUsedK: 0,
     createdAt: now,
     updatedAt: now,
@@ -137,24 +177,14 @@ export async function updateSession(
   return next;
 }
 
-export function nextStage(stage: DeepPlanStage): DeepPlanStage {
-  const order: DeepPlanStage[] = [
-    'intent',
-    'sources',
-    'scoping',
-    'gaps',
-    'research',
-    'synthesis',
-    'handoff',
-    'done',
-  ];
-  const i = order.indexOf(stage);
-  if (i < 0 || i === order.length - 1) return 'done';
-  return order[i + 1]!;
+export function nextPhase(phase: DeepPlanPhase): DeepPlanPhase {
+  const i = DEEP_PLAN_PHASE_ORDER.indexOf(phase);
+  if (i < 0 || i === DEEP_PLAN_PHASE_ORDER.length - 1) return 'done';
+  return DEEP_PLAN_PHASE_ORDER[i + 1]!;
 }
 
 export async function buildStatus(
-  researchRunning: boolean = false,
+  roundRunning: boolean = false,
 ): Promise<DeepPlanStatus> {
   const session = await readSession();
   const auto = await shouldAutoStart();
@@ -162,6 +192,6 @@ export async function buildStatus(
     active: session !== null && !session.completed && !session.skipped,
     shouldAutoStart: auto,
     session,
-    researchRunning,
+    roundRunning,
   };
 }

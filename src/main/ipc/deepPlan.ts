@@ -1,16 +1,15 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
+import type { ChairAnswerMap } from '@shared/types';
 import {
-  addResearchHint,
-  advanceStage,
+  advancePhase,
   buildStatus,
   resetSession,
   runOneShot,
-  runResearchLoop,
   sendUserMessage,
   skipSession,
   startSession,
-  stopResearch,
+  submitAnswers,
 } from '../features/deepPlan';
 
 export function registerDeepPlanIpc(): void {
@@ -28,16 +27,14 @@ export function registerDeepPlanIpc(): void {
     return sendUserMessage(message);
   });
 
-  ipcMain.handle(IpcChannels.DeepPlan.Advance, () => advanceStage());
-  ipcMain.handle(IpcChannels.DeepPlan.RunResearch, () => runResearchLoop());
-  ipcMain.handle(IpcChannels.DeepPlan.StopResearch, () => {
-    stopResearch();
-    return buildStatus();
+  ipcMain.handle(IpcChannels.DeepPlan.SubmitAnswers, async (_event, answers: unknown) => {
+    if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
+      throw new Error('Answers must be an object keyed by question id.');
+    }
+    return submitAnswers(answers as ChairAnswerMap);
   });
-  ipcMain.handle(IpcChannels.DeepPlan.AddResearchHint, async (_event, hint: unknown) => {
-    if (typeof hint !== 'string') throw new Error('Hint must be a string.');
-    return addResearchHint(hint);
-  });
+
+  ipcMain.handle(IpcChannels.DeepPlan.Advance, () => advancePhase());
   ipcMain.handle(IpcChannels.DeepPlan.Skip, () => skipSession());
   ipcMain.handle(IpcChannels.DeepPlan.OneShot, () => runOneShot());
   ipcMain.handle(IpcChannels.DeepPlan.Reset, () => resetSession());

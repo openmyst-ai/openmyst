@@ -187,26 +187,121 @@ export interface WikiGraph {
   edges: WikiGraphEdge[];
 }
 
-export type DeepPlanStage =
-  | 'intent'
-  | 'sources'
-  | 'scoping'
-  | 'gaps'
-  | 'research'
-  | 'synthesis'
-  | 'handoff'
-  | 'done';
+/**
+ * Deep Plan is now a three-phase loop driven by an adversarial panel of
+ * cheap-model agents and a strong-model Chair that synthesises their
+ * findings into structured questions for the user. Each phase runs the
+ * same inner loop (panel → research-if-needed → chair → user answers)
+ * until the Chair signals `phaseAdvance` or the user forces it.
+ */
+export type DeepPlanPhase = 'ideation' | 'planning' | 'reviewing' | 'done';
 
-export const DEEP_PLAN_STAGE_ORDER: DeepPlanStage[] = [
-  'intent',
-  'sources',
-  'scoping',
-  'gaps',
-  'research',
-  'synthesis',
-  'handoff',
+export const DEEP_PLAN_PHASE_ORDER: DeepPlanPhase[] = [
+  'ideation',
+  'planning',
+  'reviewing',
   'done',
 ];
+
+/**
+ * Cheap-model panelist roles, grouped by the phase where each is
+ * activated. A role is a narrow adversarial lens — one call per role per
+ * round, all fanned out in parallel.
+ */
+export type PanelRole =
+  | 'explorer'
+  | 'scoper'
+  | 'stakes'
+  | 'architect'
+  | 'evidence'
+  | 'steelman'
+  | 'skeptic'
+  | 'adversary'
+  | 'editor'
+  | 'audience'
+  | 'finaliser';
+
+export const PANEL_ROLES_BY_PHASE: Record<DeepPlanPhase, PanelRole[]> = {
+  ideation: ['explorer', 'scoper', 'stakes'],
+  planning: ['architect', 'evidence', 'steelman', 'skeptic'],
+  reviewing: ['adversary', 'editor', 'audience', 'finaliser'],
+  done: [],
+};
+
+export interface PanelFinding {
+  severity: 'low' | 'mid' | 'high';
+  claim: string;
+  rationale: string;
+  suggestedAction: string;
+}
+
+export interface PanelResearchRequest {
+  query: string;
+  rationale: string;
+}
+
+export interface PanelOutput {
+  role: PanelRole;
+  findings: PanelFinding[];
+  needsResearch: PanelResearchRequest[];
+}
+
+export type ChairQuestionType = 'choice' | 'multi' | 'open' | 'confirm';
+
+export interface ChairQuestionChoice {
+  id: string;
+  label: string;
+}
+
+export interface ChairQuestion {
+  id: string;
+  type: ChairQuestionType;
+  prompt: string;
+  /** Present only for `choice` and `multi`. */
+  choices?: ChairQuestionChoice[];
+  /** Optional one-line "why this matters" shown under the prompt. */
+  rationale?: string;
+}
+
+/**
+ * User's response to a single Chair question. `null` means skipped.
+ * `string` covers `choice` (choice id), `open` (free text), and
+ * `confirm` (`"yes"` / `"no"`). `string[]` covers `multi`.
+ */
+export type ChairAnswer = string | string[] | null;
+
+export type ChairAnswerMap = Record<string, ChairAnswer>;
+
+/**
+ * Chair's structured output for a round. `summary` is the short prose
+ * the user sees as a chat bubble (<= 2 sentences). `questions` is the
+ * array the Question Card carousel renders one-at-a-time. `phaseAdvance`
+ * true means the Chair thinks this phase is done — the UI nudges the
+ * user toward Continue but they can keep iterating.
+ */
+export interface ChairOutput {
+  summary: string;
+  questions: ChairQuestion[];
+  phaseAdvance: boolean;
+  /** Optional patch applied to the session rubric after this round. */
+  rubricPatch?: Partial<DeepPlanRubric>;
+}
+
+/**
+ * Live progress events broadcast while a panel round is running, so the
+ * UI can show "Explorer thinking… Scoper done (2 findings)" style
+ * indicators. Each round has a start, per-role start/done events,
+ * research dispatch, chair start/done, and a final round-done.
+ */
+export type PanelProgressEvent =
+  | { kind: 'round-start'; phase: DeepPlanPhase; roles: PanelRole[] }
+  | { kind: 'role-start'; role: PanelRole }
+  | { kind: 'role-done'; role: PanelRole; findings: number; searchQueries: number }
+  | { kind: 'role-failed'; role: PanelRole; error: string }
+  | { kind: 'research-dispatched'; queries: number }
+  | { kind: 'chair-start' }
+  | { kind: 'chair-done' }
+  | { kind: 'round-done' };
 
 export interface DeepPlanRubric {
   title: string | null;
@@ -223,8 +318,18 @@ export interface DeepPlanMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  kind: 'chat' | 'stage-transition' | 'research-query' | 'research-note' | 'review-plan';
+  kind:
+    | 'chat'
+    | 'chair-turn'
+    | 'user-answers'
+    | 'phase-transition'
+    | 'research-query'
+    | 'research-note';
   timestamp: string;
+  /** Populated when `kind === 'chair-turn'`. */
+  chair?: ChairOutput;
+  /** Populated when `kind === 'user-answers'`. */
+  answers?: ChairAnswerMap;
 }
 
 export interface DeepPlanResearchQuery {
@@ -238,12 +343,15 @@ export interface DeepPlanResearchQuery {
 export interface DeepPlanSession {
   id: string;
   projectPath: string;
-  stage: DeepPlanStage;
+  phase: DeepPlanPhase;
   task: string;
   rubric: DeepPlanRubric;
   messages: DeepPlanMessage[];
   researchQueries: DeepPlanResearchQuery[];
-  researchHints: string[];
+  /** Chair-authored questions awaiting user response, if any. */
+  pendingQuestions: ChairQuestion[];
+  /** Running count of panel rounds per phase (convergence heuristic). */
+  roundsPerPhase: Record<DeepPlanPhase, number>;
   tokensUsedK: number;
   createdAt: string;
   updatedAt: string;
@@ -255,7 +363,8 @@ export interface DeepPlanStatus {
   active: boolean;
   shouldAutoStart: boolean;
   session: DeepPlanSession | null;
-  researchRunning: boolean;
+  /** True while a panel round (and any triggered research) is in flight. */
+  roundRunning: boolean;
 }
 
 /**

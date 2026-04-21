@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  ChairAnswerMap,
   ChatMessage,
   Comment,
   DeepPlanResearchEvent,
@@ -7,6 +8,7 @@ import type {
   DeepSearchStatus,
   DocumentFile,
   MeStatus,
+  PanelProgressEvent,
   PendingEdit,
   ProjectMeta,
   Result,
@@ -126,10 +128,8 @@ export interface MystApi {
     status: () => Promise<DeepPlanStatus>;
     start: (task: string) => Promise<DeepPlanStatus>;
     sendMessage: (message: string) => Promise<DeepPlanStatus>;
+    submitAnswers: (answers: ChairAnswerMap) => Promise<DeepPlanStatus>;
     advance: () => Promise<DeepPlanStatus>;
-    runResearch: () => Promise<DeepPlanStatus>;
-    stopResearch: () => Promise<DeepPlanStatus>;
-    addResearchHint: (hint: string) => Promise<DeepPlanStatus>;
     skip: () => Promise<DeepPlanStatus>;
     oneShot: () => Promise<DeepPlanStatus>;
     reset: () => Promise<DeepPlanStatus>;
@@ -137,6 +137,7 @@ export interface MystApi {
     onChunk: (callback: (chunk: string) => void) => () => void;
     onChunkDone: (callback: () => void) => () => void;
     onResearchEvent: (callback: (event: DeepPlanResearchEvent) => void) => () => void;
+    onPanelProgress: (callback: (event: PanelProgressEvent) => void) => () => void;
   };
   deepSearch: {
     status: () => Promise<DeepSearchStatus>;
