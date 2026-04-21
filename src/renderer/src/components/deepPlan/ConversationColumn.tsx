@@ -4,6 +4,7 @@ import { bridge } from '../../api/bridge';
 import { useDeepPlan } from '../../store/deepPlan';
 import { useResearchEvents } from '../../store/researchEvents';
 import { useSourcePreview } from '../../store/sourcePreview';
+import { useSmoothText } from '../../hooks/useSmoothText';
 import { renderMarkdown } from '../../utils/markdown';
 import { stripDeepPlanFences } from './stripFences';
 import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
@@ -37,6 +38,11 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   const pinnedRef = useRef(true);
   const researchRunning = status?.researchRunning ?? false;
 
+  // Typewriter smoothing. `streamingBuffer` lands in uneven bursts
+  // straight from the token stream; `smoothBuffer` releases chars at a
+  // steady ~60fps cadence so prose reads letter-by-letter.
+  const smoothBuffer = useSmoothText(streamingBuffer);
+
   // Transient "✓ Steering: …" ack under the input — dismisses itself so
   // we don't have to manage clear-on-next-hint etc.
   useEffect(() => {
@@ -64,7 +70,7 @@ export function ConversationColumn({ session }: Props): JSX.Element {
     if (!el) return;
     if (!pinnedRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
-  }, [session.messages.length, streamingBuffer]);
+  }, [session.messages.length, smoothBuffer]);
 
   const stage = session.stage;
   const isResearchStage = stage === 'research';
@@ -118,7 +124,7 @@ export function ConversationColumn({ session }: Props): JSX.Element {
           <MessageBubble key={m.id} message={m} />
         ))}
         {streaming && (() => {
-          const { visible } = stripDeepPlanFences(streamingBuffer);
+          const { visible } = stripDeepPlanFences(smoothBuffer);
           // Always show a Thinking indicator while the stream is open. Between
           // multi-round source_lookup resolutions the model can go silent for
           // 30–90s while disk/network work happens — if we only showed the

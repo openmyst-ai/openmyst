@@ -5,6 +5,7 @@ import { useApp } from '../store/app';
 import { useDocuments } from '../store/documents';
 import { useMe } from '../store/me';
 import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
+import { useSmoothText } from '../hooks/useSmoothText';
 import { bridge } from '../api/bridge';
 import { renderMarkdown } from '../utils/markdown';
 import { stripChatFences } from '../utils/stripChatFences';
@@ -58,8 +59,13 @@ function ChatView(): JSX.Element {
   const [streamingText, setStreamingText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Sticky-bottom: once the user scrolls up past ~48px of slack we stop
+  // yanking them back to the bottom on every new chunk.
+  const pinnedRef = useRef(true);
   useMystLinkHandler();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const smoothStreamingText = useSmoothText(streamingText);
 
   useEffect(() => {
     bridge.chat.history().then(setMessages).catch(console.error);
@@ -67,8 +73,21 @@ function ChatView(): JSX.Element {
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, streamingText]);
+    if (!el) return;
+    const onScroll = (): void => {
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      pinnedRef.current = distance < 48;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!pinnedRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, smoothStreamingText]);
 
   useEffect(() => {
     const offStarted = bridge.chat.onStarted(() => {
@@ -172,10 +191,10 @@ function ChatView(): JSX.Element {
           </div>
         ))}
         {sending && (() => {
-          const { visible, isWriting } = streamingText
-            ? stripEditBlocks(streamingText)
+          const { visible, isWriting } = smoothStreamingText
+            ? stripEditBlocks(smoothStreamingText)
             : { visible: '', isWriting: false };
-          const editingDoc = streamingText.includes('```myst_edit') && isWriting;
+          const editingDoc = smoothStreamingText.includes('```myst_edit') && isWriting;
           // Always show the dots while a chunk stream is open. Between
           // multi-round lookups (source_lookup / doc_lookup / web_search)
           // the model can go silent for 30–90s while disk/network work
