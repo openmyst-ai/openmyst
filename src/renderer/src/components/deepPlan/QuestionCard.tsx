@@ -8,7 +8,7 @@ import { useDeepPlan } from '../../store/deepPlan';
  * last card is handled, we submit the full answer map back to the main
  * process, which clears the pending slot and fires the next panel round.
  *
- * The whole card detaches from the chat transcript by design: Chair
+ * The card is visually distinct from the chat transcript by design: Chair
  * summaries live in the chat, questions live here. This keeps the chat
  * readable long-term (summaries compress into a history) while still
  * letting the user drive each round with structured input.
@@ -24,7 +24,6 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
 
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<ChairAnswerMap>({});
-  // Active draft for the current question (open text or choice id/s).
   const [openDraft, setOpenDraft] = useState('');
   const [choice, setChoice] = useState<string | null>(null);
   const [multi, setMulti] = useState<string[]>([]);
@@ -47,8 +46,8 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
   };
 
   const finish = async (withAnswers: ChairAnswerMap): Promise<void> => {
-    // Ensure every question has an entry — omissions are sent as null
-    // (skipped) so the Chair can see what the user chose not to engage.
+    // Ensure every question has an entry — omissions send as null so the
+    // Chair can see what the user chose not to engage with.
     const full: ChairAnswerMap = {};
     for (const q of questions) {
       full[q.id] = q.id in withAnswers ? withAnswers[q.id]! : null;
@@ -87,32 +86,84 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
 
   if (total === 0 || !current) return null;
 
-  const progress = `${index + 1} / ${total}`;
+  const handleSubmit = (): void => {
+    if (!current) return;
+    let value: ChairAnswer = null;
+    switch (current.type) {
+      case 'choice':
+      case 'confirm':
+        value = choice;
+        break;
+      case 'multi':
+        value = multi;
+        break;
+      case 'open':
+        value = openDraft.trim();
+        break;
+    }
+    void handleNext(value);
+  };
+
+  const typeLabel = ((): string => {
+    switch (current.type) {
+      case 'choice':
+        return 'Pick one';
+      case 'confirm':
+        return 'Yes or no';
+      case 'multi':
+        return 'Pick any that apply';
+      case 'open':
+        return 'Your words';
+      default:
+        return '';
+    }
+  })();
 
   return (
     <div className="dp-qcard">
-      <div className="dp-qcard-head">
-        <span className="dp-qcard-progress">Question {progress}</span>
+      <div className="dp-qcard-progress">
+        {Array.from({ length: total }).map((_, i) => (
+          <span
+            key={i}
+            className={`dp-qcard-progress-seg${
+              i < index ? ' dp-qcard-progress-seg-done' : ''
+            }${i === index ? ' dp-qcard-progress-seg-active' : ''}`}
+          />
+        ))}
       </div>
-      <div className="dp-qcard-body">
-        <div className="dp-qcard-prompt">{current.prompt}</div>
-        {current.rationale && (
-          <div className="dp-qcard-rationale">{current.rationale}</div>
-        )}
 
+      <div className="dp-qcard-meta">
+        <span className="dp-qcard-step">
+          Question {index + 1} of {total}
+        </span>
+        <span className="dp-qcard-type">{typeLabel}</span>
+      </div>
+
+      <div className="dp-qcard-prompt">{current.prompt}</div>
+      {current.rationale && (
+        <div className="dp-qcard-rationale">{current.rationale}</div>
+      )}
+
+      <div className="dp-qcard-field">
         {(current.type === 'choice' || current.type === 'confirm') && (
           <div className="dp-qcard-choices">
-            {(current.choices ?? []).map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`dp-qcard-choice${choice === c.id ? ' dp-qcard-choice-selected' : ''}`}
-                onClick={() => setChoice(c.id)}
-                disabled={busy}
-              >
-                {c.label}
-              </button>
-            ))}
+            {(current.choices ?? []).map((c) => {
+              const selected = choice === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`dp-qcard-choice${
+                    selected ? ' dp-qcard-choice-selected' : ''
+                  }`}
+                  onClick={() => setChoice(c.id)}
+                  disabled={busy}
+                >
+                  <span className="dp-qcard-choice-mark dp-qcard-choice-mark-radio" aria-hidden />
+                  <span className="dp-qcard-choice-label">{c.label}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -124,15 +175,22 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
                 <button
                   key={c.id}
                   type="button"
-                  className={`dp-qcard-choice${picked ? ' dp-qcard-choice-selected' : ''}`}
+                  className={`dp-qcard-choice${
+                    picked ? ' dp-qcard-choice-selected' : ''
+                  }`}
                   onClick={() =>
                     setMulti((prev) =>
-                      prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id],
+                      prev.includes(c.id)
+                        ? prev.filter((x) => x !== c.id)
+                        : [...prev, c.id],
                     )
                   }
                   disabled={busy}
                 >
-                  {c.label}
+                  <span className="dp-qcard-choice-mark dp-qcard-choice-mark-check" aria-hidden>
+                    {picked && '✓'}
+                  </span>
+                  <span className="dp-qcard-choice-label">{c.label}</span>
                 </button>
               );
             })}
@@ -142,10 +200,16 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
         {current.type === 'open' && (
           <textarea
             className="dp-qcard-textarea"
-            rows={4}
-            placeholder="Your answer…"
+            rows={5}
+            placeholder="Type your answer — a sentence is plenty"
             value={openDraft}
             onChange={(e) => setOpenDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                if (canSubmit && !busy) handleSubmit();
+              }
+            }}
             disabled={busy}
             autoFocus
           />
@@ -155,35 +219,19 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
       <div className="dp-qcard-actions">
         <button
           type="button"
-          className="dp-btn dp-btn-ghost dp-btn-small"
+          className="dp-qcard-skip"
           onClick={() => void handleSkip()}
           disabled={busy}
         >
-          Skip
+          Skip this one
         </button>
         <button
           type="button"
-          className="dp-btn dp-btn-primary dp-btn-small"
+          className="dp-qcard-next"
           disabled={busy || !canSubmit}
-          onClick={() => {
-            if (!current) return;
-            let value: ChairAnswer = null;
-            switch (current.type) {
-              case 'choice':
-              case 'confirm':
-                value = choice;
-                break;
-              case 'multi':
-                value = multi;
-                break;
-              case 'open':
-                value = openDraft.trim();
-                break;
-            }
-            void handleNext(value);
-          }}
+          onClick={handleSubmit}
         >
-          {isLast ? 'Submit' : 'Next'}
+          {isLast ? 'Submit all answers' : 'Next question →'}
         </button>
       </div>
     </div>

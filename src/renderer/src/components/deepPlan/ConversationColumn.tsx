@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DeepPlanMessage, DeepPlanSession, PanelRole } from '@shared/types';
-import { useDeepPlan } from '../../store/deepPlan';
+import type {
+  ChairAnswer,
+  ChairAnswerMap,
+  ChairQuestion,
+  DeepPlanMessage,
+  DeepPlanSession,
+  PanelRole,
+} from '@shared/types';
+import { useDeepPlan, type PanelProgressState } from '../../store/deepPlan';
+import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
 import { QuestionCard } from './QuestionCard';
+import {
+  latestQueryText,
+  researchRunningFromEvents,
+} from '../../hooks/useResearchFlash';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -22,6 +34,23 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   const roundRunning = status?.roundRunning ?? false;
   const pendingQuestions = session.pendingQuestions ?? [];
 
+  // Map each `user-answers` message to the Chair questions it was
+  // answering, so we can render prompts + labels instead of raw ids.
+  // Walk forwards keeping a handle on the most recent chair-turn's
+  // questions; when we hit a user-answers message, pair them up.
+  const answeredQuestionsById = useMemo(() => {
+    const out = new Map<string, ChairQuestion[]>();
+    let currentChairQuestions: ChairQuestion[] = [];
+    for (const m of session.messages) {
+      if (m.kind === 'chair-turn' && m.chair) {
+        currentChairQuestions = m.chair.questions;
+      } else if (m.kind === 'user-answers') {
+        out.set(m.id, currentChairQuestions);
+      }
+    }
+    return out;
+  }, [session.messages]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -38,7 +67,7 @@ export function ConversationColumn({ session }: Props): JSX.Element {
     if (!el) return;
     if (!pinnedRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
-  }, [session.messages.length, pendingQuestions.length]);
+  }, [session.messages.length, pendingQuestions.length, roundRunning]);
 
   const isDone = session.phase === 'done';
 
@@ -60,9 +89,14 @@ export function ConversationColumn({ session }: Props): JSX.Element {
           <div className="dp-empty">Starting the Deep Plan conversation…</div>
         )}
         {session.messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble
+            key={m.id}
+            message={m}
+            answeredQuestions={answeredQuestionsById.get(m.id)}
+          />
         ))}
-        {roundRunning && <PanelProgressIndicator progress={panelProgress} />}
+        {roundRunning && <PanelProgressPanel progress={panelProgress} />}
+        {roundRunning && <SearchingBanner />}
         {!roundRunning && pendingQuestions.length > 0 && (
           <QuestionCard questions={pendingQuestions} />
         )}
@@ -141,7 +175,15 @@ function AutoResizeTextarea({
   );
 }
 
-function MessageBubble({ message }: { message: DeepPlanMessage }): JSX.Element | null {
+interface MessageBubbleProps {
+  message: DeepPlanMessage;
+  answeredQuestions?: ChairQuestion[];
+}
+
+function MessageBubble({
+  message,
+  answeredQuestions,
+}: MessageBubbleProps): JSX.Element | null {
   if (message.kind === 'phase-transition') {
     return (
       <div className="dp-stage-transition">
@@ -150,29 +192,11 @@ function MessageBubble({ message }: { message: DeepPlanMessage }): JSX.Element |
     );
   }
   if (message.kind === 'user-answers') {
-    const entries = Object.entries(message.answers ?? {});
-    if (entries.length === 0) return null;
     return (
-      <div className="dp-msg dp-msg-user dp-msg-answers">
-        <div className="dp-msg-body">
-          <div className="dp-answers-label">You answered:</div>
-          <ul className="dp-answers-list">
-            {entries.map(([id, ans]) => {
-              const rendered =
-                ans === null
-                  ? '(skipped)'
-                  : Array.isArray(ans)
-                  ? ans.join(', ')
-                  : ans;
-              return (
-                <li key={id}>
-                  <span className="dp-answers-qid">{id}:</span> {rendered}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      </div>
+      <AnswersRecap
+        answers={message.answers ?? {}}
+        questions={answeredQuestions ?? []}
+      />
     );
   }
 
@@ -186,61 +210,245 @@ function MessageBubble({ message }: { message: DeepPlanMessage }): JSX.Element |
   );
 }
 
-const ROLE_LABELS: Record<PanelRole, string> = {
-  explorer: 'Explorer',
-  scoper: 'Scoper',
-  stakes: 'Stakes',
-  architect: 'Architect',
-  evidence: 'Evidence',
-  steelman: 'Steelman',
-  skeptic: 'Skeptic',
-  adversary: 'Adversary',
-  editor: 'Editor',
-  audience: 'Audience',
-  finaliser: 'Finaliser',
-};
-
-interface PanelProgressIndicatorProps {
-  progress: ReturnType<typeof useDeepPlan.getState>['panelProgress'];
+interface AnswersRecapProps {
+  answers: ChairAnswerMap;
+  questions: ChairQuestion[];
 }
 
-function PanelProgressIndicator({ progress }: PanelProgressIndicatorProps): JSX.Element {
+/**
+ * Compact, readable recap of what the user answered. Looks up each
+ * question by id so we can show the original prompt and the human
+ * choice label rather than raw `q1: economics-policy` shorthand.
+ * Skipped questions stay in the list but dim down — seeing "(skipped)"
+ * helps the panel understand what the user chose not to commit on.
+ */
+function AnswersRecap({ answers, questions }: AnswersRecapProps): JSX.Element | null {
+  const byId = useMemo(() => new Map(questions.map((q) => [q.id, q])), [questions]);
+  const entries = Object.entries(answers);
+  if (entries.length === 0) return null;
+
+  const resolve = (qId: string, ans: ChairAnswer): string => {
+    const q = byId.get(qId);
+    if (ans === null) return '(skipped)';
+    if (Array.isArray(ans)) {
+      const labels = ans.map((id) => q?.choices?.find((c) => c.id === id)?.label ?? id);
+      return labels.join(', ');
+    }
+    if (q?.type === 'choice' || q?.type === 'confirm') {
+      const c = q.choices?.find((x) => x.id === ans);
+      return c?.label ?? ans;
+    }
+    return ans;
+  };
+
   return (
-    <div className="dp-panel-progress">
-      <div className="dp-panel-progress-head">
-        <span className="generating-dots">
-          <span className="dot" />
-          <span className="dot" />
-          <span className="dot" />
-        </span>
-        <span className="dp-muted">
-          Panel thinking{progress.researchDispatched > 0 ? ` · ${progress.researchDispatched} query ${progress.researchDispatched === 1 ? '' : 'dispatched'}` : ''}
-        </span>
-      </div>
-      <div className="dp-panel-progress-roles">
-        {progress.roles.map((role) => {
-          const state = progress.byRole[role]?.state ?? 'pending';
-          const extra =
-            state === 'done'
-              ? ` · ${(progress.byRole[role] as { findings: number }).findings}`
-              : '';
+    <div className="dp-answers">
+      <div className="dp-answers-head">You answered</div>
+      <ol className="dp-answers-list">
+        {entries.map(([qId, ans]) => {
+          const q = byId.get(qId);
+          const prompt = q?.prompt ?? `Question ${qId}`;
+          const answerText = resolve(qId, ans);
+          const skipped = ans === null;
           return (
-            <span
-              key={role}
-              className={`dp-panel-role dp-panel-role-${state}`}
-              title={state === 'failed' ? (progress.byRole[role] as { error: string }).error : undefined}
+            <li
+              key={qId}
+              className={`dp-answers-row${skipped ? ' dp-answers-row-skipped' : ''}`}
             >
-              {ROLE_LABELS[role]}
-              {extra}
-            </span>
+              <div className="dp-answers-q">{prompt}</div>
+              <div className="dp-answers-a">{answerText}</div>
+            </li>
           );
         })}
-        {progress.chair !== 'idle' && (
-          <span className={`dp-panel-role dp-panel-role-chair dp-panel-role-${progress.chair}`}>
-            Chair
-          </span>
-        )}
+      </ol>
+    </div>
+  );
+}
+
+/* ---------------------------- Searching banner ---------------------------- */
+
+/**
+ * Shown below the panel card while the research engine is mid-run. The
+ * floating pill on the graph already calls this out visually — this chat-
+ * side banner exists so users who are scrolled up in the transcript (or
+ * focused on the conversation column) also see that we're actively
+ * searching the web and shouldn't close the window.
+ */
+function SearchingBanner(): JSX.Element | null {
+  const events = useResearchEvents((s) => s.events);
+  const searching = useMemo(() => researchRunningFromEvents(events), [events]);
+  const currentQuery = useMemo(() => latestQueryText(events), [events]);
+  if (!searching) return null;
+  return (
+    <div className="dp-searching" role="status" aria-live="polite">
+      <span className="dp-searching-icon generating-dots" aria-hidden>
+        <span className="dot" />
+        <span className="dot" />
+        <span className="dot" />
+      </span>
+      <div className="dp-searching-body">
+        <div className="dp-searching-title">Searching the web — sit tight</div>
+        <div className="dp-searching-sub">
+          {currentQuery
+            ? `Looking up “${currentQuery}”`
+            : 'Running the queries the panel asked for…'}
+        </div>
       </div>
     </div>
+  );
+}
+
+/* ---------------------------- Panel progress ---------------------------- */
+
+/**
+ * Each role exposes a short "I'm looking for X" tagline so the user sees
+ * *what* the panelist is doing, not just that they're running. This
+ * mirrors the persona block in the panel prompts — kept terse so the
+ * live progress view stays scannable.
+ */
+const ROLE_DESCRIPTORS: Record<PanelRole, { label: string; tagline: string }> = {
+  explorer: { label: 'Explorer', tagline: 'Angles you haven’t tried yet' },
+  scoper: { label: 'Scoper', tagline: 'What’s in, what’s out' },
+  stakes: { label: 'Stakes', tagline: 'Why this matters, and to whom' },
+  architect: { label: 'Architect', tagline: 'Shape of the piece' },
+  evidence: { label: 'Evidence', tagline: 'Sources behind each claim' },
+  steelman: { label: 'Steelman', tagline: 'Strongest version of the argument' },
+  skeptic: { label: 'Skeptic', tagline: 'Holes in the reasoning' },
+  adversary: { label: 'Adversary', tagline: 'How a hostile reader attacks this' },
+  editor: { label: 'Editor', tagline: 'Clarity, pacing, voice' },
+  audience: { label: 'Audience', tagline: 'What readers actually want' },
+  finaliser: { label: 'Finaliser', tagline: 'Ready to hand off to the drafter?' },
+};
+
+interface PanelProgressPanelProps {
+  progress: PanelProgressState;
+}
+
+function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element {
+  const { roles, byRole, researchDispatched, chair } = progress;
+  const doneCount = roles.filter((r) => byRole[r]?.state === 'done').length;
+  const runningCount = roles.filter((r) => byRole[r]?.state === 'running').length;
+
+  const status: string = (() => {
+    if (chair === 'running') return 'Chair is synthesising the panel’s findings…';
+    if (chair === 'done') return 'Chair is finalising your questions…';
+    if (doneCount === roles.length && roles.length > 0) return 'Panel is done deliberating.';
+    if (runningCount > 0) return `${runningCount} panelist${runningCount === 1 ? '' : 's'} still thinking…`;
+    return 'Panel is assembling…';
+  })();
+
+  return (
+    <div className="dp-panel">
+      <div className="dp-panel-head">
+        <div className="dp-panel-title">
+          <span className="dp-panel-title-label">The panel is deliberating</span>
+          <span className="dp-panel-title-count">
+            {doneCount}/{roles.length} done
+          </span>
+        </div>
+        <div className="dp-panel-status">
+          <span className="generating-dots dp-panel-dots">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+          </span>
+          <span className="dp-panel-status-text">{status}</span>
+        </div>
+      </div>
+
+      <ul className="dp-panel-roles">
+        {roles.map((role) => {
+          const entry = byRole[role];
+          const state = entry?.state ?? 'pending';
+          const meta = ROLE_DESCRIPTORS[role];
+          const findings =
+            entry?.state === 'done'
+              ? entry.findings
+              : undefined;
+          const searchQueries =
+            entry?.state === 'done'
+              ? entry.searchQueries
+              : undefined;
+          const errorMsg = entry?.state === 'failed' ? entry.error : undefined;
+
+          return (
+            <li key={role} className={`dp-panel-role dp-panel-role-${state}`}>
+              <div className="dp-panel-role-indicator" aria-hidden>
+                {state === 'pending' && <span className="dp-panel-indicator-empty" />}
+                {state === 'running' && <span className="dp-panel-indicator-spin" />}
+                {state === 'done' && <span className="dp-panel-indicator-check">✓</span>}
+                {state === 'failed' && <span className="dp-panel-indicator-cross">!</span>}
+              </div>
+              <div className="dp-panel-role-body">
+                <div className="dp-panel-role-head">
+                  <span className="dp-panel-role-name">{meta.label}</span>
+                  <PanelRoleStatusText
+                    state={state}
+                    findings={findings}
+                    searchQueries={searchQueries}
+                  />
+                </div>
+                <div className="dp-panel-role-tagline">
+                  {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="dp-panel-foot">
+        {researchDispatched > 0 && (
+          <span className="dp-panel-foot-chip">
+            {researchDispatched} {researchDispatched === 1 ? 'query' : 'queries'} sent to the web
+          </span>
+        )}
+        <span
+          className={`dp-panel-foot-chip dp-panel-foot-chair dp-panel-foot-chair-${chair}`}
+        >
+          {chair === 'idle' && 'Chair waiting'}
+          {chair === 'running' && 'Chair synthesising'}
+          {chair === 'done' && 'Chair ready'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function PanelRoleStatusText({
+  state,
+  findings,
+  searchQueries,
+}: {
+  state: 'pending' | 'running' | 'done' | 'failed';
+  findings?: number;
+  searchQueries?: number;
+}): JSX.Element {
+  if (state === 'pending') {
+    return <span className="dp-panel-role-note dp-panel-role-note-pending">Queued</span>;
+  }
+  if (state === 'running') {
+    return <span className="dp-panel-role-note dp-panel-role-note-running">Thinking…</span>;
+  }
+  if (state === 'failed') {
+    return <span className="dp-panel-role-note dp-panel-role-note-failed">Skipped (error)</span>;
+  }
+  const parts: string[] = [];
+  if (typeof findings === 'number') {
+    parts.push(
+      findings === 0
+        ? 'No new concerns'
+        : `${findings} ${findings === 1 ? 'concern' : 'concerns'} raised`,
+    );
+  }
+  if (typeof searchQueries === 'number' && searchQueries > 0) {
+    parts.push(
+      `${searchQueries} search${searchQueries === 1 ? '' : 'es'} asked for`,
+    );
+  }
+  return (
+    <span className="dp-panel-role-note dp-panel-role-note-done">
+      {parts.length > 0 ? parts.join(' · ') : 'Done'}
+    </span>
   );
 }

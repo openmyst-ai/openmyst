@@ -5,13 +5,20 @@ import { useResearchEvents } from '../../store/researchEvents';
 import { useDeepPlan } from '../../store/deepPlan';
 import { useSourcePreview } from '../../store/sourcePreview';
 import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
+import {
+  latestQueryText,
+  researchRunningFromEvents,
+  useQueryFlash,
+} from '../../hooks/useResearchFlash';
 
 /**
  * Deep Plan's right column. The wiki graph is visible across every phase
  * now — the panel can dispatch research in any phase, so users always
  * want the live map of their knowledge graph to the right of the
  * conversation. "Fresh" slugs (ingested in the current run) glow while
- * a round is executing.
+ * a round is executing. When the engine is actively searching, a
+ * floating pill pins to the top of the graph with the live query text so
+ * the user never has to guess whether anything is happening.
  */
 
 export function WikiGraphColumn(): JSX.Element {
@@ -34,6 +41,16 @@ export function WikiGraphColumn(): JSX.Element {
     [researchEvents],
   );
 
+  const searching = useMemo(
+    () => researchRunningFromEvents(researchEvents),
+    [researchEvents],
+  );
+  const currentQuery = useMemo(
+    () => latestQueryText(researchEvents),
+    [researchEvents],
+  );
+  const flashQuery = useQueryFlash(currentQuery);
+
   const handleNodeOpen = (slug: string): void => {
     void bridge.sources.list().then((all) => {
       const full = all.find((s) => s.slug === slug);
@@ -43,6 +60,29 @@ export function WikiGraphColumn(): JSX.Element {
 
   return (
     <div className="dp-graph dp-graph-fullbleed">
+      {searching && (
+        <div
+          className={`dp-research-thinking${
+            flashQuery ? ' dp-research-thinking-flashing' : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="generating-dots">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+          </span>
+          <span className="dp-research-thinking-label">Researching the web</span>
+          <span
+            className={`dp-research-thinking-query${
+              flashQuery ? ' dp-research-thinking-query-open' : ''
+            }`}
+          >
+            {flashQuery ?? ''}
+          </span>
+        </div>
+      )}
       <WikiGraph
         graph={graph}
         freshSlugs={freshSlugs}
