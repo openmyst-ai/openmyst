@@ -446,6 +446,15 @@ Any claim carrying facts, numbers, arguments, or positions must be inline-cited 
    ([Name](slug.md))
 where **Name** is the source's short label (first-author surname if a paper, or a short sensible label otherwise). Example: \`([Michael](michaelpaper.md))\`. The surrounding parentheses are required; never emit a bare \`[Name](slug.md)\` without them. Do NOT include a year; we'd rather have no year than a wrong one. Do NOT wrap citations in backticks. Do NOT append \`#anchor\` fragments or any other suffix to the slug; just the plain \`slug.md\` link. Descriptive or connective prose can go uncited; err on the side of citing.
 
+Referencing discipline (strict):
+- Cite ANY time you mention something that traces to a source: a claim, a number, a definition, a framing, an argument, an example, a historical fact, a quoted term of art, a named person's position. Paraphrasing does not remove the obligation to cite; if you learned it from a source in the wiki above, cite that source. Uncited prose should be limited to your own reasoning, transitions, and connective tissue.
+- If a single sentence draws on more than one source, emit more than one inline citation, adjacent: \`([Smith](smith.md)) ([Jones](jones.md))\`.
+- End the draft with a \`## References\` section (sentence case, no other heading variations). List only sources that were actually cited in the body. Format each entry **Harvard style** on its own line as a markdown bullet:
+    - \`Author(s) (Year) *Title*. Publisher or outlet. Available at: URL.\`
+  Use whatever bibliographic detail is visible in the detailed summary for that source (author names, publication year, title, outlet, URL). Do NOT invent missing fields: if year is unknown, omit it; if author is unknown, lead with the title; if there is no URL, omit "Available at:". Every entry MUST end with a markdown link to the slug itself, written as a trailing parenthesised \`([slug.md](slug.md))\` so the reference remains clickable inside Myst even when bibliographic fields are thin.
+- Alphabetise the references section by the leading author surname (or title, when author-less). One bullet per source. Do not repeat the same source twice.
+- Sources that you did not actually cite in the body must NOT appear in References. The References list is a mirror of your inline citations, not a dump of the wiki.
+
 Form + output rules:
 - Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
 - No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
