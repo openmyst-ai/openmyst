@@ -9,9 +9,7 @@ import type {
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { ensureLlmReady, streamChat, completeText, type LlmMessage } from '../../llm';
-import { getDeepPlanModel, getSummaryModel } from '../settings';
-import { extractClaimMenu } from './claimMenu';
-import { annotateDraftWithConfidence } from './confidence';
+import { getDeepPlanModel } from '../settings';
 import { ensureSearchReady } from '../research/search';
 import { listSources, readSource } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
@@ -742,20 +740,6 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     docLabel: target.label,
   });
 
-  // Claim-menu extraction. One cheap summary-model call that reads every
-  // source and enumerates every atomic citable claim with a backing quote.
-  // The drafter is then scoped to "only make factual assertions that map
-  // to a row on this menu". An empty menu degrades gracefully — the
-  // HARD RULES still enforce citation discipline; we just lose the
-  // structural constraint.
-  const summaryModel = await getSummaryModel();
-  const claimMenu = await extractClaimMenu({
-    sources,
-    detailedSummaries,
-    summaryModel,
-    docLabel: target.label,
-  });
-
   const prompt = oneShotPrompt(
     session,
     sources,
@@ -763,7 +747,6 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     plannerSynthesis,
     researchSummary,
     prefetchedPassages,
-    claimMenu,
     target.label,
   );
   const messages: LlmMessage[] = [
@@ -804,38 +787,12 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
 
   broadcast(IpcChannels.DeepPlan.ChunkDone);
 
-  const initialDraft = fullContent.trim();
-  if (initialDraft.length === 0) {
+  const draft = fullContent.trim();
+  if (draft.length === 0) {
     throw new Error('The generator returned an empty draft. Try again.');
   }
 
-  // Post-draft confidence pass. Pure string math (no LLM): for each
-  // inline citation we compute a token-ngram overlap between the
-  // sentence it sits in and the cited source's backing text, then
-  // splice an inline `[N%](confidence://N)` badge after each citation.
-  // Degrades to the raw draft if something throws — the worst outcome
-  // is we ship the draft unannotated, which is still a valid draft.
-  let finalDraft = initialDraft;
-  let confidenceRatings: ReturnType<typeof annotateDraftWithConfidence>['ratings'] = [];
-  try {
-    const annotated = annotateDraftWithConfidence({
-      draft: initialDraft,
-      menu: claimMenu,
-      sources,
-      detailedSummaries,
-    });
-    finalDraft = annotated.annotatedDraft;
-    confidenceRatings = annotated.ratings;
-  } catch (err) {
-    logError('deep-plan', 'confidence.annotate.failed', err);
-  }
-
-  await writeDocument(target.filename, finalDraft);
-
-  log('deep-plan', 'confidence.summary', {
-    doc: target.filename,
-    citations: confidenceRatings.length,
-  });
+  await writeDocument(target.filename, draft);
 
   await updateSession((s) => ({
     ...s,

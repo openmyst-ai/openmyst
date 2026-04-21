@@ -1,4 +1,4 @@
-import type { ClaimMenuItem, DeepPlanRubric, DeepPlanSession, SourceMeta } from '@shared/types';
+import type { DeepPlanRubric, DeepPlanSession, SourceMeta } from '@shared/types';
 import { PROSE_STYLE } from '../../writing';
 
 /**
@@ -402,23 +402,6 @@ If the detailed summaries are genuinely sufficient and no verbatim text would he
 ${PROSE_STYLE}`;
 }
 
-function claimMenuBlock(menu: ClaimMenuItem[]): string {
-  if (menu.length === 0) return '_(no claims were extractable from the wiki — see referencing discipline below and err toward softened language)_';
-  // Group by slug so the drafter can scan source-by-source.
-  const bySlug = new Map<string, ClaimMenuItem[]>();
-  for (const item of menu) {
-    const arr = bySlug.get(item.slug) ?? [];
-    arr.push(item);
-    bySlug.set(item.slug, arr);
-  }
-  const groups: string[] = [];
-  for (const [slug, items] of bySlug) {
-    const lines = items.map((i) => `  - (${i.id}) ${i.claim}`).join('\n');
-    groups.push(`**${slug}**\n${lines}`);
-  }
-  return groups.join('\n\n');
-}
-
 export function oneShotPrompt(
   session: DeepPlanSession,
   sources: SourceMeta[],
@@ -426,7 +409,6 @@ export function oneShotPrompt(
   plannerSynthesis: string,
   researchSummary: string,
   prefetchedPassages: string,
-  claimMenu: ClaimMenuItem[],
   docLabel: string,
 ): string {
   const synthesisBlock = plannerSynthesis.trim()
@@ -438,17 +420,11 @@ export function oneShotPrompt(
   const passagesBlock = prefetchedPassages.trim()
     ? `\nPre-fetched verbatim passages (pulled from the wiki off-disk for this draft — these are EXACT text, safe to quote directly):\n\n${prefetchedPassages.trim()}\n`
     : '';
-  const menuBlock = claimMenuBlock(claimMenu);
-  const menuGuidance =
-    claimMenu.length > 0
-      ? `\nCLAIM MENU (your ONLY legitimate source of non-trivial factual assertions — see HARD RULE #3):\n\n${menuBlock}\n`
-      : '';
 
   return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
 - ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
 - Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
-- EVERY non-trivial claim cites a source, inline, at the point the claim is made. A non-trivial claim is any factual statement, attribution, historical fact, date, statistic, definition, critique, named position, or interpretive argument. The only uncited sentences permitted are: (a) your own reasoning and framing, (b) logical connectives and transitions, (c) restatements of the user's own prompt.
-- STRICTLY FROM THE CLAIM MENU. Every non-trivial factual assertion in the draft must map to a row in the CLAIM MENU below. You may paraphrase the claim freely, but you may NOT invent claims that are not on the menu. If you want to make a factual point that has no corresponding menu row, either rephrase to something the menu supports, omit the point, or soften into framing ("one could argue…"). The menu is the scoping constraint — treat it like a hand of cards: you play what you have, you don't pull cards from a deck that isn't there. Do NOT print the menu IDs in the draft; the IDs are for your internal reference only. Cite using the normal Harvard format described below.
+- EVERY non-trivial claim cites a source, inline, at the point the claim is made. A non-trivial claim is any factual statement, attribution, historical fact, date, statistic, definition, critique, named position, or interpretive argument. The only uncited sentences permitted are: (a) your own reasoning and framing, (b) logical connectives and transitions, (c) restatements of the user's own prompt. If you cannot cite it from the wiki below, omit it — never assert an un-sourced fact. A sparsely-cited draft is a failed draft.
 
 You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist, not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
 
@@ -460,7 +436,7 @@ ${rubricBlock(session.rubric)}
 ${synthesisBlock}${researchBlock}Wiki (sources with full detailed summaries and key anchor labels):
 
 ${richSourcesBlock(sources, detailedSummaries)}
-${passagesBlock}${menuGuidance}
+${passagesBlock}
 How to approach this draft (read carefully):
 
 1. **Read the wiki first.** The detailed summaries above are not one-liners; they're multi-paragraph reads of each source. Hold them in mind before committing to a paragraph. Don't treat a source as a bullet point to cite once; treat it as something you've actually read.
