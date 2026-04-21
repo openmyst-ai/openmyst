@@ -12,6 +12,7 @@ import type {
   PendingEdit,
   ProjectMeta,
   Result,
+  SourceAnchor,
   SourceMeta,
   UpdateStatus,
   WikiGraph,
@@ -87,6 +88,10 @@ export interface MystApi {
     pickFiles: () => Promise<string[]>;
     list: () => Promise<SourceMeta[]>;
     read: (slug: string) => Promise<string>;
+    lookupAnchor: (
+      slug: string,
+      anchorId: string,
+    ) => Promise<{ slug: string; anchor: SourceAnchor; text: string } | null>;
     delete: (slug: string) => Promise<void>;
     onChanged: (callback: () => void) => () => void;
   };

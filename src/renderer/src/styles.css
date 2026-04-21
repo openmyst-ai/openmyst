@@ -5144,3 +5144,93 @@ img.login-logo {
   border-bottom-style: solid;
 }
 
+/* Phase-advance CTA — shown in the chat scroll when the Chair signals
+ * phaseAdvance and there are no pending questions. Hugging the copy to the
+ * left (subtle, not a modal) keeps the discussion path equally prominent. */
+.dp-advance-cta {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+}
+.dp-advance-cta-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dp-advance-cta-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.dp-advance-cta-sub {
+  font-size: 12.5px;
+  opacity: 0.85;
+}
+
+/* Citation hover popover. Fixed-positioned so getBoundingClientRect coords
+ * translate 1:1 without having to care about scrollable ancestors. */
+.dp-plan-scope {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dp-citation-hover {
+  position: fixed;
+  z-index: 1100;
+  max-width: 420px;
+  min-width: 240px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.dp-citation-hover-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.dp-citation-hover-slug {
+  font-weight: 600;
+}
+.dp-citation-hover-anchor {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--muted);
+}
+.dp-citation-hover-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.dp-citation-hover-body {
+  white-space: pre-wrap;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.dp-citation-hover-loading,
+.dp-citation-hover-muted {
+  color: var(--muted);
+  font-style: italic;
+}
+.dp-citation-hover-error {
+  color: #b94a48;
+}
+

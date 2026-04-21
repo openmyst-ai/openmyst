@@ -266,6 +266,7 @@ Output ONLY a JSON object of this exact shape — no prose, no markdown fences, 
 Rules:
 - At most 3 findings. Quality over quantity. Vague findings are worthless.
 ${searchClause}
+- When a \`suggestedAction\` references a source, write it as a Harvard-style markdown link: \`([Name](slug.md))\` or \`([Name](slug.md#anchor-id))\`. NEVER use backticked slug tokens (\`\`\`slug\`\`\`, \`\`\`slug#anchor\`\`\`) — the Chair copies your phrasing into plan.md body, and backticks render as code blocks there.
 - Do NOT duplicate findings already raised in prior rounds (see digest above).
 - If you genuinely have nothing to add this round, output {"findings": [], "needsResearch": []}. This is the right answer more often than you think — the plan converges when the panel goes quiet.`;
 }
@@ -416,10 +417,17 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
 
 plan.md rules:
 - Rewrite it IN FULL every round. The drafter only ever sees the latest version.
-- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and (from planning phase onward) source attributions in the form \`([Name](slug.md))\`.
+- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and (from planning phase onward) source attributions.
 - Honour the task requirements at the top of the plan — echo the word-count range and form in the thesis paragraph so the drafter can't miss them.
-- Cite source slugs that actually exist in the wiki above. Never invent a slug.
 - Plan.md is the drafter's sole planning input. If it's not in the plan, it won't make it into the draft.
+
+CITATION FORMAT — read carefully, this is enforced:
+- Default: Harvard-style inline markdown links, always in parentheses: \`([Name](slug.md))\`. Name is a short label (first-author surname for papers, sensible short name otherwise). Slug must exist in the wiki above.
+- When a specific anchor grounds the claim, include the anchor fragment in the href: \`([Name](slug.md#anchor-id))\`. The hover UI resolves \`#anchor-id\` against the source's indexed anchors and shows the verbatim passage, so be precise.
+- If a sentence draws on two sources, emit two adjacent citations: \`([Smith](smith.md)) ([Jones](jones.md))\`.
+- NEVER emit bare backticked slug tokens like \`\`\`slug\`\`\` or \`\`\`slug#anchor-id\`\`\`. Those render as code blocks and break the reader flow. Citations are always parenthesised markdown links, never backticks.
+- NEVER emit footnote markers, numeric refs like "[1]", or "Smith et al. (2022)" prose — use the markdown-link form above.
+- Never invent a slug. Only cite slugs that appear in the wiki list above.
 
 Question rules:
 - **FIRST PRIORITY — missing hard requirements.** If the requirements block above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Word count is the tightest constraint on a draft and the panel literally cannot judge scope/depth without it. Use \`choice\` with 3–4 reasonable defaults and mark the panel's preferred option \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom write-in with \`allowCustom: true\`}.

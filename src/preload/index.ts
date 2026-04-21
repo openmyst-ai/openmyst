@@ -117,6 +117,8 @@ const api: MystApi = {
     pickFiles: () => ipcRenderer.invoke(IpcChannels.Sources.PickFiles),
     list: () => ipcRenderer.invoke(IpcChannels.Sources.List),
     read: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Read, slug),
+    lookupAnchor: (slug, anchorId) =>
+      ipcRenderer.invoke(IpcChannels.Sources.LookupAnchor, slug, anchorId),
     delete: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Delete, slug),
     onChanged: (callback) => {
       const handler = (): void => {

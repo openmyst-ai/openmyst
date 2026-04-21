@@ -11,6 +11,7 @@ import { useDeepPlan, type PanelProgressState } from '../../store/deepPlan';
 import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
 import { QuestionCard } from './QuestionCard';
+import { CitationHoverScope } from './CitationHoverScope';
 import {
   latestQueryText,
   researchRunningFromEvents,
@@ -26,13 +27,27 @@ interface Props {
 }
 
 export function ConversationColumn({ session }: Props): JSX.Element {
-  const { status, busy, sendMessage, panelProgress } = useDeepPlan();
+  const { status, busy, sendMessage, advance, oneShot, panelProgress } = useDeepPlan();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
 
   const roundRunning = status?.roundRunning ?? false;
   const pendingQuestions = session.pendingQuestions ?? [];
+
+  // The Chair signals `phaseAdvance: true` on the last chair-turn when it
+  // thinks the phase is done. We surface a contextual CTA inline so the user
+  // doesn't have to hunt for the top-bar "Continue" button — keeping the
+  // discussion path equally prominent so they can also just keep typing.
+  const shouldShowAdvanceCta = useMemo(() => {
+    if (roundRunning || busy) return false;
+    if (pendingQuestions.length > 0) return false;
+    if (session.phase === 'done') return false;
+    const lastChair = [...session.messages]
+      .reverse()
+      .find((m) => m.kind === 'chair-turn' && m.chair);
+    return lastChair?.chair?.phaseAdvance === true;
+  }, [session.messages, session.phase, pendingQuestions.length, roundRunning, busy]);
 
   // Map each `user-answers` message to the Chair questions it was
   // answering, so we can render prompts + labels instead of raw ids.
@@ -84,7 +99,7 @@ export function ConversationColumn({ session }: Props): JSX.Element {
 
   return (
     <div className="dp-chat">
-      <div className="dp-chat-scroll" ref={scrollRef}>
+      <CitationHoverScope className="dp-chat-scroll" ref={scrollRef}>
         {session.messages.length === 0 && !roundRunning && (
           <div className="dp-empty">Starting the Deep Plan conversation…</div>
         )}
@@ -100,7 +115,14 @@ export function ConversationColumn({ session }: Props): JSX.Element {
         {!roundRunning && pendingQuestions.length > 0 && (
           <QuestionCard questions={pendingQuestions} />
         )}
-      </div>
+        {shouldShowAdvanceCta && (
+          <PhaseAdvanceCta
+            phase={session.phase}
+            onAdvance={() => void (session.phase === 'reviewing' ? oneShot() : advance())}
+            disabled={busy}
+          />
+        )}
+      </CitationHoverScope>
 
       <div className="dp-chat-footer">
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
@@ -206,6 +228,45 @@ function MessageBubble({
       <div className="dp-msg-body">
         <Markdown text={message.content} />
       </div>
+    </div>
+  );
+}
+
+interface PhaseAdvanceCtaProps {
+  phase: DeepPlanSession['phase'];
+  onAdvance: () => void;
+  disabled: boolean;
+}
+
+/**
+ * Appears after the last chair-turn when the Chair signalled phaseAdvance.
+ * Gives the user a clean choice: continue the conversation (just keep
+ * typing below), or commit to the next phase. We keep the language light —
+ * the chair has already summarised; this card is purely a UX handle.
+ */
+function PhaseAdvanceCta({ phase, onAdvance, disabled }: PhaseAdvanceCtaProps): JSX.Element {
+  const nextLabel: string = (() => {
+    if (phase === 'ideation') return 'Continue to planning';
+    if (phase === 'planning') return 'Continue to reviewing';
+    if (phase === 'reviewing') return 'Write the draft';
+    return 'Continue';
+  })();
+  return (
+    <div className="dp-advance-cta" role="status">
+      <div className="dp-advance-cta-body">
+        <div className="dp-advance-cta-title">This phase feels ready to close.</div>
+        <div className="dp-advance-cta-sub">
+          Keep discussing below to push further — or lock it in and move on.
+        </div>
+      </div>
+      <button
+        type="button"
+        className="dp-btn dp-btn-primary dp-btn-small"
+        onClick={onAdvance}
+        disabled={disabled}
+      >
+        {nextLabel}
+      </button>
     </div>
   );
 }

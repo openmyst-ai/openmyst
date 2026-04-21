@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useDeepPlan } from '../../store/deepPlan';
 import { renderMarkdown } from '../../utils/markdown';
+import { CitationHoverScope } from './CitationHoverScope';
 
 /**
  * Right-column view of the living plan.md. The Chair rewrites this in full
@@ -24,9 +25,8 @@ export function PlanColumn(): JSX.Element {
   }
 
   return (
-    <div
-      className="dp-plan"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <CitationHoverScope className="dp-plan-scope">
+      <div className="dp-plan" dangerouslySetInnerHTML={{ __html: html }} />
+    </CitationHoverScope>
   );
 }

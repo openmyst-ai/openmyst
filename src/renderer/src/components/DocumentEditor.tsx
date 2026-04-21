@@ -21,6 +21,7 @@ import { bridge } from '../api/bridge';
 import { EditorToolbar } from './EditorToolbar';
 import { useHeadings } from '../store/headings';
 import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
+import { CitationHoverScope } from './deepPlan/CitationHoverScope';
 import { useDocuments } from '../store/documents';
 import { useSourcePreview } from '../store/sourcePreview';
 import { usePendingEdits } from '../store/pendingEdits';
@@ -490,7 +491,7 @@ export function DocumentEditor({ projectPath, activeFile }: DocumentEditorProps)
         onAccept={() => void handleAcceptActive()}
         onReject={() => void handleRejectActive()}
       />
-      <div className="document-body">
+      <CitationHoverScope className="document-body">
         <div className="document-scroll">
           <div className="document-page">
             <TiptapEditor
@@ -504,7 +505,7 @@ export function DocumentEditor({ projectPath, activeFile }: DocumentEditorProps)
           </div>
           <CommentFloatingButton editor={editor} activeFile={activeFile} disabled={false} />
         </div>
-      </div>
+      </CitationHoverScope>
       <SaveIndicator status={status} />
     </div>
   );
