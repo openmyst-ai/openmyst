@@ -4,6 +4,7 @@ import { useApp } from './store/app';
 import { useAuth } from './store/auth';
 import { useMe } from './store/me';
 import { useDeepPlan } from './store/deepPlan';
+import { useResearchEvents } from './store/researchEvents';
 import { Layout } from './components/Layout';
 import { Welcome } from './components/Welcome';
 import { Login } from './components/Login';
@@ -36,6 +37,15 @@ export function App(): JSX.Element {
       void refreshDeepPlan();
     }
   }, [project, refreshDeepPlan]);
+
+  // Reset renderer-only state that isn't backed by the main process when
+  // the active project changes. The research event log lives purely in
+  // memory — without this, old queries/slugs from the previous project
+  // bleed into the new one's graph and "queries already run" list.
+  const projectPath = project?.path ?? null;
+  useEffect(() => {
+    useResearchEvents.getState().reset();
+  }, [projectPath]);
 
   // Managed-mode auth gate. Strips out under BYOK dev builds via the
   // compile-time literal so the Login component never renders.
