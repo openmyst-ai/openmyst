@@ -13,8 +13,7 @@ const STAGE_LABELS: Record<DeepPlanStage, string> = {
   scoping: 'Scoping',
   gaps: 'Gaps',
   research: 'Research',
-  clarify: 'Clarify',
-  review: 'Review',
+  synthesis: 'Synthesis',
   handoff: 'Handoff',
   done: 'Done',
 };
@@ -24,9 +23,8 @@ const CONTINUE_LABELS: Record<DeepPlanStage, string> = {
   sources: 'Continue to scoping',
   scoping: 'Continue to gaps',
   gaps: 'Continue to research',
-  research: 'Continue to clarify',
-  clarify: 'Continue to review',
-  review: 'Write the draft',
+  research: 'Continue to synthesis',
+  synthesis: 'Write the draft',
   handoff: 'Generating…',
   done: 'Done',
 };
@@ -38,7 +36,7 @@ export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
 
   const researchRunning = status?.researchRunning ?? false;
   const isResearch = stage === 'research';
-  const isReview = stage === 'review';
+  const isSynthesis = stage === 'synthesis';
   const isDone = stage === 'done';
   const isIntent = stage === 'intent';
 
@@ -54,9 +52,9 @@ export function StageBar({ stage, onOpenSettings }: Props): JSX.Element {
         kind: 'danger',
         disabled: false,
       };
-    } else if (isReview) {
+    } else if (isSynthesis) {
       action = {
-        label: busy ? 'Writing draft…' : CONTINUE_LABELS.review,
+        label: busy ? 'Writing draft…' : CONTINUE_LABELS.synthesis,
         onClick: () => void oneShot(),
         kind: 'primary',
         disabled: busy,

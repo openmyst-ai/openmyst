@@ -138,6 +138,12 @@ export function SettingsModal(): JSX.Element {
           ))}
         </select>
       </div>
+      <CustomModelInput
+        currentModel={currentModel}
+        onApply={changeModel}
+        disabled={saving}
+        placeholder="e.g. anthropic/claude-sonnet-4"
+      />
     </section>
   );
 
@@ -162,6 +168,12 @@ export function SettingsModal(): JSX.Element {
           ))}
         </select>
       </div>
+      <CustomModelInput
+        currentModel={currentSummaryModel}
+        onApply={changeSummaryModel}
+        disabled={saving}
+        placeholder="e.g. google/gemini-2.5-flash"
+      />
     </section>
   );
 
@@ -273,6 +285,43 @@ export function SettingsModal(): JSX.Element {
       </div>
 
       {showBugReport && <BugReportModal onClose={() => setShowBugReport(false)} />}
+    </div>
+  );
+}
+
+function CustomModelInput({
+  currentModel,
+  onApply,
+  disabled,
+  placeholder,
+}: {
+  currentModel: string;
+  onApply: (id: string) => Promise<void>;
+  disabled: boolean;
+  placeholder: string;
+}): JSX.Element {
+  const [value, setValue] = useState('');
+  const trimmed = value.trim();
+  const canApply = trimmed.length > 0 && trimmed !== currentModel && !disabled;
+  const submit = async (): Promise<void> => {
+    if (!canApply) return;
+    await onApply(trimmed);
+    setValue('');
+  };
+  return (
+    <div className="row" style={{ marginTop: 8 }}>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
+        disabled={disabled}
+        style={{ flex: 1 }}
+      />
+      <button type="button" onClick={() => void submit()} disabled={!canApply}>
+        Use custom
+      </button>
     </div>
   );
 }

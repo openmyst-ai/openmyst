@@ -41,6 +41,23 @@ export function stripDeepPlanFences(text: string): { visible: string; isWriting:
     }
   }
 
+  // Catch a trailing bare ``` before the tag name has fully streamed in
+  // (e.g. ```, ```s, ```sou). Without this, the user sees backticks +
+  // partial tag chars appear and then disappear once the tag completes,
+  // which is the "jittery slug" the user reported. Parity rule: if the
+  // total number of ``` markers in `visible` is odd, the last one is an
+  // OPENING fence whose body is still streaming — hide from that fence
+  // on and show "thinking". If it's even, any trailing ``` is just a
+  // closing fence of a finished code block; leave it alone.
+  const fenceCount = (visible.match(/```/g) || []).length;
+  if (fenceCount % 2 === 1) {
+    const lastFence = visible.lastIndexOf('```');
+    if (lastFence !== -1) {
+      visible = visible.slice(0, lastFence);
+      isWriting = true;
+    }
+  }
+
   // Bare-JSON fallback: a line that opens with `{` or `[` at the end of
   // the message (preceded by blank-line separation) is almost always the
   // model forgetting the fence. If we can balance the braces, strip the

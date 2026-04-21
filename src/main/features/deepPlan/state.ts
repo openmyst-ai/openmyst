@@ -76,6 +76,13 @@ export async function readSession(): Promise<DeepPlanSession | null> {
     // Backfill for sessions written before researchHints existed, so old
     // on-disk sessions keep working without a migration pass.
     if (!Array.isArray(parsed.researchHints)) parsed.researchHints = [];
+    // The old two-stage tail (`clarify` → `review`) collapsed into a single
+    // `synthesis` stage. Map stale values on read so in-flight sessions
+    // from previous app versions land on the new pipeline without surgery.
+    const stage = parsed.stage as unknown as string;
+    if (stage === 'clarify' || stage === 'review') {
+      parsed.stage = 'synthesis';
+    }
     return parsed;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -137,8 +144,7 @@ export function nextStage(stage: DeepPlanStage): DeepPlanStage {
     'scoping',
     'gaps',
     'research',
-    'clarify',
-    'review',
+    'synthesis',
     'handoff',
     'done',
   ];

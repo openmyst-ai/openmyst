@@ -11,7 +11,7 @@ import { broadcast, log, logError } from '../../platform';
 import { ensureLlmReady, streamChat, completeText, type LlmMessage } from '../../llm';
 import { getDeepPlanModel } from '../settings';
 import { ensureSearchReady } from '../research/search';
-import { listSources } from '../sources';
+import { listSources, readSource } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
 import {
   buildStatus as buildStatusBase,
@@ -24,14 +24,14 @@ import {
   updateSession,
 } from './state';
 import {
-  clarifyPrompt,
   gapsPrompt,
   intentPrompt,
   oneShotPrompt,
+  preDraftLookupPrompt,
   researchPlannerPrompt,
-  reviewPrompt,
   scopingPrompt,
   sourcesPrompt,
+  synthesisPrompt,
 } from './prompts';
 import { applyRubricPatch, parsePlannerReply } from './parse';
 import { runResearchEngine } from '../research/engine';
@@ -128,8 +128,7 @@ const STAGE_PROMPT_BUILDERS: Record<
   scoping: scopingPrompt,
   gaps: gapsPrompt,
   research: researchPlannerPrompt,
-  clarify: clarifyPrompt,
-  review: reviewPrompt,
+  synthesis: synthesisPrompt,
   handoff: null,
   done: null,
 };
@@ -508,9 +507,17 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
       seenUrls,
     );
 
-    const summary = summariseRunResult(result);
+    // Research is not a conversation — the graph + source counter tell
+    // the user what happened. Appending a "Coverage looks good…" chat
+    // message here leaks across stages and shows up as a stray bubble
+    // in later stages, so we only keep the token accounting.
+    log('deep-plan', 'research.loop.done', {
+      reason: result.reason,
+      totalIngested: result.totalIngested,
+      totalQueries: result.totalQueries,
+    });
     await updateSession((s) => ({
-      ...appendMessage(s, 'assistant', summary, 'research-note'),
+      ...s,
       tokensUsedK: s.tokensUsedK + tokensThisLoop,
     }));
   } finally {
@@ -520,29 +527,6 @@ export async function runResearchLoop(): Promise<DeepPlanStatus> {
   }
 
   return buildStatus();
-}
-
-function summariseRunResult(result: {
-  totalIngested: number;
-  totalQueries: number;
-  reason: 'target-reached' | 'converged' | 'cancelled' | 'query-cap' | 'error';
-}): string {
-  const counts = `${result.totalIngested} source${
-    result.totalIngested === 1 ? '' : 's'
-  } added across ${result.totalQueries} queries`;
-  switch (result.reason) {
-    case 'target-reached':
-      return `Coverage looks good — ${counts}. Hit Continue to move on, or "Keep researching" if you want more.`;
-    case 'converged':
-      return `The planner thinks the wiki is covered — ${counts}. Hit Continue to move on, or "Keep researching" to push further.`;
-    case 'cancelled':
-      return `Stopped early — ${counts}. Hit Continue to move on, or "Keep researching" to resume.`;
-    case 'query-cap':
-      return `Hit the query cap — ${counts}. Hit Continue to move on, or "Keep researching" for another pass.`;
-    case 'error':
-    default:
-      return `Research stopped with an error — ${counts}. Hit Continue to move on, or "Keep researching" to retry.`;
-  }
 }
 
 export async function skipSession(): Promise<DeepPlanStatus> {
@@ -562,6 +546,165 @@ export async function resetSession(): Promise<DeepPlanStatus> {
   return buildStatus();
 }
 
+/**
+ * Read the detailed wiki-style summary (`sources/<slug>.md`) for each
+ * source. This is what the drafter actually needs — a 2-4 paragraph read
+ * of each source, not just the one-liner `indexSummary`. If a `.md` file
+ * is missing (rare — happens for raw-file sources that only stub the
+ * summary), we fall back to the source's indexSummary via the map miss
+ * in `richSourcesBlock`.
+ */
+async function loadDetailedSummaries(
+  sources: SourceMeta[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  await Promise.all(
+    sources.map(async (s) => {
+      try {
+        const body = await readSource(s.slug);
+        if (body.trim().length > 0) out.set(s.slug, body);
+      } catch {
+        // missing .md — leave the map entry empty; richSourcesBlock falls
+        // back to indexSummary for that slug.
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * Synthesise the planning conversation into a block the drafter can read.
+ * The session holds every chat message across all stages; the drafter
+ * doesn't need the full transcript, just the sharpened decisions. We keep:
+ *   - every user turn (concise, usually states what they want)
+ *   - the planner's last few assistant turns (scoping / gaps / clarify /
+ *     review synthesis — the review stage in particular is the planner's
+ *     own "here's what I'm about to write" pitch, which is gold)
+ * Anything tagged as a structured fence is already stripped by the
+ * planner loop before it lands in the transcript.
+ */
+function buildPlannerSynthesis(session: DeepPlanSession): string {
+  const chat = session.messages.filter((m) => m.kind === 'chat');
+  const userTurns = chat
+    .filter((m) => m.role === 'user')
+    .map((m) => `- ${m.content.trim()}`)
+    .filter((l) => l.length > 2);
+  const recentPlanner = chat
+    .filter((m) => m.role === 'assistant')
+    .slice(-4)
+    .map((m) => m.content.trim())
+    .filter((c) => c.length > 0);
+
+  const parts: string[] = [];
+  if (userTurns.length > 0) {
+    parts.push(`User decisions and steering:\n${userTurns.join('\n')}`);
+  }
+  if (recentPlanner.length > 0) {
+    parts.push(
+      `Planner's recent synthesis (ending with its handoff summary):\n\n${recentPlanner.join('\n\n---\n\n')}`,
+    );
+  }
+  return parts.join('\n\n');
+}
+
+/**
+ * Compact summary of the research phase — what queries ran and what got
+ * ingested. The detailed summaries of each ingested source are already in
+ * the main wiki block, so this is just context on how they got there and
+ * any user steering hints that shaped the search.
+ */
+function buildResearchSummary(session: DeepPlanSession): string {
+  const queries = session.researchQueries;
+  const hints = session.researchHints;
+  if (queries.length === 0 && hints.length === 0) return '';
+  const lines: string[] = [];
+  if (queries.length > 0) {
+    lines.push(
+      `Queries run (${queries.length}):\n` +
+        queries
+          .map(
+            (q) =>
+              `- "${q.query}" → ${q.ingestedSlugs.length} ingested${
+                q.ingestedSlugs.length > 0 ? ` (${q.ingestedSlugs.join(', ')})` : ''
+              }`,
+          )
+          .join('\n'),
+    );
+  }
+  if (hints.length > 0) {
+    lines.push(`User steering hints:\n${hints.map((h) => `- ${h}`).join('\n')}`);
+  }
+  return lines.join('\n\n');
+}
+
+/**
+ * One-shot pre-draft pass. Asks the model which verbatim anchors / source
+ * pages it wants pulled before the actual draft call. Non-streaming —
+ * we only care about the source_lookup fences it emits. Any prose the
+ * model accidentally adds is discarded; if no lookups come back, we
+ * return an empty string and the drafter runs with summaries alone.
+ *
+ * Failures (missing LLM, malformed output) degrade silently to "no
+ * prefetch" rather than blocking the draft — the drafter always has
+ * the detailed summaries to fall back on.
+ */
+async function runPreDraftLookups(args: {
+  model: string;
+  session: DeepPlanSession;
+  sources: SourceMeta[];
+  detailedSummaries: Map<string, string>;
+  plannerSynthesis: string;
+  researchSummary: string;
+  docLabel: string;
+}): Promise<string> {
+  const prompt = preDraftLookupPrompt(
+    args.session,
+    args.sources,
+    args.detailedSummaries,
+    args.plannerSynthesis,
+    args.researchSummary,
+    args.docLabel,
+  );
+  const messages: LlmMessage[] = [
+    { role: 'system', content: prompt },
+    {
+      role: 'user',
+      content:
+        'Emit source_lookup fences only — no prose. If nothing worth pulling, emit nothing.',
+    },
+  ];
+
+  let reply: string | null = null;
+  try {
+    reply = await completeText({ model: args.model, messages, logScope: 'deep-plan' });
+  } catch (err) {
+    logError('deep-plan', 'oneshot.preDraft.failed', err);
+    return '';
+  }
+  if (!reply || reply.trim().length === 0) {
+    log('deep-plan', 'oneshot.preDraft.empty', {});
+    return '';
+  }
+
+  const { requests } = parseSourceLookups(reply);
+  if (requests.length === 0) {
+    log('deep-plan', 'oneshot.preDraft.noLookups', { replyChars: reply.length });
+    return '';
+  }
+  log('deep-plan', 'oneshot.preDraft.requests', {
+    count: requests.length,
+    slugs: requests.map((r) => r.slug),
+  });
+
+  const resolved = await resolveSourceLookups(requests);
+  const formatted = formatLookupReply(resolved);
+  log('deep-plan', 'oneshot.preDraft.resolved', {
+    count: resolved.length,
+    chars: formatted.length,
+  });
+  return formatted;
+}
+
 export async function runOneShot(): Promise<DeepPlanStatus> {
   const session = await readSession();
   if (!session) throw new Error('No Deep Plan session is active.');
@@ -578,7 +721,34 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   }
   const target = docs[0]!;
 
-  const prompt = oneShotPrompt(session, sources, target.label);
+  const detailedSummaries = await loadDetailedSummaries(sources);
+  const plannerSynthesis = buildPlannerSynthesis(session);
+  const researchSummary = buildResearchSummary(session);
+
+  // Pre-draft lookup pass. One non-streaming LLM call that reads the same
+  // context as the drafter and emits source_lookup fences for any verbatim
+  // anchors / pages / raw files it wants pre-fetched. We resolve them off
+  // disk and hand the formatted results to the draft prompt so the actual
+  // draft call stays a single clean stream.
+  const prefetchedPassages = await runPreDraftLookups({
+    model,
+    session,
+    sources,
+    detailedSummaries,
+    plannerSynthesis,
+    researchSummary,
+    docLabel: target.label,
+  });
+
+  const prompt = oneShotPrompt(
+    session,
+    sources,
+    detailedSummaries,
+    plannerSynthesis,
+    researchSummary,
+    prefetchedPassages,
+    target.label,
+  );
   const messages: LlmMessage[] = [
     { role: 'system', content: prompt },
     {
@@ -588,51 +758,41 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     },
   ];
 
-  log('deep-plan', 'oneshot.start', { doc: target.filename, model });
+  log('deep-plan', 'oneshot.start', {
+    doc: target.filename,
+    model,
+    sources: sources.length,
+    detailed: detailedSummaries.size,
+    promptChars: prompt.length,
+  });
 
-  // Seed the doc with a visible "writing" placeholder so the user sees
-  // something the moment Deep Plan hides, before the first token arrives.
-  await writeDocument(target.filename, '_Writing draft…_\n');
-  broadcast(IpcChannels.Document.Changed);
-
-  let buffer = '';
-  let lastFlushAt = 0;
-  const FLUSH_MS = 300;
-  const flushDraft = async (): Promise<void> => {
-    const body = buffer.trimStart();
-    if (body.length === 0) return;
-    try {
-      await writeDocument(target.filename, body);
-      broadcast(IpcChannels.Document.Changed);
-    } catch (err) {
-      logError('deep-plan', 'oneshot.flushFailed', err);
-    }
-  };
+  // We deliberately do NOT stream into the document. The renderer shows a
+  // dedicated "generating…" modal driven by DeepPlan.Chunk broadcasts
+  // (used only for the live word counter), and the finished draft lands
+  // in the doc in one write at the end. Streaming into the file produced
+  // a distracting "text spawning" effect the user didn't want.
   let fullContent = '';
   try {
     fullContent = await streamChat({
       model,
       messages,
       logScope: 'deep-plan',
-      onChunk: (chunk) => {
-        buffer += chunk;
-        const now = Date.now();
-        if (now - lastFlushAt >= FLUSH_MS) {
-          lastFlushAt = now;
-          void flushDraft();
-        }
-      },
+      onChunk: (chunk) => broadcast(IpcChannels.DeepPlan.Chunk, chunk),
     });
   } catch (err) {
     logError('deep-plan', 'oneshot.failed', err);
+    broadcast(IpcChannels.DeepPlan.ChunkDone);
     throw err;
   }
 
-  const cleaned = fullContent.trim();
-  if (cleaned.length === 0) {
+  broadcast(IpcChannels.DeepPlan.ChunkDone);
+
+  const draft = fullContent.trim();
+  if (draft.length === 0) {
     throw new Error('The generator returned an empty draft. Try again.');
   }
-  await writeDocument(target.filename, cleaned);
+
+  await writeDocument(target.filename, draft);
 
   await updateSession((s) => ({
     ...s,

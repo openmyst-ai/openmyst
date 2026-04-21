@@ -1,4 +1,5 @@
 import type { DeepPlanRubric, DeepPlanSession, SourceMeta } from '@shared/types';
+import { PROSE_STYLE } from '../../writing';
 
 /**
  * Prompt templates for the Deep Plan planner model. Each stage has a
@@ -56,15 +57,29 @@ function sourcesBlock(sources: SourceMeta[]): string {
 }
 
 /**
- * Plain source block for the one-shot draft pass. Deliberately omits anchor
- * ids so the generator doesn't copy that shape into citations — it just sees
- * the slug and a short summary, and is told to cite as `[name](slug.md)`.
+ * Rich source block for the one-shot draft pass. Each source gets its full
+ * wiki-style detailed summary (the `sources/<slug>.md` body produced at
+ * ingest) — 2-4 paragraphs that capture the arguments, data, and
+ * conclusions of the source. This replaced a one-line `indexSummary`-only
+ * block that left the drafter hallucinating claims against sources it had
+ * never actually read.
  */
-function plainSourcesBlock(sources: SourceMeta[]): string {
+function richSourcesBlock(
+  sources: SourceMeta[],
+  detailedSummaries: Map<string, string>,
+): string {
   if (sources.length === 0) return '_No sources yet._';
   return sources
-    .map((s) => `- **${s.name}** (${s.slug}): ${s.indexSummary}`)
-    .join('\n');
+    .map((s) => {
+      const detail = detailedSummaries.get(s.slug)?.trim() || s.indexSummary;
+      const anchorsBlock =
+        s.anchors && s.anchors.length > 0
+          ? `\n\nKey anchors in this source (specific claims/arguments/findings to weave in where they're relevant):\n` +
+            s.anchors.map((a) => `- [${a.type}] ${a.label}`).join('\n')
+          : '';
+      return `### ${s.name} (\`${s.slug}\`)\n\n${detail}${anchorsBlock}`;
+    })
+    .join('\n\n---\n\n');
 }
 
 export const DEEP_REFERENCE_RIDER = `[Deep reference] Each source above may list anchor ids (format \`slug#anchor-id\`) beneath it. To pull the EXACT verbatim passage for an anchor, emit a fenced \`source_lookup\` block. The system will resolve it deterministically and inject the verbatim text into the conversation before your next turn. Never paraphrase quotes from memory — use the lookup.
@@ -75,9 +90,13 @@ Format:
 \`\`\`
 Multiple lookups in one response are fine. Use them freely when precision matters.`;
 
-const PERSONA = `You are Myst's Deep Plan planner — a research collaborator running a focused pre-writing phase. You are terse, warm, and opinionated. Every clarification question you ask has a stated default you think is probably right; the user either confirms it or pushes back. You never write the actual document here — your job is to shape the plan that will produce it.
+const PERSONA = `You are Myst's Deep Plan planner, a research collaborator running a focused pre-writing phase. You are terse, warm, and opinionated. Every clarification question you ask has a stated default you think is probably right; the user either confirms it or pushes back. You never write the actual document here; your job is to shape the plan that will produce it.
 
-${DEEP_REFERENCE_RIDER}`;
+${DEEP_REFERENCE_RIDER}
+
+---
+
+${PROSE_STYLE}`;
 
 export function intentPrompt(): string {
   return `${PERSONA}
@@ -267,69 +286,190 @@ Output ONLY a fenced \`research_plan\` block. No text before or after.
 If the wiki already covers the task, emit an empty array \`[]\`.`;
 }
 
-export function clarifyPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
+export function synthesisPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
+  const queryCount = session.researchQueries.length;
+  const ingestedCount = session.researchQueries.reduce(
+    (sum, q) => sum + q.ingestedSlugs.length,
+    0,
+  );
+  const researchTally =
+    queryCount === 0
+      ? '(no research has run for this session)'
+      : `${queryCount} queries run, ${ingestedCount} sources ingested`;
+
   return `${PERSONA}
 
-STAGE: Final clarification.
+STAGE: Synthesis (the last stop before drafting).
 
 The user's task: "${session.task}"
 
 Rubric:
 ${rubricBlock(session.rubric)}
 
-Sources:
+Sources now in the wiki:
 ${sourcesBlock(sources)}
 
-Your job: ask 3-6 sharp, opinionated questions that would materially change the draft. Focus on tensions — places where your sources pull in different directions, places where the rubric is still fuzzy, places where a writer would need a decision before proceeding. Each question states your default view; the user confirms or redirects.
+Research tally: ${researchTally}
 
-Format as a short numbered list. Keep each question to one sentence. End with "Hit Continue when you're happy with these."
+Your job: produce a TIGHT synthesis that lets the user greenlight the draft or redirect one last time. Four short paragraphs maximum, in this order:
 
-IMPORTANT: At the end of EVERY reply, emit a fenced code block tagged \`rubric_update\` with a JSON object capturing any decisions you've already inferred. Only include fields that changed. Example:
+1. **Key findings from research** (3-5 bullets, one line each). Surface only what actually shifted the plan — new angles, surprising data, tensions between sources. Don't restate what the rubric already knows.
+2. **Final structure** (a short numbered outline of the draft to come — sections or paragraph-level beats, no prose).
+3. **What you'll lean on** — one or two sentences naming the 2-4 sources doing the heaviest work and the counter-argument you'll address.
+4. **Open questions or thin spots** — one or two sentences flagging the weakest claim or missing angle. End this paragraph with an explicit invitation: "Want me to run one more round of research on [X], tweak the structure, or hit Go?"
+
+Rules for this stage:
+- Keep the whole reply under ~250 words. This is a handoff summary, not an essay.
+- Do NOT emit \`source_lookup\` fences here. The summaries above are sufficient; verbatim passages happen in the pre-draft pass.
+- If the user asks for "one more round of research on X", your reply must restate their hint clearly and end with a single-line instruction: "I'll kick that off — hit Continue researching on the stage bar to reopen research with this hint."
+- If the user asks for structural or rubric tweaks instead, apply them via the \`rubric_update\` fence (same schema as earlier stages) and restate the synthesis briefly.
+
+IMPORTANT: At the end of EVERY reply, emit a fenced code block tagged \`rubric_update\` with any fields that changed (empty \`{}\` if nothing changed):
 
 \`\`\`rubric_update
-{"mustCover": ["NVIDIA Jetson Orin series", "Raspberry Pi 5"], "mustAvoid": ["Luxonis OAK-D"]}
+{"mustCover": ["…"], "notes": "…"}
 \`\`\`
 
-Use the keys: title, form, audience, lengthTarget, thesis, mustCover (array), mustAvoid (array), notes. Omit unchanged fields entirely. If nothing changed, emit an empty object \`{}\`. Never emit raw JSON outside of the fenced block — the user sees everything outside the fence.`;
+Use the keys: title, form, audience, lengthTarget, thesis, mustCover (array), mustAvoid (array), notes. Omit unchanged fields. Never emit raw JSON outside the fence.`;
 }
 
-export function reviewPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
-  return `${PERSONA}
+/**
+ * Pre-draft lookup pass. The model reads the rubric, synthesis, and wiki
+ * summaries, and emits `source_lookup` fences for any anchors / source
+ * pages / raw files it wants verbatim before committing to the draft.
+ * The system resolves these deterministically off disk and feeds the
+ * results into the final oneShotPrompt as a pre-fetched passages block,
+ * so the actual draft call is a clean single stream with quotes already
+ * in hand.
+ */
+export function preDraftLookupPrompt(
+  session: DeepPlanSession,
+  sources: SourceMeta[],
+  detailedSummaries: Map<string, string>,
+  plannerSynthesis: string,
+  researchSummary: string,
+  docLabel: string,
+): string {
+  const synthesisBlock = plannerSynthesis.trim()
+    ? `Planning conversation — what the user and planner agreed on:\n${plannerSynthesis.trim()}\n\n`
+    : '';
+  const researchBlock = researchSummary.trim()
+    ? `Research phase summary:\n${researchSummary.trim()}\n\n`
+    : '';
 
-STAGE: Plan review.
+  return `You are Myst's pre-draft researcher. The next step is a one-shot draft of "${docLabel}" — but BEFORE that draft runs, you get one pass to pull any verbatim source passages you think will make the draft sharper. The draft model will see everything you pull, pre-fetched, with no further chance to look anything up.
 
-The user's task: "${session.task}"
+Your ONLY job right now is to decide which anchors (and optionally which full source pages) to pull. You are NOT writing the draft in this turn.
 
-Rubric:
+User's task: "${session.task}"
+
+Rubric (what the draft will aim at):
 ${rubricBlock(session.rubric)}
 
-Sources to lean on:
-${sourcesBlock(sources)}
+${synthesisBlock}${researchBlock}Wiki — sources with full detailed summaries and anchor labels:
 
-Your job: produce a short, human-readable summary of what you're about to write when the user hits Go. Three to five sentences. Cover: form + length, the thesis, which sources you'll lean on most, and the counter-argument you'll address. Then add a one-sentence self-critique — the weakest claim or thinnest bit of evidence the user should know about before one-shotting.
+${richSourcesBlock(sources, detailedSummaries)}
 
-No rubric_update in this stage. No questions — this is the handoff summary.`;
+${DEEP_REFERENCE_RIDER}
+
+Think about the draft you'd write from the summaries above, then ask yourself:
+- Which specific claims, numbers, definitions, or arguments will the draft lean on hardest? Pull those anchors.
+- Are there quotes that would carry a point better verbatim than paraphrased? Pull those.
+- Are there sources whose one-paragraph summary feels thin for what the draft needs? Pull the full source page.
+- Are there anchors whose labels look important but whose exact wording you can't reconstruct? Pull them.
+
+Budget guidance:
+- Pulling 5-15 anchors is typical and cheap. Don't be shy — lookups are free and the draft model will thank you.
+- Don't pull anchors you won't use. Don't pull every anchor reflexively.
+- Prefer specific anchors over whole source pages unless the summary is genuinely insufficient.
+
+Output ONLY source_lookup fences (one block per lookup), and nothing else. No prose, no explanation, no draft. Example:
+
+\`\`\`source_lookup
+{"slug": "smith-attention", "anchor": "law-1-2"}
+\`\`\`
+
+\`\`\`source_lookup
+{"slug": "vaswani-2017", "anchor": "main-finding"}
+\`\`\`
+
+If the detailed summaries are genuinely sufficient and no verbatim text would help, output nothing at all — an empty response is valid.
+
+---
+
+[Prose-style guide, applies to the draft that will run after this pass. You don't need to act on it now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide.]
+
+${PROSE_STYLE}`;
 }
 
-export function oneShotPrompt(session: DeepPlanSession, sources: SourceMeta[], docLabel: string): string {
-  return `You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session.
+export function oneShotPrompt(
+  session: DeepPlanSession,
+  sources: SourceMeta[],
+  detailedSummaries: Map<string, string>,
+  plannerSynthesis: string,
+  researchSummary: string,
+  prefetchedPassages: string,
+  docLabel: string,
+): string {
+  const synthesisBlock = plannerSynthesis.trim()
+    ? `Planning conversation — what the user and planner agreed on:\n${plannerSynthesis.trim()}\n\n`
+    : '';
+  const researchBlock = researchSummary.trim()
+    ? `Research phase summary:\n${researchSummary.trim()}\n\n`
+    : '';
+  const passagesBlock = prefetchedPassages.trim()
+    ? `\nPre-fetched verbatim passages (pulled from the wiki off-disk for this draft — these are EXACT text, safe to quote directly):\n\n${prefetchedPassages.trim()}\n`
+    : '';
+
+  return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
+- ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
+- Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
+- EVERY non-trivial claim cites a source, inline, at the point the claim is made. A non-trivial claim is any factual statement, attribution, historical fact, date, statistic, definition, critique, named position, or interpretive argument. The only uncited sentences permitted are: (a) your own reasoning and framing, (b) logical connectives and transitions, (c) restatements of the user's own prompt. If you cannot cite it from the wiki below, omit it — never assert an un-sourced fact. A sparsely-cited draft is a failed draft.
+
+You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist, not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
 
 User's task: "${session.task}"
 
 Rubric (your marching orders):
 ${rubricBlock(session.rubric)}
 
-Sources available (slugs are in parentheses):
-${plainSourcesBlock(sources)}
+${synthesisBlock}${researchBlock}Wiki (sources with full detailed summaries and key anchor labels):
 
-Rules for the draft:
-1. Ground most lines in the sources. Any claim carrying facts, numbers, arguments, or positions must be inline-cited as a parenthesised markdown link to the slug — the citation is just the source name inside round brackets, nothing else:
-     ([Name](slug.md))
-   where **Name** is the source's short label (first-author surname if a paper, or a short sensible label otherwise). Example: \`([Michael](michaelpaper.md))\`. The surrounding parentheses are required — never emit a bare \`[Name](slug.md)\` without them. Do NOT include a year — you don't have reliable year information and we'd rather have no year than a wrong one. Do NOT wrap citations in backticks. Do NOT append \`#anchor\` fragments or any other suffix to the slug — just the plain \`slug.md\` link. Descriptive or connective prose can go uncited; err on the side of citing.
-2. Include a counter-argument pass — briefly address the strongest objection to your thesis before rebutting or conceding.
-3. Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
-4. No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
-5. Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
+${richSourcesBlock(sources, detailedSummaries)}
+${passagesBlock}
+How to approach this draft (read carefully):
 
-Output the complete draft as markdown, nothing else.`;
+1. **Read the wiki first.** The detailed summaries above are not one-liners; they're multi-paragraph reads of each source. Hold them in mind before committing to a paragraph. Don't treat a source as a bullet point to cite once; treat it as something you've actually read.
+2. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections. A draft that just walks through one source at a time reads like a book report; don't do that.
+3. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the rubric's thesis).
+4. **Quote sparingly but precisely.** When you do quote a source directly, prefer the pre-fetched verbatim passages above when present; those are exact text safe to reproduce. Otherwise only quote text that actually appears in the detailed summaries. Do not fabricate quotes. If you're not certain of the exact wording, paraphrase and cite.
+5. **Counter-argument pass.** Briefly address the strongest objection to your thesis before rebutting or conceding.
+
+Citation format (strict):
+Any claim carrying facts, numbers, arguments, or positions must be inline-cited as a parenthesised markdown link to the slug. The citation is just the source name inside round brackets, nothing else:
+   ([Name](slug.md))
+where **Name** is the source's short label (first-author surname if a paper, or a short sensible label otherwise). Example: \`([Michael](michaelpaper.md))\`. The surrounding parentheses are required; never emit a bare \`[Name](slug.md)\` without them. Do NOT include a year; we'd rather have no year than a wrong one. Do NOT wrap citations in backticks. Do NOT append \`#anchor\` fragments or any other suffix to the slug; just the plain \`slug.md\` link. Descriptive or connective prose can go uncited; err on the side of citing.
+
+Referencing discipline (strict):
+- Cite ANY time you mention something that traces to a source: a claim, a number, a definition, a framing, an argument, an example, a historical fact, a quoted term of art, a named person's position. Paraphrasing does not remove the obligation to cite; if you learned it from a source in the wiki above, cite that source. Uncited prose should be limited to your own reasoning, transitions, and connective tissue.
+- If a single sentence draws on more than one source, emit more than one inline citation, adjacent: \`([Smith](smith.md)) ([Jones](jones.md))\`.
+- End the draft with a \`## References\` section (sentence case, no other heading variations). List only sources that were actually cited in the body. Format each entry **Harvard style** on its own line as a markdown bullet:
+    - \`Author(s) (Year) *Title*. Publisher or outlet. Available at: URL.\`
+  Use whatever bibliographic detail is visible in the detailed summary for that source (author names, publication year, title, outlet, URL). Do NOT invent missing fields: if year is unknown, omit it; if author is unknown, lead with the title; if there is no URL, omit "Available at:". Every entry MUST end with a markdown link to the slug itself, written as a trailing parenthesised \`([slug.md](slug.md))\` so the reference remains clickable inside Myst even when bibliographic fields are thin.
+- Alphabetise the references section by the leading author surname (or title, when author-less). One bullet per source. Do not repeat the same source twice.
+- Sources that you did not actually cite in the body must NOT appear in References. The References list is a mirror of your inline citations, not a dump of the wiki.
+
+Form + output rules:
+- Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
+- No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
+- Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
+- Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft.
+
+Output: the complete markdown draft, nothing else.
+
+---
+
+Prose style (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the citation format above, dominate any tension with the prose guide below.
+
+${PROSE_STYLE}`;
 }

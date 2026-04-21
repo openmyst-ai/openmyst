@@ -20,6 +20,14 @@ import {
   resolveWebSearches,
 } from '../research/webSearchLookup';
 import {
+  formatDocReply,
+  formatQueriesReply,
+  formatRubricReply,
+  parseDocLookups,
+  parseQueriesLookups,
+  parseRubricLookups,
+} from './contextLookups';
+import {
   cleanChatContent,
   looksLikeDocumentRequest,
   parseEditBlocks,
@@ -206,11 +214,25 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
   for (let round = 0; round < MAX_LOOKUP_ROUNDS; round++) {
     const { requests: sourceRequests } = parseSourceLookups(fullContent);
     const { requests: webRequests } = parseWebSearches(fullContent);
-    if (sourceRequests.length === 0 && webRequests.length === 0) break;
+    const { requests: docRequests } = parseDocLookups(fullContent);
+    const { requests: rubricRequests } = parseRubricLookups(fullContent);
+    const { requests: queriesRequests } = parseQueriesLookups(fullContent);
+    if (
+      sourceRequests.length === 0 &&
+      webRequests.length === 0 &&
+      docRequests.length === 0 &&
+      rubricRequests.length === 0 &&
+      queriesRequests.length === 0
+    ) {
+      break;
+    }
     log('chat', 'lookup.round', {
       round,
       sourceCount: sourceRequests.length,
       webCount: webRequests.length,
+      docCount: docRequests.length,
+      rubricCount: rubricRequests.length,
+      queriesCount: queriesRequests.length,
     });
     const [resolvedSources, resolvedWeb] = await Promise.all([
       sourceRequests.length > 0 ? resolveSourceLookups(sourceRequests) : Promise.resolve([]),
@@ -219,6 +241,9 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     const parts: string[] = [];
     if (resolvedSources.length > 0) parts.push(formatLookupReply(resolvedSources));
     if (resolvedWeb.length > 0) parts.push(formatWebSearchReply(resolvedWeb));
+    if (docRequests.length > 0) parts.push(formatDocReply(docLabel, document, docRequests));
+    if (rubricRequests.length > 0) parts.push(formatRubricReply(rubric));
+    if (queriesRequests.length > 0) parts.push(formatQueriesReply(researchQueries));
     const followUp = parts.join('\n\n');
     const replayMessages: LlmMessage[] = [
       ...messages,
@@ -236,6 +261,9 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
   // Strip any residual lookup/search fences before handing to edit parsing.
   fullContent = parseSourceLookups(fullContent).stripped || fullContent;
   fullContent = parseWebSearches(fullContent).stripped || fullContent;
+  fullContent = parseDocLookups(fullContent).stripped || fullContent;
+  fullContent = parseRubricLookups(fullContent).stripped || fullContent;
+  fullContent = parseQueriesLookups(fullContent).stripped || fullContent;
 
   let { edits, chatContent } = parseEditBlocks(fullContent);
   log('chat', 'turn.parsed', {

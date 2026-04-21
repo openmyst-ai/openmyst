@@ -193,8 +193,7 @@ export type DeepPlanStage =
   | 'scoping'
   | 'gaps'
   | 'research'
-  | 'clarify'
-  | 'review'
+  | 'synthesis'
   | 'handoff'
   | 'done';
 
@@ -204,8 +203,7 @@ export const DEEP_PLAN_STAGE_ORDER: DeepPlanStage[] = [
   'scoping',
   'gaps',
   'research',
-  'clarify',
-  'review',
+  'synthesis',
   'handoff',
   'done',
 ];

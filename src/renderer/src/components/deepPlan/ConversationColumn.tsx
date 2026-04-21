@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DeepPlanMessage, DeepPlanSession, WikiGraph as WikiGraphData } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useDeepPlan } from '../../store/deepPlan';
 import { useResearchEvents } from '../../store/researchEvents';
 import { useSourcePreview } from '../../store/sourcePreview';
+import { useSmoothText } from '../../hooks/useSmoothText';
 import { renderMarkdown } from '../../utils/markdown';
 import { stripDeepPlanFences } from './stripFences';
 import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
@@ -29,7 +30,18 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   const [draft, setDraft] = useState('');
   const [steerAck, setSteerAck] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Sticky-bottom behavior. `pinned` means the user is parked at (or
+  // very near) the bottom of the scroll region, so new chunks should
+  // keep it glued there. The moment they scroll up to re-read something
+  // we flip it off and stop yanking them back down — that's the
+  // "can't scroll up while the model is generating" bug.
+  const pinnedRef = useRef(true);
   const researchRunning = status?.researchRunning ?? false;
+
+  // Typewriter smoothing. `streamingBuffer` lands in uneven bursts
+  // straight from the token stream; `smoothBuffer` releases chars at a
+  // steady ~60fps cadence so prose reads letter-by-letter.
+  const smoothBuffer = useSmoothText(streamingBuffer);
 
   // Transient "✓ Steering: …" ack under the input — dismisses itself so
   // we don't have to manage clear-on-next-hint etc.
@@ -40,8 +52,25 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   }, [steerAck]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [session.messages.length, streamingBuffer]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = (): void => {
+      // 48px of slack — if the user is within a few lines of the
+      // bottom we treat them as pinned and keep auto-scrolling; once
+      // they scroll further up, we back off until they return.
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      pinnedRef.current = distance < 48;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!pinnedRef.current) return;
+    el.scrollTo({ top: el.scrollHeight });
+  }, [session.messages.length, smoothBuffer]);
 
   const stage = session.stage;
   const isResearchStage = stage === 'research';
@@ -95,21 +124,24 @@ export function ConversationColumn({ session }: Props): JSX.Element {
           <MessageBubble key={m.id} message={m} />
         ))}
         {streaming && (() => {
-          const { visible, isWriting } = stripDeepPlanFences(streamingBuffer);
+          const { visible } = stripDeepPlanFences(smoothBuffer);
+          // Always show a Thinking indicator while the stream is open. Between
+          // multi-round source_lookup resolutions the model can go silent for
+          // 30–90s while disk/network work happens — if we only showed the
+          // dots when `isWriting` was true, the user sees visible prose from
+          // an earlier round just sitting there and assumes we're frozen.
           return (
             <div className="dp-msg dp-msg-assistant">
               <div className="dp-msg-body">
                 {visible && <Markdown text={visible} />}
-                {(isWriting || !visible) && (
-                  <div className="dp-typing">
-                    <span className="generating-dots">
-                      <span className="dot" />
-                      <span className="dot" />
-                      <span className="dot" />
-                    </span>
-                    <span className="dp-muted"> {isWriting ? 'Planning…' : 'Thinking…'}</span>
-                  </div>
-                )}
+                <div className="dp-typing dp-typing-fade">
+                  <span className="generating-dots">
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </span>
+                  <span className="dp-muted"> Thinking…</span>
+                </div>
               </div>
             </div>
           );
@@ -118,19 +150,13 @@ export function ConversationColumn({ session }: Props): JSX.Element {
 
       <div className="dp-chat-footer">
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
-          <textarea
+          <AutoResizeTextarea
             className="dp-chat-input"
             placeholder={isDone ? 'Deep Plan complete.' : 'Write a reply…'}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend(e);
-              }
-            }}
+            onChange={setDraft}
+            onSubmit={() => void handleSend(new Event('submit') as unknown as React.FormEvent)}
             disabled={isDone || busy}
-            rows={2}
           />
           <button
             type="submit"
@@ -142,6 +168,57 @@ export function ConversationColumn({ session }: Props): JSX.Element {
         </form>
       </div>
     </div>
+  );
+}
+
+interface AutoResizeProps {
+  className?: string;
+  placeholder?: string;
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  disabled?: boolean;
+}
+
+/**
+ * Textarea that grows with its content. Starts at ~2 lines and expands
+ * up to ~40% of the viewport before it switches to internal scrolling,
+ * so pasting or typing a long prompt doesn't get cramped into a tiny
+ * 2-line box. Enter submits; Shift+Enter inserts a newline (standard
+ * chat convention).
+ */
+function AutoResizeTextarea({
+  className,
+  placeholder,
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+}: AutoResizeProps): JSX.Element {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const max = Math.max(160, Math.floor(window.innerHeight * 0.4));
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      className={className}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          onSubmit();
+        }
+      }}
+      disabled={disabled}
+      rows={2}
+    />
   );
 }
 
@@ -230,19 +307,13 @@ function ResearchStageView({
           </div>
         )}
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
-          <textarea
+          <AutoResizeTextarea
             className="dp-chat-input"
             placeholder="Steer research…"
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void handleSend(e);
-              }
-            }}
+            onChange={setDraft}
+            onSubmit={() => void handleSend(new Event('submit') as unknown as React.FormEvent)}
             disabled={!researchRunning}
-            rows={2}
           />
           <button
             type="submit"
