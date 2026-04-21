@@ -14,6 +14,7 @@ import { useDeepPlan } from '../../store/deepPlan';
 export function DraftGenerationModal(): JSX.Element | null {
   const drafting = useDeepPlan((s) => s.drafting);
   const buffer = useDeepPlan((s) => s.draftBuffer);
+  const fidelity = useDeepPlan((s) => s.fidelity);
 
   const wordCount = useMemo(() => {
     const trimmed = buffer.trim();
@@ -21,8 +22,22 @@ export function DraftGenerationModal(): JSX.Element | null {
     return trimmed.split(/\s+/).length;
   }, [buffer]);
 
-  const phase = buffer.length === 0 ? 'warming' : 'writing';
-  const label = phase === 'warming' ? 'Preparing draft…' : 'Writing draft…';
+  // Three phases, in order: warming (no chunks yet) → writing (streaming
+  // into the draft buffer) → verifying (fidelity loop running). Fidelity
+  // updates only arrive after the stream closes, so we can detect its
+  // phase purely from the presence of a `fidelity` payload.
+  const verifying = fidelity !== null && fidelity.phase !== 'done';
+  const phase = verifying ? 'verifying' : buffer.length === 0 ? 'warming' : 'writing';
+  const label =
+    phase === 'warming'
+      ? 'Preparing draft…'
+      : phase === 'writing'
+        ? 'Writing draft…'
+        : fidelity?.phase === 'critiquing'
+          ? `Checking claims — round ${fidelity.round} / ${fidelity.maxRounds}`
+          : `Repairing ${fidelity?.issueCount ?? 0} claim${
+              (fidelity?.issueCount ?? 0) === 1 ? '' : 's'
+            } — round ${fidelity?.round ?? 0} / ${fidelity?.maxRounds ?? 5}`;
 
   const displayCount = useSmoothCount(wordCount);
 
@@ -37,14 +52,26 @@ export function DraftGenerationModal(): JSX.Element | null {
           <span className="dot" />
         </div>
         <div className="dp-draft-modal-label">{label}</div>
-        <div className="dp-draft-modal-count">
-          <span className="dp-draft-modal-count-num">{displayCount.toLocaleString()}</span>
-          <span className="dp-draft-modal-count-unit">
-            {displayCount === 1 ? 'word' : 'words'}
-          </span>
-        </div>
+        {phase !== 'verifying' && (
+          <div className="dp-draft-modal-count">
+            <span className="dp-draft-modal-count-num">{displayCount.toLocaleString()}</span>
+            <span className="dp-draft-modal-count-unit">
+              {displayCount === 1 ? 'word' : 'words'}
+            </span>
+          </div>
+        )}
+        {phase === 'verifying' && fidelity && fidelity.fixed > 0 && (
+          <div className="dp-draft-modal-count">
+            <span className="dp-draft-modal-count-num">{fidelity.fixed}</span>
+            <span className="dp-draft-modal-count-unit">
+              {fidelity.fixed === 1 ? 'claim patched' : 'claims patched'}
+            </span>
+          </div>
+        )}
         <div className="dp-draft-modal-hint">
-          The finished draft will appear in your document when this wraps up.
+          {phase === 'verifying'
+            ? 'Re-grounding every claim against your wiki. This usually takes under a minute per round.'
+            : 'The finished draft will appear in your document when this wraps up.'}
         </div>
       </div>
     </div>

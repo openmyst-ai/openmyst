@@ -7,6 +7,7 @@ import { useMe } from '../store/me';
 import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
 import { bridge } from '../api/bridge';
 import { renderMarkdown } from '../utils/markdown';
+import { stripChatFences } from '../utils/stripChatFences';
 import { ApproachingLimitBanner, PoweredByModel, QuotaPills } from './QuotaPills';
 
 function MarkdownContent({ text }: { text: string }): JSX.Element {
@@ -37,22 +38,16 @@ export function ChatPanel(): JSX.Element {
   return <ChatView />;
 }
 
-function stripEditBlocks(text: string): string {
-  let result = text
-    .replace(/```myst_edit\s*\n[\s\S]*?```/g, '')
-    .trim();
-  const partial = result.indexOf('```myst_edit');
-  if (partial !== -1) {
-    result = result.slice(0, partial).trim();
-  }
-  result = result
+function stripEditBlocks(text: string): { visible: string; isWriting: boolean } {
+  const { visible, isWriting } = stripChatFences(text);
+  const cleaned = visible
     .replace(/`myst_edit`/gi, '')
     .replace(/myst_edit/gi, '')
     .replace(/old_string/g, '')
     .replace(/new_string/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return result;
+  return { visible: cleaned, isWriting };
 }
 
 function ChatView(): JSX.Element {
@@ -177,33 +172,27 @@ function ChatView(): JSX.Element {
           </div>
         ))}
         {sending && (() => {
-          const stripped = streamingText ? stripEditBlocks(streamingText) : '';
-          const hasEdits = streamingText.includes('myst_edit');
-          const isWritingEdit = hasEdits && !streamingText.trimEnd().endsWith('```');
+          const { visible, isWriting } = streamingText
+            ? stripEditBlocks(streamingText)
+            : { visible: '', isWriting: false };
+          const editingDoc = streamingText.includes('```myst_edit') && isWriting;
+          // Always show the dots while a chunk stream is open. Between
+          // multi-round lookups (source_lookup / doc_lookup / web_search)
+          // the model can go silent for 30–90s while disk/network work
+          // happens, and we don't want prose from the previous round to
+          // sit there looking frozen.
           return (
             <div className="chat-msg chat-msg-assistant">
               <div className="chat-msg-role">Myst</div>
-              {stripped && <MarkdownContent text={stripped} />}
-              {isWritingEdit ? (
-                <div className="chat-msg-content chat-typing">
-                  <span className="editing-indicator">
-                    <span className="generating-dots">
-                      <span className="dot" />
-                      <span className="dot" />
-                      <span className="dot" />
-                    </span>
-                    {' '}Editing your document…
-                  </span>
-                </div>
-              ) : !stripped ? (
-                <div className="chat-msg-content chat-typing">
-                  <span className="generating-dots">
-                    <span className="dot" />
-                    <span className="dot" />
-                    <span className="dot" />
-                  </span>
-                </div>
-              ) : null}
+              {visible && <MarkdownContent text={visible} />}
+              <div className="chat-msg-content chat-typing">
+                <span className="generating-dots">
+                  <span className="dot" />
+                  <span className="dot" />
+                  <span className="dot" />
+                </span>
+                {editingDoc ? <span className="editing-indicator"> Editing your document…</span> : null}
+              </div>
             </div>
           );
         })()}

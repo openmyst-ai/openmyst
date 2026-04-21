@@ -41,6 +41,7 @@ export function DeepPlanMode(): JSX.Element {
     start,
     ingestChunk,
     finishStream,
+    ingestFidelity,
     clearError,
   } = useDeepPlan();
 
@@ -63,13 +64,15 @@ export function DeepPlanMode(): JSX.Element {
     const offChunk = bridge.deepPlan.onChunk(ingestChunk);
     const offDone = bridge.deepPlan.onChunkDone(finishStream);
     const offEvent = bridge.deepPlan.onResearchEvent(pushResearchEvent);
+    const offFidelity = bridge.deepPlan.onFidelityUpdate(ingestFidelity);
     return () => {
       offChanged();
       offChunk();
       offDone();
       offEvent();
+      offFidelity();
     };
-  }, [refresh, ingestChunk, finishStream, pushResearchEvent]);
+  }, [refresh, ingestChunk, finishStream, ingestFidelity, pushResearchEvent]);
 
   const handleStart = useCallback(
     async (e: React.FormEvent) => {

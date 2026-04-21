@@ -9,7 +9,8 @@ import type {
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { ensureLlmReady, streamChat, completeText, type LlmMessage } from '../../llm';
-import { getDeepPlanModel } from '../settings';
+import { getDeepPlanModel, getSummaryModel } from '../settings';
+import { runFidelityLoop } from './fidelity';
 import { ensureSearchReady } from '../research/search';
 import { listSources, readSource } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
@@ -24,15 +25,14 @@ import {
   updateSession,
 } from './state';
 import {
-  clarifyPrompt,
   gapsPrompt,
   intentPrompt,
   oneShotPrompt,
   preDraftLookupPrompt,
   researchPlannerPrompt,
-  reviewPrompt,
   scopingPrompt,
   sourcesPrompt,
+  synthesisPrompt,
 } from './prompts';
 import { applyRubricPatch, parsePlannerReply } from './parse';
 import { runResearchEngine } from '../research/engine';
@@ -129,8 +129,7 @@ const STAGE_PROMPT_BUILDERS: Record<
   scoping: scopingPrompt,
   gaps: gapsPrompt,
   research: researchPlannerPrompt,
-  clarify: clarifyPrompt,
-  review: reviewPrompt,
+  synthesis: synthesisPrompt,
   handoff: null,
   done: null,
 };
@@ -789,17 +788,59 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
 
   broadcast(IpcChannels.DeepPlan.ChunkDone);
 
-  const cleaned = fullContent.trim();
-  if (cleaned.length === 0) {
+  const initialDraft = fullContent.trim();
+  if (initialDraft.length === 0) {
     throw new Error('The generator returned an empty draft. Try again.');
   }
-  await writeDocument(target.filename, cleaned);
+
+  // Fidelity verification loop. Cheap summary-model critique flags
+  // unreferenced / unsupported claims; main model rewrites just those
+  // passages. Runs up to 5 rounds or until the critique comes back clean.
+  // Failures inside the loop degrade silently — the worst outcome is we
+  // ship the raw draft, which is what the old pipeline did anyway.
+  let finalDraft = initialDraft;
+  let fidelityTokens = 0;
+  try {
+    const summaryModel = await getSummaryModel();
+    log('deep-plan', 'fidelity.start', {
+      mainModel: model,
+      summaryModel,
+      draftChars: initialDraft.length,
+    });
+    const result = await runFidelityLoop({
+      draft: initialDraft,
+      sources,
+      detailedSummaries,
+      prefetchedPassages,
+      rubric: session.rubric,
+      docLabel: target.label,
+      mainModel: model,
+      summaryModel,
+      onUpdate: (u) => broadcast(IpcChannels.DeepPlan.FidelityUpdate, u),
+    });
+    finalDraft = result.finalDraft;
+    fidelityTokens = estimateTokensK(
+      result.totalIssuesFound * 500 + result.totalIssuesFixed * finalDraft.length * 0.1,
+    );
+    log('deep-plan', 'fidelity.done', {
+      rounds: result.roundsRun,
+      found: result.totalIssuesFound,
+      fixed: result.totalIssuesFixed,
+      finalChars: finalDraft.length,
+    });
+  } catch (err) {
+    logError('deep-plan', 'fidelity.loop.failed', err);
+    // fall through with the un-verified draft
+  }
+
+  await writeDocument(target.filename, finalDraft);
 
   await updateSession((s) => ({
     ...s,
     stage: 'done',
     completed: true,
-    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length),
+    tokensUsedK:
+      s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length) + fidelityTokens,
   }));
   await clearAutoStart();
   broadcast(IpcChannels.Document.Changed);

@@ -193,8 +193,7 @@ export type DeepPlanStage =
   | 'scoping'
   | 'gaps'
   | 'research'
-  | 'clarify'
-  | 'review'
+  | 'synthesis'
   | 'handoff'
   | 'done';
 
@@ -204,8 +203,7 @@ export const DEEP_PLAN_STAGE_ORDER: DeepPlanStage[] = [
   'scoping',
   'gaps',
   'research',
-  'clarify',
-  'review',
+  'synthesis',
   'handoff',
   'done',
 ];
@@ -317,6 +315,19 @@ export type DeepPlanResearchEvent =
       runId: string;
       hint: string;
     };
+
+/**
+ * Progress ticks from the post-draft fidelity loop (critique → rewrite).
+ * Emitted once per phase transition per round so the draft modal can show
+ * "Verifying claims — round N" + a running count of issues fixed.
+ */
+export interface DeepPlanFidelityUpdate {
+  phase: 'critiquing' | 'rewriting' | 'done';
+  round: number;
+  maxRounds: number;
+  issueCount: number;
+  fixed: number;
+}
 
 export interface DeepSearchQueryRecord {
   queryId: string;

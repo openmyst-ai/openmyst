@@ -286,50 +286,51 @@ Output ONLY a fenced \`research_plan\` block. No text before or after.
 If the wiki already covers the task, emit an empty array \`[]\`.`;
 }
 
-export function clarifyPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
+export function synthesisPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
+  const queryCount = session.researchQueries.length;
+  const ingestedCount = session.researchQueries.reduce(
+    (sum, q) => sum + q.ingestedSlugs.length,
+    0,
+  );
+  const researchTally =
+    queryCount === 0
+      ? '(no research has run for this session)'
+      : `${queryCount} queries run, ${ingestedCount} sources ingested`;
+
   return `${PERSONA}
 
-STAGE: Final clarification.
+STAGE: Synthesis (the last stop before drafting).
 
 The user's task: "${session.task}"
 
 Rubric:
 ${rubricBlock(session.rubric)}
 
-Sources:
+Sources now in the wiki:
 ${sourcesBlock(sources)}
 
-Your job: ask 3-6 sharp, opinionated questions that would materially change the draft. Focus on tensions, places where your sources pull in different directions, places where the rubric is still fuzzy, places where a writer would need a decision before proceeding. Each question states your default view; the user confirms or redirects.
+Research tally: ${researchTally}
 
-Format as a short numbered list. Keep each question to one sentence. End with "Hit Continue when you're happy with these."
+Your job: produce a TIGHT synthesis that lets the user greenlight the draft or redirect one last time. Four short paragraphs maximum, in this order:
 
-IMPORTANT: Do NOT emit \`source_lookup\` fences at this stage. The detailed summaries and anchor labels above are sufficient for framing questions; pulling verbatim passages happens in the pre-draft pass, not here. Emitting a single lookup in this stage burns ~30s of user time for no gain. Ask the questions directly from what you can see.
+1. **Key findings from research** (3-5 bullets, one line each). Surface only what actually shifted the plan — new angles, surprising data, tensions between sources. Don't restate what the rubric already knows.
+2. **Final structure** (a short numbered outline of the draft to come — sections or paragraph-level beats, no prose).
+3. **What you'll lean on** — one or two sentences naming the 2-4 sources doing the heaviest work and the counter-argument you'll address.
+4. **Open questions or thin spots** — one or two sentences flagging the weakest claim or missing angle. End this paragraph with an explicit invitation: "Want me to run one more round of research on [X], tweak the structure, or hit Go?"
 
-IMPORTANT: At the end of EVERY reply, emit a fenced code block tagged \`rubric_update\` with a JSON object capturing any decisions you've already inferred. Only include fields that changed. Example:
+Rules for this stage:
+- Keep the whole reply under ~250 words. This is a handoff summary, not an essay.
+- Do NOT emit \`source_lookup\` fences here. The summaries above are sufficient; verbatim passages happen in the pre-draft pass.
+- If the user asks for "one more round of research on X", your reply must restate their hint clearly and end with a single-line instruction: "I'll kick that off — hit Continue researching on the stage bar to reopen research with this hint."
+- If the user asks for structural or rubric tweaks instead, apply them via the \`rubric_update\` fence (same schema as earlier stages) and restate the synthesis briefly.
+
+IMPORTANT: At the end of EVERY reply, emit a fenced code block tagged \`rubric_update\` with any fields that changed (empty \`{}\` if nothing changed):
 
 \`\`\`rubric_update
-{"mustCover": ["NVIDIA Jetson Orin series", "Raspberry Pi 5"], "mustAvoid": ["Luxonis OAK-D"]}
+{"mustCover": ["…"], "notes": "…"}
 \`\`\`
 
-Use the keys: title, form, audience, lengthTarget, thesis, mustCover (array), mustAvoid (array), notes. Omit unchanged fields entirely. If nothing changed, emit an empty object \`{}\`. Never emit raw JSON outside of the fenced block — the user sees everything outside the fence.`;
-}
-
-export function reviewPrompt(session: DeepPlanSession, sources: SourceMeta[]): string {
-  return `${PERSONA}
-
-STAGE: Plan review.
-
-The user's task: "${session.task}"
-
-Rubric:
-${rubricBlock(session.rubric)}
-
-Sources to lean on:
-${sourcesBlock(sources)}
-
-Your job: produce a short, human-readable summary of what you're about to write when the user hits Go. Three to five sentences. Cover: form + length, the thesis, which sources you'll lean on most, and the counter-argument you'll address. Then add a one-sentence self-critique — the weakest claim or thinnest bit of evidence the user should know about before one-shotting.
-
-No rubric_update in this stage. No questions — this is the handoff summary.`;
+Use the keys: title, form, audience, lengthTarget, thesis, mustCover (array), mustAvoid (array), notes. Omit unchanged fields. Never emit raw JSON outside the fence.`;
 }
 
 /**
@@ -423,6 +424,7 @@ export function oneShotPrompt(
   return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
 - ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
 - Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
+- EVERY non-trivial claim cites a source, inline, at the point the claim is made. A non-trivial claim is any factual statement, attribution, historical fact, date, statistic, definition, critique, named position, or interpretive argument. The only uncited sentences permitted are: (a) your own reasoning and framing, (b) logical connectives and transitions, (c) restatements of the user's own prompt. If you cannot cite it from the wiki below, omit it — never assert an un-sourced fact. A draft with sparse citations is a failed draft and will be rewritten by the fidelity pass downstream.
 
 You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist, not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
 

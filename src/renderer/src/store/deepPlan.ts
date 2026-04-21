@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { DeepPlanSession, DeepPlanStatus } from '@shared/types';
+import type { DeepPlanFidelityUpdate, DeepPlanSession, DeepPlanStatus } from '@shared/types';
 import { bridge } from '../api/bridge';
 
 /**
@@ -27,6 +27,7 @@ interface DeepPlanState {
   // screen, not a text-spawn display.
   drafting: boolean;
   draftBuffer: string;
+  fidelity: DeepPlanFidelityUpdate | null;
 
   refresh: () => Promise<void>;
   show: () => void;
@@ -42,6 +43,7 @@ interface DeepPlanState {
   reset: () => Promise<void>;
   ingestChunk: (chunk: string) => void;
   finishStream: () => void;
+  ingestFidelity: (update: DeepPlanFidelityUpdate) => void;
   clearError: () => void;
 }
 
@@ -54,6 +56,7 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   error: null,
   drafting: false,
   draftBuffer: '',
+  fidelity: null,
 
   refresh: async () => {
     try {
@@ -161,14 +164,15 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
       error: null,
       drafting: true,
       draftBuffer: '',
+      fidelity: null,
       streaming: false,
       streamingBuffer: '',
     });
     try {
       const status = await bridge.deepPlan.oneShot();
-      set({ status, drafting: false, draftBuffer: '', visible: false });
+      set({ status, drafting: false, draftBuffer: '', fidelity: null, visible: false });
     } catch (err) {
-      set({ error: (err as Error).message, drafting: false, draftBuffer: '' });
+      set({ error: (err as Error).message, drafting: false, draftBuffer: '', fidelity: null });
     } finally {
       set({ busy: false });
     }
@@ -206,6 +210,10 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
     // write lands. Planner-chat streams still need the reset.
     if (get().drafting) return;
     set({ streaming: false, streamingBuffer: '' });
+  },
+
+  ingestFidelity: (update) => {
+    set({ fidelity: update });
   },
 }));
 
