@@ -2,28 +2,36 @@ import type { DeepPlanRubric, PendingEdit } from '@shared/types';
 import { PROSE_STYLE } from '../../writing';
 
 /**
- * System prompt builder — the one file you touch to change how the agent is
- * briefed at the start of each turn. Split out from turn.ts deliberately:
- * tweaking the prompt is the single most common "I want to change agent
- * behavior" knob, and it should not live buried inside the orchestration
- * loop.
+ * System prompt builder — the minimal-static version.
  *
- * The system content for a turn is the concatenation of:
- *   1. agent.md               — per-project persona/instructions
- *   2. tweak etiquette rider  — ask-for-feedback hint after edits
- *   3. active document label
- *   4. the full document text (delimited)
- *   5. pending-edits block    — the staging area the user hasn't accepted yet
- *   6. wiki index             — research memory surface (when non-empty)
+ * What the model sees EVERY turn (always inlined):
+ *   1. agent.md                 — per-project persona/instructions
+ *   2. tweak + format etiquette — ask-for-feedback + match doc formatting
+ *   3. pending edits block      — the staging area the user hasn't accepted
+ *   4. active-doc label + char count (NOT the body)
+ *   5. optional "Deep Plan completed: …" one-liner (when a rubric exists)
+ *   6. wiki index               — short source list, needed so the model
+ *                                 knows what it CAN pull via source_lookup
+ *   7. lookup/tool protocols    — doc_lookup, rubric_lookup, queries_lookup,
+ *                                 source_lookup (via wiki block), web_search
+ *   8. prose-style guide        — hard rules + distilled humanizer
  *
- * Pending edits and the wiki index are conditional; docs and agent.md are
- * always present.
+ * What the model pulls ON DEMAND (new in this revision):
+ *   - the document body itself (`doc_lookup` — full, find-window, or range)
+ *   - the Deep Plan rubric (`rubric_lookup`)
+ *   - prior research queries (`queries_lookup`)
+ *
+ * Rationale: short turns ("change the title") no longer drag the full doc +
+ * rubric + queries through context. Meaningful turns pull what they need in
+ * one extra round. The lookup loop in turn.ts (MAX_LOOKUP_ROUNDS) resolves
+ * these in parallel with source/web lookups, so most turns still complete in
+ * a single follow-up.
  */
 
 const TWEAK_ETIQUETTE =
   '\n\n[Revision etiquette] After proposing any myst_edit, end your chat with a short invitation like "Want me to tweak anything?" so the user can iterate naturally. To revise an existing pending edit, reuse the same old_string — never create a parallel pending entry.' +
   '\n\n[Edit sizing — critical] Keep every myst_edit old_string SHORT: one sentence ideally, never more than a few. To rewrite a paragraph, emit MULTIPLE small edits (one per sentence), not one giant block. Copy the snippet verbatim from the document — straight quotes vs curly quotes (\' vs \u2019, " vs \u201C/\u201D) and hyphen vs en-dash vs em-dash (- vs \u2013 vs \u2014) are different characters; match whichever one the document uses. Long old_strings fail to match far more often than short ones.' +
-  '\n\n[Formatting parity — critical] Your new_string MUST match the document\'s existing formatting style exactly. Before writing, look at the surrounding text: Is it soft-wrapped at a fixed column, or one long line per paragraph? How many blank lines between paragraphs? Sentence-per-line or flowing? Which quote style (straight vs curly) and dash style (hyphen vs en-dash vs em-dash) does the doc use? Whatever the document does, do the same — never introduce a new line-wrap width, never switch quote/dash style mid-document. An edit that wraps differently from the surrounding prose lands as a visible seam and is a bug, not a feature.';
+  '\n\n[Formatting parity — critical] Your new_string MUST match the document\'s existing formatting style exactly. Before writing, look at the surrounding text (pull it via `doc_lookup` with a `find` needle): Is it soft-wrapped at a fixed column, or one long line per paragraph? How many blank lines between paragraphs? Sentence-per-line or flowing? Which quote style (straight vs curly) and dash style (hyphen vs en-dash vs em-dash) does the doc use? Whatever the document does, do the same — never introduce a new line-wrap width, never switch quote/dash style mid-document. An edit that wraps differently from the surrounding prose lands as a visible seam and is a bug, not a feature.';
 
 function buildPendingBlock(pending: PendingEdit[]): string {
   if (pending.length === 0) return '';
@@ -58,62 +66,61 @@ function rubricIsEmpty(r: DeepPlanRubric): boolean {
   );
 }
 
-function buildRubricBlock(rubric: DeepPlanRubric | null): string {
+/**
+ * One-line teaser so the model knows a rubric exists and can decide whether
+ * to pull it. We never inline the rubric itself — `rubric_lookup` gets it.
+ */
+function buildRubricTeaser(rubric: DeepPlanRubric | null): string {
   if (!rubric || rubricIsEmpty(rubric)) return '';
-  const lines: string[] = [];
-  if (rubric.title) lines.push(`Title: ${rubric.title}`);
-  if (rubric.form) lines.push(`Form: ${rubric.form}`);
-  if (rubric.audience) lines.push(`Audience: ${rubric.audience}`);
-  if (rubric.lengthTarget) lines.push(`Length target: ${rubric.lengthTarget}`);
-  if (rubric.thesis) lines.push(`Thesis: ${rubric.thesis}`);
-  if (rubric.mustCover.length > 0) {
-    lines.push('');
-    lines.push('Must cover:');
-    for (const m of rubric.mustCover) lines.push(`- ${m}`);
-  }
-  if (rubric.mustAvoid.length > 0) {
-    lines.push('');
-    lines.push('Must avoid:');
-    for (const m of rubric.mustAvoid) lines.push(`- ${m}`);
-  }
-  const notes = rubric.notes.trim();
-  if (notes) {
-    lines.push('');
-    lines.push('Notes:');
-    lines.push(notes);
-  }
+  const bits: string[] = [];
+  if (rubric.form) bits.push(rubric.form);
+  if (rubric.lengthTarget) bits.push(rubric.lengthTarget);
+  if (rubric.audience) bits.push(`for ${rubric.audience}`);
+  const label = rubric.title || bits.join(', ') || 'writing plan';
   return (
-    '\n\n========== BEGIN plan rubric (.myst/deep-plan/session.json) ==========\n' +
-    lines.join('\n') +
-    '\n========== END plan rubric ==========\n' +
-    'This is the plan the user agreed to during Deep Plan. Treat it as the north star for the current writing task: honor the thesis, cover the must-cover items, and avoid the must-avoid ones. If the user asks about "the plan" or "the rubric", this is it. Don\'t contradict it without their consent — if something here no longer fits, flag it and ask.'
+    `\n\n[Deep Plan in play] "${label}". The full rubric (thesis, must-cover, must-avoid, notes) lives behind \`rubric_lookup\`. Pull it when the user references "the plan", "the rubric", or when you're about to make a structural decision.`
   );
 }
 
-function buildResearchQueriesBlock(queries: string[]): string {
-  if (queries.length === 0) return '';
-  const lines = queries.map((q) => `- "${q}"`).join('\n');
+function buildDocHeader(docLabel: string, docChars: number): string {
   return (
-    '\n\n========== BEGIN research queries already run ==========\n' +
-    lines +
-    '\n========== END research queries already run ==========\n' +
-    "These web searches have already been run during this project's Deep Plan / Deep Search sessions. Anything they surfaced is in the wiki index above. If the user asks for something adjacent, check the wiki first, then propose a NEW angle — don't re-run the same query expecting different results."
+    `\n\n[Active document: ${docLabel} — ${docChars} chars]\n` +
+    'The document body is NOT inlined. Pull it on demand with `doc_lookup` (see tool protocols below). For small asks ("change the title"), pull only the paragraph around the target via `{"find": "..."}`. For rewrites or audits, pull the full body with `{}`.'
+  );
+}
+
+function buildLookupProtocols(): string {
+  return (
+    '\n\n[doc_lookup — on-demand document read]\n' +
+    'Emit a `doc_lookup` fence to pull the active document. Three forms:\n\n' +
+    '1) **Full body** — when you need the whole thing (rewrites, audits, summary of current state).\n' +
+    '```doc_lookup\n{}\n```\n\n' +
+    '2) **Paragraph window around a phrase** — cheapest option. Returns one paragraph before and after the first match, case-insensitive. Use this whenever you know a snippet of text near the edit site.\n' +
+    '```doc_lookup\n{"find": "pareto optimality"}\n```\n\n' +
+    '3) **Character range** — when you need a specific region (e.g. the opening 500 chars).\n' +
+    '```doc_lookup\n{"from": 0, "to": 500}\n```\n\n' +
+    'Multiple `doc_lookup` blocks in one response resolve in parallel. Prefer `find` over full-body whenever possible — full-body reads are the biggest token cost of a turn.\n\n' +
+    '[rubric_lookup — pull the Deep Plan rubric]\n' +
+    '```rubric_lookup\n{}\n```\n' +
+    'Returns the thesis, must-cover, must-avoid, and notes the user agreed to during Deep Plan. Call when the user references "the plan"/"the rubric", or before a structural decision.\n\n' +
+    '[queries_lookup — see what research has already been run]\n' +
+    '```queries_lookup\n{}\n```\n' +
+    "Returns every web search this project has already run during Deep Plan / Deep Search. Call before running a new web_search if the user's ask overlaps prior research territory — don't re-run the same query expecting different results."
   );
 }
 
 function buildWebSearchBlock(): string {
   return (
     '\n\n[Web search — on-demand]\n' +
-    'When the user asks about prior work, novelty, state-of-the-art, recent developments, or anything you need external evidence for, run one or more web searches by emitting a `web_search` fenced block. Each block takes a single `query` string. Results (title, URL, snippet) come back before your next turn so you can cite them with the URL.\n' +
+    'When the user asks about prior work, novelty, state-of-the-art, recent developments, or anything you need external evidence for, emit a `web_search` fence. Each block takes one `query` string. Results (title, URL, snippet) come back before your next turn so you can cite with the URL.\n' +
     '```web_search\n{"query": "policy gradient nearest-neighbor reward shaping"}\n```\n' +
     'Rules:\n' +
-    '- Emit multiple blocks in one response to search in parallel — they all resolve before your next turn.\n' +
-    '- Use when the answer is NOT in the active document or wiki index above. Always check the wiki first.\n' +
-    '- When citing a result, quote the URL verbatim. Never invent URLs or paraphrase a source you did not see.\n' +
-    '- If the user explicitly asks you to "search" or "look up" or "find prior work", you MUST emit at least one web_search block before answering.\n' +
-    '\n' +
+    '- Emit multiple blocks in one response to search in parallel.\n' +
+    '- Use when the answer is NOT in the active document or wiki index. Check the wiki first (`source_lookup`) and prior queries (`queries_lookup`) before searching.\n' +
+    '- When citing a result, quote the URL verbatim. Never invent URLs.\n' +
+    '- If the user explicitly asks you to "search" / "look up" / "find prior work", you MUST emit at least one web_search block before answering.\n\n' +
     '[Grounding search queries — critical]\n' +
-    'If the user references a local source by name (a slug, filename, or project-specific term like "nearest policy" or "the training script"), you MUST read the actual source BEFORE searching. Emit a `source_lookup` in the same response as your `web_search` — they resolve together in one round. Never guess what a source is about from its filename; filenames are ambiguous ("nearest_policy.py" could be nearest-neighbor imitation learning, k-NN retrieval-based control, or something else entirely). The query you send to the web must be built from concepts you actually read in the source — specific algorithm names, method names, paper titles it cites, the problem domain — not from the filename tokens. A query like "real world data policy enforcement" based only on the name "nearest policy" is a bug, not a search.'
+    'If the user references a local source by name (a slug, filename, or project-specific term), you MUST read the actual source BEFORE searching. Emit a `source_lookup` in the same response as your `web_search` — they resolve together in one round. Never guess what a source is about from its filename; the query must be built from concepts you actually read.'
   );
 }
 
@@ -123,16 +130,16 @@ function buildWikiBlock(wikiIndex: string): string {
     '\n\n========== BEGIN research wiki index (.myst/wiki/index.md — your default memory surface) ==========\n' +
     wikiIndex +
     '\n========== END research wiki index ==========\n' +
-    'This index is loaded every turn. Treat it as the map of what you already know: one line per source, with a short summary and a slug. Do not ask the user to attach sources that are already here.\n\n' +
-    '[Deep reference — on-demand lookup]\n' +
+    'This index is the map of what the project already knows: one line per source, with a short summary and a slug. Do not ask the user to attach sources that are already here.\n\n' +
+    '[source_lookup — on-demand deep reference]\n' +
     'The index only shows summaries. When a source looks relevant, drill in with a `source_lookup` block. Three forms:\n\n' +
-    '1) **Open a source page** — slug only. Returns the full detailed summary plus the list of available anchors (definitions, rules, arguments, equations, findings, sections). Use this whenever you want to know more about a source than the one-liner.\n' +
+    '1) **Open a source page** — slug only. Returns the full detailed summary plus the list of available anchors.\n' +
     '```source_lookup\n{"slug": "smith-2022"}\n```\n\n' +
-    '2) **Pull a verbatim anchor** — slug + anchor id, after you\'ve seen the anchor menu from step 1. Returns the exact raw text for quoting, citation, or definition-checking.\n' +
+    '2) **Pull a verbatim anchor** — slug + anchor id, after you\'ve seen the anchor menu.\n' +
     '```source_lookup\n{"slug": "smith-2022", "anchor": "law-1-2"}\n```\n\n' +
-    '3) **Read a raw file** — slug + `"raw": true`. Returns the full verbatim contents of a raw-typed source (code, CSV, JSON, etc. the user dropped in). Raw sources have no anchors and no LLM summary — you only see them if you ask. Capped at 50 KB; larger files come back truncated with a marker. Use this when the user\'s task references a specific script or data file by name.\n' +
+    '3) **Read a raw file** — slug + `"raw": true`. Returns the full verbatim contents of a raw-typed source. Capped at 50 KB.\n' +
     '```source_lookup\n{"slug": "train_py", "raw": true}\n```\n\n' +
-    'You may emit multiple lookups in one response; each resolves independently and the results are injected back before your next turn. Lookups are cheap — use them liberally, and NEVER paraphrase quotes from memory.'
+    'Multiple lookups in one response resolve in parallel. Lookups are cheap — use them liberally, and NEVER paraphrase quotes from memory.'
   );
 }
 
@@ -148,33 +155,21 @@ export interface SystemPromptInput {
 }
 
 const WRITING_STYLE_RIDER =
-  '\n\n========== BEGIN prose-style guide. Applies to any prose the user will read (myst_edit new_strings, rewrites, chat answers, short replies). STRICTLY SECONDARY to the fenced-protocol rules elsewhere in this prompt (source_lookup, myst_edit, web_search). If the two conflict, fence rules win. ==========\n' +
+  '\n\n========== BEGIN prose-style guide. Applies to any prose the user will read (myst_edit new_strings, rewrites, chat answers, short replies). STRICTLY SECONDARY to the fenced-protocol rules above (doc_lookup, rubric_lookup, queries_lookup, source_lookup, myst_edit, web_search). If the two conflict, fence rules win. ==========\n' +
   PROSE_STYLE +
   '\n========== END prose-style guide ==========';
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
-  const {
-    agentPrompt,
-    activeDocument,
-    docLabel,
-    document,
-    pending,
-    wikiIndex,
-    rubric,
-    researchQueries,
-  } = input;
+  const { agentPrompt, docLabel, document, pending, wikiIndex, rubric } = input;
   return [
     agentPrompt,
     TWEAK_ETIQUETTE,
-    buildRubricBlock(rubric),
-    `\n\n[Active document: ${docLabel}]`,
-    `\n\n========== BEGIN ${activeDocument} ==========\n` +
-      document +
-      `\n========== END ${activeDocument} ==========`,
+    buildRubricTeaser(rubric),
+    buildDocHeader(docLabel, document.length),
     buildPendingBlock(pending),
+    buildLookupProtocols(),
     buildWebSearchBlock(),
     buildWikiBlock(wikiIndex),
-    buildResearchQueriesBlock(researchQueries),
     WRITING_STYLE_RIDER,
   ].join('');
 }
