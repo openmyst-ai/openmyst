@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
 import {
+  DEEP_PLAN_MAX_SEARCHES_PER_ROUND,
+  DEEP_PLAN_MAX_TOTAL_SEARCHES,
   PANEL_ROLES_BY_PHASE,
   type ChairAnswerMap,
   type DeepPlanSession,
@@ -32,9 +34,6 @@ import { parsePanelOutput } from './parse';
  * animate per-role status dots.
  */
 
-/** Hard cap on panel-dispatched research queries per round. */
-const MAX_RESEARCH_QUERIES_PER_ROUND = 4;
-
 function emitProgress(event: PanelProgressEvent): void {
   broadcast(IpcChannels.DeepPlan.PanelProgress, event);
 }
@@ -61,8 +60,10 @@ function normalizeQuery(q: string): string {
 
 function mergeResearchRequests(
   outputs: PanelOutput[],
+  cap: number,
 ): PanelResearchRequest[] {
   const merged: PanelResearchRequest[] = [];
+  if (cap <= 0) return merged;
   const seen = new Set<string>();
   for (const out of outputs) {
     for (const req of out.needsResearch) {
@@ -70,7 +71,7 @@ function mergeResearchRequests(
       if (!key || seen.has(key)) continue;
       seen.add(key);
       merged.push(req);
-      if (merged.length >= MAX_RESEARCH_QUERIES_PER_ROUND) return merged;
+      if (merged.length >= cap) return merged;
     }
   }
   return merged;
@@ -103,6 +104,8 @@ export interface PanelRoundArgs {
 export interface PanelRoundResult {
   panelOutputs: PanelOutput[];
   newlyIngestedSourceSlugs: string[];
+  /** Count of research queries actually dispatched this round (0 when budget is exhausted or panel didn't ask). */
+  searchesDispatched: number;
 }
 
 async function runOnePanelist(
@@ -110,6 +113,7 @@ async function runOnePanelist(
   args: PanelRoundArgs,
   model: string,
   priorFindingsDigest: string,
+  remainingSearchBudget: number,
 ): Promise<PanelOutput> {
   emitProgress({ kind: 'role-start', role });
 
@@ -119,6 +123,7 @@ async function runOnePanelist(
     lastChairSummary: args.lastChairSummary,
     lastAnswers: args.lastAnswers,
     priorFindingsDigest,
+    remainingSearchBudget,
   });
 
   const messages: LlmMessage[] = [
@@ -224,22 +229,29 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
   const phase = args.session.phase;
   const roles = PANEL_ROLES_BY_PHASE[phase];
   if (roles.length === 0) {
-    return { panelOutputs: [], newlyIngestedSourceSlugs: [] };
+    return { panelOutputs: [], newlyIngestedSourceSlugs: [], searchesDispatched: 0 };
   }
 
   emitProgress({ kind: 'round-start', phase, roles });
 
   const model = await getSummaryModel();
   const priorFindingsDigest = digestPriorFindings(args.session);
+  const remainingBudget = Math.max(
+    0,
+    DEEP_PLAN_MAX_TOTAL_SEARCHES - args.session.searchesUsed,
+  );
+  const perRoundCap = Math.min(DEEP_PLAN_MAX_SEARCHES_PER_ROUND, remainingBudget);
 
   // Fan out all panelists in parallel. Individual failures degrade
   // gracefully to an empty output — the Chair can still synthesise
   // whatever came back.
   const panelOutputs = await Promise.all(
-    roles.map((role) => runOnePanelist(role, args, model, priorFindingsDigest)),
+    roles.map((role) =>
+      runOnePanelist(role, args, model, priorFindingsDigest, remainingBudget),
+    ),
   );
 
-  const researchRequests = mergeResearchRequests(panelOutputs);
+  const researchRequests = mergeResearchRequests(panelOutputs, perRoundCap);
   const newlyIngestedSourceSlugs = await dispatchPanelResearch(researchRequests);
 
   log('deep-plan', 'panel.round.done', {
@@ -248,7 +260,12 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
     totalFindings: panelOutputs.reduce((n, p) => n + p.findings.length, 0),
     researchDispatched: researchRequests.length,
     newlyIngested: newlyIngestedSourceSlugs.length,
+    remainingBudget,
   });
 
-  return { panelOutputs, newlyIngestedSourceSlugs };
+  return {
+    panelOutputs,
+    newlyIngestedSourceSlugs,
+    searchesDispatched: researchRequests.length,
+  };
 }

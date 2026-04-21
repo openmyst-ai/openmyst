@@ -2,53 +2,70 @@ import type {
   ChairAnswerMap,
   ChairQuestion,
   DeepPlanPhase,
-  DeepPlanRubric,
   DeepPlanSession,
   PanelOutput,
   PanelRole,
+  PlanRequirements,
   SourceMeta,
+} from '@shared/types';
+import {
+  DEEP_PLAN_MAX_QUESTIONS_PER_ROUND,
+  DEEP_PLAN_MAX_SEARCHES_PER_ROUND,
+  DEEP_PLAN_MAX_TOTAL_SEARCHES,
+  DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE,
 } from '@shared/types';
 import { PROSE_STYLE } from '../../writing';
 
 /**
- * Prompt templates for the new Deep Plan pipeline.
+ * Prompt templates for the plan.md-centric Deep Plan pipeline.
  *
- *   - `panelistPrompt` — one system prompt per cheap-model panel call.
- *     Parameterised by `PanelRole` so each voice has a narrow lens.
- *   - `chairPrompt` — one strong-model call per round. Synthesises the
- *     panel's structured findings into `{summary, questions, phaseAdvance,
- *     rubricPatch}` for the user-facing Question Card.
- *   - `oneShotPrompt` / `preDraftLookupPrompt` — unchanged drafter flow
- *     at the handoff from `reviewing → done`.
+ * The pipeline pivots on one artefact: `plan.md`, a living document the panel
+ * refines each round and the Chair rewrites in full. Everything else
+ * (requirements, wiki sources, Prose-Style commands) is reference material
+ * the panel and Chair read to judge the plan. At handoff, the drafter sees
+ * only the four things that matter: requirements, commands, plan.md, sources.
+ *
+ *   - `panelistPrompt` — cheap-model adversarial panelist. Reads plan +
+ *     requirements + wiki, proposes specific plan edits, emits needsResearch
+ *     only as a last resort.
+ *   - `chairPrompt` — strong-model Chair. Rewrites plan.md in full, emits
+ *     ≤ 3 questions only when a judgment call genuinely needs the user.
+ *   - `preDraftLookupPrompt` / `oneShotPrompt` — handoff to the drafter.
  *   - `deepSearchPlannerPrompt` — kept for the independent Deep Search
- *     feature.
+ *     feature; takes `PlanRequirements` now instead of a rubric.
  */
 
-function rubricIsEmpty(rubric: DeepPlanRubric): boolean {
-  return (
-    !rubric.title &&
-    !rubric.form &&
-    !rubric.audience &&
-    !rubric.lengthTarget &&
-    !rubric.thesis &&
-    rubric.mustCover.length === 0 &&
-    rubric.mustAvoid.length === 0 &&
-    !rubric.notes.trim()
-  );
+/** Commands bundle — house rules for prose (em-dash ban, slug format, etc.). */
+export const DEEP_PLAN_COMMANDS: string = PROSE_STYLE;
+
+/* ───────────────────────────── Shared blocks ───────────────────────────── */
+
+function requirementsBlock(req: PlanRequirements): string {
+  const lengthLine = (() => {
+    if (req.wordCountMin !== null && req.wordCountMax !== null) {
+      if (req.wordCountMin === req.wordCountMax) {
+        return `- Word count: ~${req.wordCountMin} words (hard target — do not exceed by more than 10%)`;
+      }
+      return `- Word count: ${req.wordCountMin}–${req.wordCountMax} words (HARD RANGE — the draft MUST land inside this window)`;
+    }
+    if (req.wordCountMin !== null) return `- Word count: at least ${req.wordCountMin} words`;
+    if (req.wordCountMax !== null) return `- Word count: at most ${req.wordCountMax} words`;
+    return `- Word count: (not specified)`;
+  })();
+  return [
+    lengthLine,
+    `- Form: ${req.form ?? '(not specified)'}`,
+    `- Audience: ${req.audience ?? '(not specified)'}`,
+    `- Style notes: ${req.styleNotes ?? '(none)'}`,
+  ].join('\n');
 }
 
-function rubricBlock(rubric: DeepPlanRubric): string {
-  const lines = [
-    `- Title: ${rubric.title ?? '(unset)'}`,
-    `- Form: ${rubric.form ?? '(unset)'}`,
-    `- Audience: ${rubric.audience ?? '(unset)'}`,
-    `- Length target: ${rubric.lengthTarget ?? '(unset)'}`,
-    `- Thesis / angle: ${rubric.thesis ?? '(unset)'}`,
-    `- Must-cover: ${rubric.mustCover.length ? rubric.mustCover.join('; ') : '(none yet)'}`,
-    `- Must-avoid: ${rubric.mustAvoid.length ? rubric.mustAvoid.join('; ') : '(none yet)'}`,
-    `- Notes: ${rubric.notes || '(none yet)'}`,
-  ];
-  return lines.join('\n');
+function planBlock(plan: string): string {
+  const trimmed = plan.trim();
+  if (!trimmed) {
+    return '_(plan.md is empty — this is the first round. Propose its initial skeleton.)_';
+  }
+  return trimmed;
 }
 
 function sourcesBlock(sources: SourceMeta[]): string {
@@ -65,12 +82,6 @@ function sourcesBlock(sources: SourceMeta[]): string {
     .join('\n');
 }
 
-/**
- * Rich source block for the one-shot draft pass. Each source gets its full
- * wiki-style detailed summary (the `sources/<slug>.md` body produced at
- * ingest) — 2-4 paragraphs that capture the arguments, data, and
- * conclusions of the source.
- */
 function richSourcesBlock(
   sources: SourceMeta[],
   detailedSummaries: Map<string, string>,
@@ -89,6 +100,11 @@ function richSourcesBlock(
     .join('\n\n---\n\n');
 }
 
+function searchBudgetBlock(session: DeepPlanSession): string {
+  const remaining = Math.max(0, DEEP_PLAN_MAX_TOTAL_SEARCHES - session.searchesUsed);
+  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. The per-round panel cap is ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND}. Searching is EXPENSIVE — prefer reasoning over the plan and existing sources; only request a search when a specific gap in the wiki genuinely blocks progress.`;
+}
+
 export const DEEP_REFERENCE_RIDER = `[Deep reference] Each source above may list anchor ids (format \`slug#anchor-id\`) beneath it. To pull the EXACT verbatim passage for an anchor, emit a fenced \`source_lookup\` block. The system will resolve it deterministically and inject the verbatim text into the conversation before your next turn. Never paraphrase quotes from memory — use the lookup.
 
 Format:
@@ -99,49 +115,39 @@ Multiple lookups in one response are fine. Use them freely when precision matter
 
 /* ────────────────────────── Panel (cheap-model) ────────────────────────── */
 
-/**
- * Role personas. Each is a narrow adversarial lens — one paragraph tops.
- * Keep them aggressive and specific; a generic persona produces generic
- * findings.
- */
 const ROLE_PERSONAS: Record<PanelRole, string> = {
-  explorer: `EXPLORER. Expand the problem space. Look for adjacent angles, analogies, framings, or sub-topics the writer has not considered. When the task is vague, propose concrete directions it could take. You are the voice that asks "have you thought about X?" Your findings should open doors, not close them.`,
+  explorer: `EXPLORER. Expand the problem space. Look for adjacent angles, analogies, framings, or sub-topics the plan has not considered. When the plan is vague, propose concrete directions it could take. You open doors; you do not close them.`,
 
-  scoper: `SCOPER. Push the writer toward concreteness. Flag anything vague — a fuzzy thesis, an unnamed audience, an abstract claim that needs a specific example, a scope too broad for the length. Your findings should each name one specific abstraction and demand a specific answer.`,
+  scoper: `SCOPER. Push the plan toward concreteness. Flag anything vague — a fuzzy thesis, an unnamed audience, an abstract claim that needs a specific example, a scope too broad for the length. Each finding names one specific abstraction and demands a specific answer.`,
 
-  stakes: `STAKES-RAISER. Force "so what?" and "for whom?". If the stakes are unclear, the piece has no reason to exist. Ask: why does this matter? To whom? What changes if the reader agrees? A finding from you always names a stake that's missing or under-articulated.`,
+  stakes: `STAKES-RAISER. Force "so what?" and "for whom?". If the stakes are unclear, the piece has no reason to exist. A finding from you always names a stake that's missing or under-articulated.`,
 
-  architect: `ARGUMENT ARCHITECT. Propose or stress-test the thesis chain — the sub-claims that must hold for the main claim to hold. Flag where the chain breaks, where a sub-claim is load-bearing but unsupported, where a better framing exists. Your suggestedAction for each finding should name the specific chain surgery required.`,
+  architect: `ARGUMENT ARCHITECT. Propose or stress-test the thesis chain — the sub-claims that must hold for the main claim to hold. Flag where the chain breaks, where a sub-claim is load-bearing but unsupported, where a better framing exists. Your suggestedAction names the specific chain surgery required.`,
 
-  evidence: `EVIDENCE SCOUT. Identify the specific claims the plan makes (or will make) that need external evidence. Your findings are pointers to gaps in the wiki; your \`needsResearch\` queries are how you pay them off. Be prolific on \`needsResearch\` — this is your main output channel. Prefer primary sources (papers, official docs, firsthand accounts) over commentary.`,
+  evidence: `EVIDENCE SCOUT. Identify claims the plan makes (or will make) that need external evidence. Your findings are pointers to gaps in the wiki. You are the ONE role where \`needsResearch\` is acceptable — but only when (a) the gap genuinely blocks a specific plan claim and (b) no source in the wiki already covers it. Prefer primary sources (papers, official docs, firsthand accounts).`,
 
   steelman: `STEELMAN. Construct the strongest opposing position to the plan's emerging thesis. State it in one or two sentences, charitably and accurately. Then check whether the plan has a response. If not, that is a high-severity finding — the plan will fall to this objection unless it addresses it.`,
 
   skeptic: `SKEPTIC. Find claims that would collapse under pressure — unstated assumptions, weak evidence, logical gaps, overreach. Be harsh. Every finding names a specific claim and the specific failure mode. Do not raise stylistic issues — that is the Editor's job.`,
 
-  adversary: `ADVERSARY. Read the plan as a hostile reviewer would. Where is the argument most vulnerable? What will a reader attack first? What question will stop them dead on first read? Findings here should be framed as "a hostile reader will say: …".`,
+  adversary: `ADVERSARY. Read the plan as a hostile reviewer would. Where is the argument most vulnerable? What will a reader attack first? What question will stop them dead on first read? Findings here are framed as "a hostile reader will say: …".`,
 
-  editor: `EDITOR. Look for redundancy, broken through-lines, pacing problems, and coherence gaps in the emerging outline. Findings should name specific sections or beats and why they don't carry their weight. Suggest cuts and reorderings. Do not critique argument quality — that is the Skeptic's job.`,
+  editor: `EDITOR. Look for redundancy, broken through-lines, pacing problems, and coherence gaps in the plan's section structure. Findings name specific sections or beats and why they don't carry their weight. Suggest cuts and reorderings.`,
 
-  audience: `AUDIENCE. Inhabit the stated reader. What will land? What will confuse? What do they already know (so don't belabour it)? What do they not know (so explain it)? Findings should name specific passages or claims and predict the reader's reaction.`,
+  audience: `AUDIENCE. Inhabit the stated reader. What will land? What will confuse? What do they already know (so don't belabour it)? What do they not know (so explain it)? Findings name specific passages or claims and predict the reader's reaction.`,
 
   finaliser: `FINALISER. Propose the concrete section-by-section beat sheet the drafter will use. Each beat is ONE finding with severity "low" and a suggestedAction of the form:
 "BEAT: <short title> — <one-line intent>. Anchors: <slug1>[#anchor-id], <slug2>.".
-Emit beats in reading order. Include 4–8 beats. The drafter consumes these verbatim — be precise and opinionated.`,
+Emit beats in reading order. Include 4–8 beats. The Chair will fold these into the plan.md outline.`,
 };
 
-/**
- * Compact context block passed to every panelist. Short prior-rounds
- * history prevents the panel from repeating the same findings every
- * round. We don't pass the full message log — panelists are stateless
- * adversarial voices, not conversational partners.
- */
 interface PanelContext {
   session: DeepPlanSession;
   sources: SourceMeta[];
   lastChairSummary: string | null;
   lastAnswers: ChairAnswerMap | null;
   priorFindingsDigest: string;
+  remainingSearchBudget: number;
 }
 
 function answersBlock(answers: ChairAnswerMap | null, questions: ChairQuestion[]): string {
@@ -152,7 +158,7 @@ function answersBlock(answers: ChairAnswerMap | null, questions: ChairQuestion[]
     const q = byId.get(id);
     const prompt = q?.prompt ?? `(question ${id})`;
     if (ans === null) {
-      lines.push(`- Q: ${prompt}\n  A: (skipped)`);
+      lines.push(`- Q: ${prompt}\n  A: (delegated to panel)`);
       continue;
     }
     if (Array.isArray(ans)) {
@@ -163,7 +169,6 @@ function answersBlock(answers: ChairAnswerMap | null, questions: ChairQuestion[]
       lines.push(`- Q: ${prompt}\n  A: ${labels.join(', ')}`);
       continue;
     }
-    // string — could be a choice id for 'choice' or a free-text for 'open'.
     if (q?.type === 'choice' || q?.type === 'confirm') {
       const c = q.choices?.find((x) => x.id === ans);
       lines.push(`- Q: ${prompt}\n  A: ${c ? c.label : ans}`);
@@ -177,7 +182,6 @@ function answersBlock(answers: ChairAnswerMap | null, questions: ChairQuestion[]
 function panelContextBlock(ctx: PanelContext): string {
   const { session, sources, lastChairSummary, lastAnswers, priorFindingsDigest } = ctx;
   const lastQuestions = (() => {
-    // The Chair's last questions, needed to resolve choice-id answers.
     const lastChairMsg = [...session.messages].reverse().find((m) => m.kind === 'chair-turn');
     return lastChairMsg?.chair?.questions ?? [];
   })();
@@ -185,17 +189,22 @@ function panelContextBlock(ctx: PanelContext): string {
     `User's task: "${session.task}"`,
     `Current phase: ${session.phase}`,
     '',
-    'Rubric so far:',
-    rubricBlock(session.rubric),
+    'Task requirements (hard constraints — the final draft MUST honour these):',
+    requirementsBlock(session.requirements),
     '',
-    'Wiki — sources already ingested (one-line summaries, anchors if any):',
+    'Current plan.md (the living artefact — this is what you are here to improve):',
+    planBlock(session.plan),
+    '',
+    'Wiki — sources already ingested:',
     sourcesBlock(sources),
+    '',
+    searchBudgetBlock(session),
     '',
     lastChairSummary
       ? `Last Chair summary to the user:\n"${lastChairSummary}"`
       : '(this is the first panel round for this phase)',
     '',
-    `Last user answers to the Chair:\n${answersBlock(lastAnswers, lastQuestions)}`,
+    `Last user answers:\n${answersBlock(lastAnswers, lastQuestions)}`,
     '',
     priorFindingsDigest
       ? `Prior-round findings digest (do NOT repeat these — raise NEW points):\n${priorFindingsDigest}`
@@ -203,14 +212,14 @@ function panelContextBlock(ctx: PanelContext): string {
   ].join('\n');
 }
 
-/**
- * System prompt for a single panelist. The `role` parameter selects the
- * persona. Every panelist returns the same JSON shape, which the panel
- * runner parses into `PanelOutput`.
- */
 export function panelistPrompt(role: PanelRole, ctx: PanelContext): string {
   const persona = ROLE_PERSONAS[role];
-  return `You are ONE voice on an adversarial panel helping a writer build a plan. You do not talk to the writer — you report structured findings to the Chair, who synthesises the whole panel into one message for the writer.
+  const canSearch = role === 'evidence' && ctx.remainingSearchBudget > 0;
+  const searchClause = canSearch
+    ? `- \`needsResearch\`: at most ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND} queries, and ONLY when a specific plan claim is blocked by a gap the wiki does not cover. Most rounds should emit [].`
+    : `- \`needsResearch\`: emit []. You are not the Evidence role${ctx.remainingSearchBudget <= 0 ? ' and the session search budget is exhausted' : ''}. Work with the plan and wiki you already have.`;
+
+  return `You are ONE voice on an adversarial panel that is iteratively refining a writer's plan.md. You do NOT talk to the writer. You report structured findings to the Chair, who rewrites plan.md in full and synthesises the round for the user.
 
 Your role:
 ${persona}
@@ -218,36 +227,41 @@ ${persona}
 Context:
 ${panelContextBlock(ctx)}
 
+Your job this round:
+1. Read the current plan.md carefully. It is not empty in most rounds — it is the result of prior panel feedback.
+2. Through your role's lens, identify the 2–3 things that most need to change in the plan. Be specific: name the section, the claim, the framing, or the beat.
+3. For each finding, your \`suggestedAction\` should read as a concrete plan edit the Chair could apply verbatim ("rewrite §2 to open with the counter-example from smith-2022", "drop the intro paragraph — it restates the thesis before earning it", "add a §3.5 that names the opposing view and responds to it").
+4. Searching is a LAST RESORT, not a default. The goal is reasoning and plan refinement, not query dispatch.
+
 Output ONLY a JSON object of this exact shape — no prose, no markdown fences, no commentary:
 
 {
   "findings": [
     {
       "severity": "high" | "mid" | "low",
-      "claim": "one sentence naming what you observed",
+      "claim": "one sentence naming what you observed in the plan",
       "rationale": "one sentence saying why it matters",
-      "suggestedAction": "one sentence saying what the writer should do about it"
+      "suggestedAction": "one sentence naming the concrete plan edit the Chair should make"
     }
   ],
   "needsResearch": [
-    {"query": "librarian-style search query, 3–5 plain lowercase terms, no site: filters, no quoted phrase stacks", "rationale": "one sentence on why this query fills a specific gap"}
+    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "which specific plan claim this query unblocks"}
   ]
 }
 
 Rules:
-- At most 4 findings. Quality over quantity — only raise what genuinely matters for this phase.
-- At most 3 research queries. Only include \`needsResearch\` when you genuinely need external evidence the wiki doesn't cover.
+- At most 3 findings. Quality over quantity. Vague findings are worthless.
+${searchClause}
 - Do NOT duplicate findings already raised in prior rounds (see digest above).
-- Be specific. Vague findings like "thesis could be stronger" are useless; findings like "the plan asserts X but no source backs it" are useful.
-- If you genuinely have nothing to add this round, output {"findings": [], "needsResearch": []}. This is the right answer more often than you think.`;
+- If you genuinely have nothing to add this round, output {"findings": [], "needsResearch": []}. This is the right answer more often than you think — the plan converges when the panel goes quiet.`;
 }
 
 /* ────────────────────────── Chair (strong-model) ────────────────────────── */
 
 const PHASE_INTENT: Record<DeepPlanPhase, string> = {
-  ideation: `IDEATION — shape a vague task into a concrete idea. By end of phase the writer should have a clear thesis candidate, an identified audience, and a rough angle. Research is light here; depth comes next.`,
-  planning: `PLANNING — identify the key points, arguments, and evidence the piece will use. Heavy research dispatch. By end of phase the writer should have a validated thesis chain with sources attached to each sub-claim and a response to the strongest counter-argument.`,
-  reviewing: `REVIEWING — stress-test the plan and produce the concrete section beat sheet the drafter will use. Research only for filling specific holes. End of phase = handoff to draft.`,
+  ideation: `IDEATION — shape a vague task into a concrete idea. By end of phase the plan has a clear thesis candidate, an identified audience, and a rough angle. Plan.md at this phase is a skeleton: thesis sentence, audience line, a rough section list. Light on evidence.`,
+  planning: `PLANNING — identify the key points, arguments, and evidence the piece will use. Plan.md gains sub-sections, per-section thesis beats, and source attributions. The strongest counter-argument appears in the plan with a response.`,
+  reviewing: `REVIEWING — stress-test the plan and lock the concrete section beat sheet. Plan.md at end of phase reads as something a drafter could write from directly: every section has a title, a one-line intent, and the anchors it leans on.`,
   done: `DONE — the drafter has written the piece. You should not be called in this phase.`,
 };
 
@@ -291,28 +305,43 @@ export interface ChairPromptArgs {
   panelOutputs: PanelOutput[];
   newlyIngestedSourceSlugs: string[];
   roundNumber: number;
+  sources: SourceMeta[];
 }
 
 export function chairPrompt(args: ChairPromptArgs): string {
-  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber } = args;
+  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources } = args;
   const phase = session.phase;
-  const rubricIsBlank = rubricIsEmpty(session.rubric);
   const priorSummaries = priorChairDigest(session);
+  const softLimitHit = roundNumber >= DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE;
   const researchNote =
     newlyIngestedSourceSlugs.length > 0
-      ? `\nResearch dispatched this round landed ${newlyIngestedSourceSlugs.length} new source(s) in the wiki: ${newlyIngestedSourceSlugs.join(', ')}. Factor these into your synthesis.`
+      ? `\nResearch dispatched this round landed ${newlyIngestedSourceSlugs.length} new source(s) in the wiki: ${newlyIngestedSourceSlugs.join(', ')}. Factor these into your rewrite.`
       : '';
+  const advanceNudge = softLimitHit
+    ? `\n\n[Round pressure] This is round ${roundNumber} of this phase. The user has given you enough signal — strongly prefer \`phaseAdvance: true\` and, if you ask a question, make it a single confirm-style "ready to move on?" rather than opening a new line of inquiry.`
+    : '';
 
-  return `You are the CHAIR of an adversarial panel helping a writer build a plan. The panel has just produced ${panelOutputs.length} sets of findings. Your job: synthesise them into one short message for the writer, plus a small set of targeted questions they can answer one-at-a-time in a dedicated card (not in chat).
+  return `You are the CHAIR of an adversarial panel helping a writer build a plan.md. The panel has just produced ${panelOutputs.length} sets of findings. Your job has two parts:
+
+  1. REWRITE plan.md in full — absorb the panel's edits, keep what works, improve what doesn't. This is the artefact the final drafter will read.
+  2. Speak to the user in a short summary, and ONLY when a genuine judgment call needs them, ask 1–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions.
 
 Phase intent:
 ${PHASE_INTENT[phase]}
 
-Current round in this phase: ${roundNumber}
+Current round in this phase: ${roundNumber}${advanceNudge}
 User's task: "${session.task}"
 
-Rubric so far${rubricIsBlank ? ' (empty — use rubricPatch to fill key fields as the user commits to them)' : ''}:
-${rubricBlock(session.rubric)}
+Task requirements (hard constraints — the plan MUST honour these; echo the word-count range inside the plan body where relevant):
+${requirementsBlock(session.requirements)}
+
+${searchBudgetBlock(session)}
+
+Wiki — sources ingested so far (use these slugs verbatim when the plan attributes a claim):
+${sourcesBlock(sources)}
+
+Current plan.md (what you are rewriting — do NOT start from scratch unless this is empty):
+${planBlock(session.plan)}
 
 Panel findings this round:
 ${findingsBlock(panelOutputs)}${researchNote}
@@ -320,31 +349,45 @@ ${findingsBlock(panelOutputs)}${researchNote}
 ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move the plan FORWARD):\n${priorSummaries}\n\n` : ''}Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
 
 {
-  "summary": "≤ 2 sentences, ≤ 60 words. Digest what the panel chewed on + what you want from the user next.",
+  "summary": "≤ 2 sentences, ≤ 60 words. What changed in plan.md this round and (if you're asking) what you need from the user.",
+  "plan": "the FULL rewritten plan.md as a markdown string. Use \\n for line breaks inside the JSON string.",
   "questions": [
     {
       "id": "q1",
       "type": "choice" | "multi" | "open" | "confirm",
       "prompt": "the question as a single clear sentence",
-      "choices": [{"id": "short-id", "label": "the option as the user sees it"}],
+      "choices": [
+        {"id": "short-id", "label": "the option as the user sees it", "recommended": true}
+      ],
+      "allowCustom": false,
       "rationale": "optional one-line why this matters"
     }
   ],
-  "phaseAdvance": true | false,
-  "rubricPatch": {"thesis": "...", "mustCover": ["..."], "audience": "..."}
+  "phaseAdvance": true | false
 }
 
-Rules:
-- At most 5 questions. Prefer \`choice\` (labelled options with ids) > \`confirm\` (yes/no, no choices array needed — treat id "yes"/"no") > \`multi\` > \`open\`. Open questions are heavy; use them sparingly.
-- Every \`choice\` and \`multi\` question MUST include a \`choices\` array of 2–5 options. Option \`id\` values are short kebab-case labels; \`label\` is what the user sees.
-- \`phaseAdvance: true\` ONLY when the panel surfaced no substantive new tensions AND the rubric has what it needs for this phase. Err toward \`false\`; the loop will advance when the user hits Continue anyway.
-- \`rubricPatch\` fields are optional. Include a field ONLY when the user has implicitly committed to a value via their answers or the panel is converging on one. Never invent.
-- If the panel requested research that was genuinely useful, acknowledge the new sources in the summary ("panel pulled in three papers on X — one contradicts your framing").
-- Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.
-- Remember: questions go into a dedicated card, not into chat. Phrase them so they work as standalone prompts without the summary for context.`;
+plan.md rules:
+- Rewrite it IN FULL every round. The drafter only ever sees the latest version.
+- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and (from planning phase onward) source attributions in the form \`([Name](slug.md))\`.
+- Honour the task requirements at the top of the plan — echo the word-count range and form in the thesis paragraph so the drafter can't miss them.
+- Cite source slugs that actually exist in the wiki above. Never invent a slug.
+- Plan.md is the drafter's sole planning input. If it's not in the plan, it won't make it into the draft.
+
+Question rules:
+- At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. The user has delegated reasoning to the panel — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). If the panel surfaced no such call, emit [].
+- Prefer \`choice\` (labelled options) > \`confirm\` (yes/no) > \`multi\` > \`open\`. Open questions are heavy — use one only when no set of options captures the space.
+- On \`choice\` questions, mark ONE option with \`"recommended": true\` when there's a defensible default the panel leans toward. That option is what the panel would pick if the user delegated.
+- On \`choice\` questions, set \`"allowCustom": true\` when your options don't exhaust the space — the UI will offer a "Write my own" write-in.
+- Every \`choice\`/\`multi\` question MUST include 2–5 \`choices\`. \`confirm\` questions do not need \`choices\` (the UI injects Yes/No).
+- Questions go into a dedicated card, not into chat. Phrase them so they read standalone.
+
+phaseAdvance rule:
+- \`true\` when the panel surfaced no substantive new tensions AND plan.md has what it needs for this phase. Err toward \`false\` until round ${DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE} — then err toward \`true\`.
+
+Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.`;
 }
 
-/* ─────────────────── Deep Search planner (unchanged) ─────────────────── */
+/* ─────────────────── Deep Search planner ─────────────────── */
 
 const QUERY_STYLE = `Write queries like a research librarian, not a power user:
 - 3–5 plain keywords, lowercase, no punctuation.
@@ -355,12 +398,22 @@ const QUERY_STYLE = `Write queries like a research librarian, not a power user:
 
 Quality bar: 3–4 well-shaped queries beat 5 over-specified ones. Broad beats narrow.`;
 
+function requirementsIsEmpty(req: PlanRequirements): boolean {
+  return (
+    req.wordCountMin === null &&
+    req.wordCountMax === null &&
+    !req.form &&
+    !req.audience &&
+    !req.styleNotes
+  );
+}
+
 export function deepSearchPlannerPrompt(
   task: string,
   sources: SourceMeta[],
   priorQueries: string[],
   hints: string[],
-  rubric: DeepPlanRubric | null = null,
+  requirements: PlanRequirements | null = null,
 ): string {
   const hintsBlock =
     hints.length === 0
@@ -372,14 +425,14 @@ export function deepSearchPlannerPrompt(
     priorQueries.length === 0
       ? '(none yet)'
       : priorQueries.map((q) => `- "${q}"`).join('\n');
-  const rubricSection =
-    rubric && !rubricIsEmpty(rubric)
-      ? `\n\nPlan rubric (the user's writing task — prefer queries that feed the thesis and must-covers; avoid must-avoid areas):\n${rubricBlock(rubric)}`
+  const requirementsSection =
+    requirements && !requirementsIsEmpty(requirements)
+      ? `\n\nTask requirements (the writing constraints behind this research — bend queries toward the form and audience):\n${requirementsBlock(requirements)}`
       : '';
 
   return `You are the research query generator for Myst's Deep Search — a research-only mode that finds and ingests sources into the user's wiki without touching what they're writing. Your ONLY job is to emit the next batch of web searches — no prose, no chat.
 
-Research task: "${task}"${rubricSection}
+Research task: "${task}"${requirementsSection}
 
 Sources already in wiki:
 ${sourcesBlock(sources)}
@@ -405,7 +458,7 @@ If the wiki already covers the task, emit an empty array \`[]\`.`;
 /* ────────────────────── Pre-draft lookup + one-shot ────────────────────── */
 
 /**
- * Pre-draft lookup pass. The model reads the rubric, synthesis, and wiki
+ * Pre-draft lookup pass. The model reads requirements + plan.md + wiki
  * summaries, and emits `source_lookup` fences for any anchors / source
  * pages / raw files it wants verbatim before committing to the draft.
  */
@@ -413,36 +466,31 @@ export function preDraftLookupPrompt(
   session: DeepPlanSession,
   sources: SourceMeta[],
   detailedSummaries: Map<string, string>,
-  plannerSynthesis: string,
-  researchSummary: string,
   docLabel: string,
 ): string {
-  const synthesisBlock = plannerSynthesis.trim()
-    ? `Planning conversation — what the user and planner agreed on:\n${plannerSynthesis.trim()}\n\n`
-    : '';
-  const researchBlock = researchSummary.trim()
-    ? `Research phase summary:\n${researchSummary.trim()}\n\n`
-    : '';
-
-  return `You are Myst's pre-draft researcher. The next step is a one-shot draft of "${docLabel}" — but BEFORE that draft runs, you get one pass to pull any verbatim source passages you think will make the draft sharper. The draft model will see everything you pull, pre-fetched, with no further chance to look anything up.
+  return `You are Myst's pre-draft researcher. The next step is a one-shot draft of "${docLabel}" from a completed Deep Plan session — but BEFORE that draft runs, you get one pass to pull any verbatim source passages you think will make the draft sharper. The draft model will see everything you pull, pre-fetched, with no further chance to look anything up.
 
 Your ONLY job right now is to decide which anchors (and optionally which full source pages) to pull. You are NOT writing the draft in this turn.
 
 User's task: "${session.task}"
 
-Rubric (what the draft will aim at):
-${rubricBlock(session.rubric)}
+Task requirements (the draft will be judged against these):
+${requirementsBlock(session.requirements)}
 
-${synthesisBlock}${researchBlock}Wiki — sources with full detailed summaries and anchor labels:
+plan.md (what the drafter will write from — read it and ask yourself which sources it leans on hardest):
+
+${planBlock(session.plan)}
+
+Wiki — sources with full detailed summaries and anchor labels:
 
 ${richSourcesBlock(sources, detailedSummaries)}
 
 ${DEEP_REFERENCE_RIDER}
 
-Think about the draft you'd write from the summaries above, then ask yourself:
+Think about the draft the plan above implies, then ask yourself:
 - Which specific claims, numbers, definitions, or arguments will the draft lean on hardest? Pull those anchors.
 - Are there quotes that would carry a point better verbatim than paraphrased? Pull those.
-- Are there sources whose one-paragraph summary feels thin for what the draft needs? Pull the full source page.
+- Are there sources whose one-paragraph summary feels thin for what the plan demands? Pull the full source page.
 - Are there anchors whose labels look important but whose exact wording you can't reconstruct? Pull them.
 
 Budget guidance:
@@ -464,26 +512,18 @@ If the detailed summaries are genuinely sufficient and no verbatim text would he
 
 ---
 
-[Prose-style guide, applies to the draft that will run after this pass. You don't need to act on it now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide.]
+[Prose-style / commands guide, applies to the draft that will run after this pass. You don't need to act on it now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide.]
 
-${PROSE_STYLE}`;
+${DEEP_PLAN_COMMANDS}`;
 }
 
 export function oneShotPrompt(
   session: DeepPlanSession,
   sources: SourceMeta[],
   detailedSummaries: Map<string, string>,
-  plannerSynthesis: string,
-  researchSummary: string,
   prefetchedPassages: string,
   docLabel: string,
 ): string {
-  const synthesisBlock = plannerSynthesis.trim()
-    ? `Planning conversation — what the user and planner agreed on:\n${plannerSynthesis.trim()}\n\n`
-    : '';
-  const researchBlock = researchSummary.trim()
-    ? `Research phase summary:\n${researchSummary.trim()}\n\n`
-    : '';
   const passagesBlock = prefetchedPassages.trim()
     ? `\nPre-fetched verbatim passages (pulled from the wiki off-disk for this draft — these are EXACT text, safe to quote directly):\n\n${prefetchedPassages.trim()}\n`
     : '';
@@ -492,25 +532,31 @@ export function oneShotPrompt(
 - ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
 - Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
 - EVERY non-trivial claim cites a source, inline, at the point the claim is made. A non-trivial claim is any factual statement, attribution, historical fact, date, statistic, definition, critique, named position, or interpretive argument. The only uncited sentences permitted are: (a) your own reasoning and framing, (b) logical connectives and transitions, (c) restatements of the user's own prompt. If you cannot cite it from the wiki below, omit it — never assert an un-sourced fact. A sparsely-cited draft is a failed draft.
+- HONOUR THE WORD-COUNT RANGE in the requirements below. This is a contract. Going over or under by more than 10% is a failure — use the plan's section breakdown to budget your words before you start writing.
 
 You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist, not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
 
 User's task: "${session.task}"
 
-Rubric (your marching orders):
-${rubricBlock(session.rubric)}
+Task requirements (HARD constraints — the draft is judged against these):
+${requirementsBlock(session.requirements)}
 
-${synthesisBlock}${researchBlock}Wiki (sources with full detailed summaries and key anchor labels):
+plan.md — the distilled output of the whole Deep Plan session. Treat this as your marching orders: follow its structure, cite the sources it names, honour its thesis:
+
+${planBlock(session.plan)}
+
+Wiki (sources with full detailed summaries and key anchor labels):
 
 ${richSourcesBlock(sources, detailedSummaries)}
 ${passagesBlock}
 How to approach this draft (read carefully):
 
-1. **Read the wiki first.** The detailed summaries above are not one-liners; they're multi-paragraph reads of each source. Hold them in mind before committing to a paragraph. Don't treat a source as a bullet point to cite once; treat it as something you've actually read.
-2. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections. A draft that just walks through one source at a time reads like a book report; don't do that.
-3. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the rubric's thesis).
-4. **Quote sparingly but precisely.** When you do quote a source directly, prefer the pre-fetched verbatim passages above when present; those are exact text safe to reproduce. Otherwise only quote text that actually appears in the detailed summaries. Do not fabricate quotes. If you're not certain of the exact wording, paraphrase and cite.
-5. **Counter-argument pass.** Briefly address the strongest objection to your thesis before rebutting or conceding.
+1. **Follow plan.md.** The plan is the distillation of an entire adversarial-panel session. Its structure, thesis, and source attributions were chosen deliberately — don't reinvent them. If the plan names a section, write that section. If the plan names a source for a claim, use that source.
+2. **Read the wiki first.** The detailed summaries above are not one-liners; they're multi-paragraph reads of each source. Hold them in mind before committing to a paragraph.
+3. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections.
+4. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the plan's thesis).
+5. **Quote sparingly but precisely.** When you do quote a source directly, prefer the pre-fetched verbatim passages above when present. Otherwise only quote text that actually appears in the detailed summaries. Do not fabricate quotes.
+6. **Counter-argument pass.** Briefly address the strongest objection to the thesis before rebutting or conceding.
 
 Citation format (strict):
 Any claim carrying facts, numbers, arguments, or positions must be inline-cited as a parenthesised markdown link to the slug. The citation is just the source name inside round brackets, nothing else:
@@ -524,10 +570,10 @@ Referencing discipline (strict):
     - \`Author(s) (Year) *Title*. Publisher or outlet. Available at: URL.\`
   Use whatever bibliographic detail is visible in the detailed summary for that source (author names, publication year, title, outlet, URL). Do NOT invent missing fields: if year is unknown, omit it; if author is unknown, lead with the title; if there is no URL, omit "Available at:". Every entry MUST end with a markdown link to the slug itself, written as a trailing parenthesised \`([slug.md](slug.md))\` so the reference remains clickable inside Myst even when bibliographic fields are thin.
 - Alphabetise the references section by the leading author surname (or title, when author-less). One bullet per source. Do not repeat the same source twice.
-- Sources that you did not actually cite in the body must NOT appear in References. The References list is a mirror of your inline citations, not a dump of the wiki.
+- Sources that you did not actually cite in the body must NOT appear in References.
 
 Form + output rules:
-- Hit the rubric's length target, form, and audience. Match the requested thesis/angle.
+- Hit the requirements above — length, form, audience. The word-count range is the single most important constraint.
 - No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
 - Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
 - Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft.
@@ -536,8 +582,7 @@ Output: the complete markdown draft, nothing else.
 
 ---
 
-Prose style (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the citation format above, dominate any tension with the prose guide below.
+Prose style / commands (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the citation format above, dominate any tension with the prose guide below.
 
-${PROSE_STYLE}`;
+${DEEP_PLAN_COMMANDS}`;
 }
-

@@ -23,7 +23,6 @@ import {
   updateSession,
 } from './state';
 import { oneShotPrompt, preDraftLookupPrompt } from './prompts';
-import { applyRubricPatch } from './parse';
 import { runPanelRound } from './panel';
 import { runChair } from './chair';
 import {
@@ -246,30 +245,35 @@ async function runPanelAndChair(): Promise<void> {
     const lastAnswers = lastUserAnswers(session);
     const roundNumber = (session.roundsPerPhase[session.phase] ?? 0) + 1;
 
-    const { panelOutputs, newlyIngestedSourceSlugs } = await runPanelRound({
+    const { panelOutputs, newlyIngestedSourceSlugs, searchesDispatched } = await runPanelRound({
       session,
       sources,
       lastChairSummary: lastSummary,
       lastAnswers,
     });
 
+    // If the panel pulled in new sources, re-read the wiki so the Chair
+    // sees them when rewriting the plan.
+    const sourcesForChair =
+      newlyIngestedSourceSlugs.length > 0 ? await listSources() : sources;
+
     const chairOutput = await runChair({
       session,
       panelOutputs,
       newlyIngestedSourceSlugs,
       roundNumber,
+      sources: sourcesForChair,
     });
 
     await updateSession((s) => {
-      let next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
+      const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
       });
-      if (chairOutput.rubricPatch) {
-        next = { ...next, rubric: applyRubricPatch(next.rubric, chairOutput.rubricPatch) };
-      }
       return {
         ...next,
+        plan: chairOutput.plan || next.plan,
         pendingQuestions: chairOutput.questions,
+        searchesUsed: next.searchesUsed + searchesDispatched,
         roundsPerPhase: {
           ...next.roundsPerPhase,
           [next.phase]: (next.roundsPerPhase[next.phase] ?? 0) + 1,
@@ -347,79 +351,17 @@ async function loadDetailedSummaries(
   return out;
 }
 
-/**
- * Compact the planning transcript into a block the drafter can read. The
- * new flow has three relevant message kinds: `chair-turn` (summary of
- * panel round), `user-answers` (user's structured responses), and plain
- * `chat` (free-text user messages). We keep Chair summaries (the
- * sharpened decisions) + user answers verbatim.
- */
-function buildPlannerSynthesis(session: DeepPlanSession): string {
-  const lines: string[] = [];
-
-  const userChat = session.messages
-    .filter((m) => m.kind === 'chat' && m.role === 'user')
-    .map((m) => `- ${m.content.trim()}`)
-    .filter((l) => l.length > 2);
-  if (userChat.length > 0) {
-    lines.push(`User's free-text steering:\n${userChat.join('\n')}`);
-  }
-
-  const chairSummaries = session.messages
-    .filter((m) => m.kind === 'chair-turn' && m.chair)
-    .map((m, i) => `Round ${i + 1}: ${m.chair!.summary}`);
-  if (chairSummaries.length > 0) {
-    lines.push(`Chair's round-by-round synthesis:\n${chairSummaries.join('\n\n')}`);
-  }
-
-  const answerMessages = session.messages.filter(
-    (m) => m.kind === 'user-answers' && m.answers,
-  );
-  if (answerMessages.length > 0) {
-    const last = answerMessages[answerMessages.length - 1]!;
-    const entries = Object.entries(last.answers ?? {})
-      .map(([qId, a]) => {
-        const ans = a === null ? '(skipped)' : Array.isArray(a) ? a.join(', ') : a;
-        return `- ${qId}: ${ans}`;
-      })
-      .join('\n');
-    if (entries) lines.push(`Most recent user answers:\n${entries}`);
-  }
-
-  return lines.join('\n\n');
-}
-
-function buildResearchSummary(session: DeepPlanSession): string {
-  const queries = session.researchQueries;
-  if (queries.length === 0) return '';
-  return (
-    `Queries run (${queries.length}):\n` +
-    queries
-      .map(
-        (q) =>
-          `- "${q.query}" → ${q.ingestedSlugs.length} ingested${
-            q.ingestedSlugs.length > 0 ? ` (${q.ingestedSlugs.join(', ')})` : ''
-          }`,
-      )
-      .join('\n')
-  );
-}
-
 async function runPreDraftLookups(args: {
   model: string;
   session: DeepPlanSession;
   sources: SourceMeta[];
   detailedSummaries: Map<string, string>;
-  plannerSynthesis: string;
-  researchSummary: string;
   docLabel: string;
 }): Promise<string> {
   const prompt = preDraftLookupPrompt(
     args.session,
     args.sources,
     args.detailedSummaries,
-    args.plannerSynthesis,
-    args.researchSummary,
     args.docLabel,
   );
   const messages: LlmMessage[] = [
@@ -477,16 +419,12 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   const target = docs[0]!;
 
   const detailedSummaries = await loadDetailedSummaries(sources);
-  const plannerSynthesis = buildPlannerSynthesis(session);
-  const researchSummary = buildResearchSummary(session);
 
   const prefetchedPassages = await runPreDraftLookups({
     model,
     session,
     sources,
     detailedSummaries,
-    plannerSynthesis,
-    researchSummary,
     docLabel: target.label,
   });
 
@@ -494,8 +432,6 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     session,
     sources,
     detailedSummaries,
-    plannerSynthesis,
-    researchSummary,
     prefetchedPassages,
     target.label,
   );

@@ -6,7 +6,7 @@ import { completeText, ensureLlmReady } from '../../llm';
 import { getDeepPlanModel } from '../settings';
 import { listSources } from '../sources';
 import { deepSearchPlannerPrompt } from '../deepPlan/prompts';
-import { parsePlannerReply } from '../deepPlan/parse';
+import { parseResearchPlan } from '../deepPlan/parse';
 import { readSession as readDeepPlanSession } from '../deepPlan/state';
 import { runResearchEngine } from '../research/engine';
 import { ensureSearchReady } from '../research/search';
@@ -237,17 +237,17 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
             if (run.cancelled) return [];
             const sources = await listSources();
             const priorQueries = state.queries.map((q) => q.query);
-            // Pull the Deep Plan rubric fresh each loop so the planner stays
-            // aligned with any updates the user made mid-run (e.g. refined
-            // must-covers during a clarify detour).
+            // Pull the Deep Plan requirements fresh each loop so the planner
+            // stays aligned with any updates the user made mid-run.
             const dpSession = await readDeepPlanSession().catch(() => null);
-            const rubric = dpSession && !dpSession.skipped ? dpSession.rubric : null;
+            const requirements =
+              dpSession && !dpSession.skipped ? dpSession.requirements : null;
             const prompt = deepSearchPlannerPrompt(
               trimmed,
               sources,
               priorQueries,
               hints,
-              rubric,
+              requirements,
             );
             const raw = await completeText({
               model,
@@ -261,7 +261,7 @@ export async function startSearch(task: string): Promise<DeepSearchStatus> {
               log('deep-search', 'planner.nullReply', {});
               return null;
             }
-            return parsePlannerReply(raw).researchPlan ?? [];
+            return parseResearchPlan(raw) ?? [];
           },
           onQueryComplete: async (proposal, queryId, ingested) => {
             if (run.cancelled) return;

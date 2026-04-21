@@ -27,6 +27,8 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
   const [openDraft, setOpenDraft] = useState('');
   const [choice, setChoice] = useState<string | null>(null);
   const [multi, setMulti] = useState<string[]>([]);
+  const [customMode, setCustomMode] = useState(false);
+  const [customDraft, setCustomDraft] = useState('');
 
   const current = questions[index] ?? null;
   const total = questions.length;
@@ -36,6 +38,8 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
     setOpenDraft('');
     setChoice(null);
     setMulti([]);
+    setCustomMode(false);
+    setCustomDraft('');
   };
 
   const commitAnswer = (value: ChairAnswer): ChairAnswerMap => {
@@ -73,6 +77,8 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
     if (!current) return false;
     switch (current.type) {
       case 'choice':
+        if (customMode) return customDraft.trim().length > 0;
+        return choice !== null;
       case 'confirm':
         return choice !== null;
       case 'multi':
@@ -82,7 +88,7 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
       default:
         return false;
     }
-  }, [current, choice, multi, openDraft]);
+  }, [current, choice, multi, openDraft, customMode, customDraft]);
 
   if (total === 0 || !current) return null;
 
@@ -91,6 +97,8 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
     let value: ChairAnswer = null;
     switch (current.type) {
       case 'choice':
+        value = customMode ? customDraft.trim() : choice;
+        break;
       case 'confirm':
         value = choice;
         break;
@@ -148,22 +156,61 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
         {(current.type === 'choice' || current.type === 'confirm') && (
           <div className="dp-qcard-choices">
             {(current.choices ?? []).map((c) => {
-              const selected = choice === c.id;
+              const selected = !customMode && choice === c.id;
               return (
                 <button
                   key={c.id}
                   type="button"
                   className={`dp-qcard-choice${
                     selected ? ' dp-qcard-choice-selected' : ''
-                  }`}
-                  onClick={() => setChoice(c.id)}
+                  }${c.recommended ? ' dp-qcard-choice-recommended' : ''}`}
+                  onClick={() => {
+                    setCustomMode(false);
+                    setChoice(c.id);
+                  }}
                   disabled={busy}
                 >
                   <span className="dp-qcard-choice-mark dp-qcard-choice-mark-radio" aria-hidden />
                   <span className="dp-qcard-choice-label">{c.label}</span>
+                  {c.recommended && (
+                    <span className="dp-qcard-choice-ribbon">Panel pick</span>
+                  )}
                 </button>
               );
             })}
+            {current.type === 'choice' && current.allowCustom && (
+              <button
+                type="button"
+                className={`dp-qcard-choice dp-qcard-choice-custom${
+                  customMode ? ' dp-qcard-choice-selected' : ''
+                }`}
+                onClick={() => {
+                  setCustomMode(true);
+                  setChoice(null);
+                }}
+                disabled={busy}
+              >
+                <span className="dp-qcard-choice-mark dp-qcard-choice-mark-radio" aria-hidden />
+                <span className="dp-qcard-choice-label">Write my own</span>
+              </button>
+            )}
+            {current.type === 'choice' && current.allowCustom && customMode && (
+              <textarea
+                className="dp-qcard-custom-input"
+                rows={3}
+                placeholder="Your answer — a sentence is plenty"
+                value={customDraft}
+                onChange={(e) => setCustomDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    if (canSubmit && !busy) handleSubmit();
+                  }
+                }}
+                disabled={busy}
+                autoFocus
+              />
+            )}
           </div>
         )}
 
@@ -222,8 +269,9 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
           className="dp-qcard-skip"
           onClick={() => void handleSkip()}
           disabled={busy}
+          title="The panel will pick what they think is right on your behalf."
         >
-          Skip this one
+          Let the panel decide
         </button>
         <button
           type="button"

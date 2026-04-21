@@ -251,6 +251,12 @@ export type ChairQuestionType = 'choice' | 'multi' | 'open' | 'confirm';
 export interface ChairQuestionChoice {
   id: string;
   label: string;
+  /**
+   * When true, this is the Chair's gentle suggestion — what a thoughtful
+   * panel would pick on the user's behalf if they delegated. At most one
+   * choice per question should be recommended.
+   */
+  recommended?: boolean;
 }
 
 export interface ChairQuestion {
@@ -261,6 +267,12 @@ export interface ChairQuestion {
   choices?: ChairQuestionChoice[];
   /** Optional one-line "why this matters" shown under the prompt. */
   rationale?: string;
+  /**
+   * When true (on a `choice` question), the UI offers a "Write my own"
+   * path alongside the listed options — user can take the Chair's options
+   * or type a freeform answer. Defaults off.
+   */
+  allowCustom?: boolean;
 }
 
 /**
@@ -273,18 +285,19 @@ export type ChairAnswer = string | string[] | null;
 export type ChairAnswerMap = Record<string, ChairAnswer>;
 
 /**
- * Chair's structured output for a round. `summary` is the short prose
- * the user sees as a chat bubble (<= 2 sentences). `questions` is the
- * array the Question Card carousel renders one-at-a-time. `phaseAdvance`
- * true means the Chair thinks this phase is done — the UI nudges the
- * user toward Continue but they can keep iterating.
+ * Chair's structured output for a round. The Chair rewrites `plan` in
+ * full every round — plan.md is the living artefact the panel is
+ * refining, and it's cheaper to regenerate than to diff. `summary` is
+ * the short chat bubble explaining what changed and why. `questions` is
+ * the Question Card carousel (1–3 items, only when a genuine judgment
+ * call needs the user). `phaseAdvance: true` means the Chair thinks
+ * this phase is done — the UI nudges the user toward Continue.
  */
 export interface ChairOutput {
   summary: string;
+  plan: string;
   questions: ChairQuestion[];
   phaseAdvance: boolean;
-  /** Optional patch applied to the session rubric after this round. */
-  rubricPatch?: Partial<DeepPlanRubric>;
 }
 
 /**
@@ -303,16 +316,40 @@ export type PanelProgressEvent =
   | { kind: 'chair-done' }
   | { kind: 'round-done' };
 
-export interface DeepPlanRubric {
-  title: string | null;
+/**
+ * Hard constraints extracted from the user's root task. These are
+ * re-injected verbatim into every panel, chair, and drafter prompt so
+ * the constraints don't rot as context grows. Everything here is
+ * structured — freeform additions live in the plan.md itself.
+ */
+export interface PlanRequirements {
+  /** Lower bound on word count if the task specified one (e.g. "1500"). */
+  wordCountMin: number | null;
+  /** Upper bound on word count if the task specified one (e.g. "2500"). */
+  wordCountMax: number | null;
+  /** Form label if mentioned — "essay", "blog post", "report", etc. */
   form: string | null;
+  /** Audience label if mentioned. */
   audience: string | null;
-  lengthTarget: string | null;
-  thesis: string | null;
-  mustCover: string[];
-  mustAvoid: string[];
-  notes: string;
+  /** Any other hard constraints the user stated verbatim, for the panel to honour. */
+  styleNotes: string | null;
 }
+
+/** Session-wide research query budget, across all phases combined. */
+export const DEEP_PLAN_MAX_TOTAL_SEARCHES = 20;
+
+/** Per-round cap on panel-dispatched research queries. */
+export const DEEP_PLAN_MAX_SEARCHES_PER_ROUND = 2;
+
+/** Hard ceiling on Chair questions per round. */
+export const DEEP_PLAN_MAX_QUESTIONS_PER_ROUND = 3;
+
+/**
+ * Soft round limit per phase — once reached, the Chair is strongly
+ * nudged toward `phaseAdvance: true` and asks the user if they'd like
+ * to move on rather than opening a new round of questions.
+ */
+export const DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE = 2;
 
 export interface DeepPlanMessage {
   id: string;
@@ -322,9 +359,7 @@ export interface DeepPlanMessage {
     | 'chat'
     | 'chair-turn'
     | 'user-answers'
-    | 'phase-transition'
-    | 'research-query'
-    | 'research-note';
+    | 'phase-transition';
   timestamp: string;
   /** Populated when `kind === 'chair-turn'`. */
   chair?: ChairOutput;
@@ -332,26 +367,27 @@ export interface DeepPlanMessage {
   answers?: ChairAnswerMap;
 }
 
-export interface DeepPlanResearchQuery {
-  query: string;
-  rationale: string;
-  resultsSeen: number;
-  ingestedSlugs: string[];
-  timestamp: string;
-}
-
 export interface DeepPlanSession {
   id: string;
   projectPath: string;
   phase: DeepPlanPhase;
+  /** The user's original task string, preserved verbatim. */
   task: string;
-  rubric: DeepPlanRubric;
+  /** Hard constraints parsed from `task` on session creation. */
+  requirements: PlanRequirements;
+  /**
+   * Living plan.md — the artefact the panel is iteratively refining.
+   * Rewritten in full by the Chair every round. Fed to the final drafter
+   * as the distillation of the whole Deep Plan session.
+   */
+  plan: string;
   messages: DeepPlanMessage[];
-  researchQueries: DeepPlanResearchQuery[];
   /** Chair-authored questions awaiting user response, if any. */
   pendingQuestions: ChairQuestion[];
   /** Running count of panel rounds per phase (convergence heuristic). */
   roundsPerPhase: Record<DeepPlanPhase, number>;
+  /** Running total of web-search queries dispatched by the panel. Capped at DEEP_PLAN_MAX_TOTAL_SEARCHES. */
+  searchesUsed: number;
   tokensUsedK: number;
   createdAt: string;
   updatedAt: string;

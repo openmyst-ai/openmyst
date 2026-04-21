@@ -1,4 +1,5 @@
-import type { DeepPlanRubric, PendingEdit } from '@shared/types';
+import type { PendingEdit } from '@shared/types';
+import type { PlanLookupPayload } from './contextLookups';
 import { PROSE_STYLE } from '../../writing';
 
 /**
@@ -9,20 +10,20 @@ import { PROSE_STYLE } from '../../writing';
  *   2. tweak + format etiquette — ask-for-feedback + match doc formatting
  *   3. pending edits block      — the staging area the user hasn't accepted
  *   4. active-doc label + char count (NOT the body)
- *   5. optional "Deep Plan completed: …" one-liner (when a rubric exists)
+ *   5. optional "Deep Plan completed: …" one-liner (when a plan exists)
  *   6. wiki index               — short source list, needed so the model
  *                                 knows what it CAN pull via source_lookup
- *   7. lookup/tool protocols    — doc_lookup, rubric_lookup, queries_lookup,
+ *   7. lookup/tool protocols    — doc_lookup, plan_lookup, queries_lookup,
  *                                 source_lookup (via wiki block), web_search
  *   8. prose-style guide        — hard rules + distilled humanizer
  *
  * What the model pulls ON DEMAND (new in this revision):
  *   - the document body itself (`doc_lookup` — full, find-window, or range)
- *   - the Deep Plan rubric (`rubric_lookup`)
+ *   - the Deep Plan plan.md + requirements (`plan_lookup`)
  *   - prior research queries (`queries_lookup`)
  *
  * Rationale: short turns ("change the title") no longer drag the full doc +
- * rubric + queries through context. Meaningful turns pull what they need in
+ * plan + queries through context. Meaningful turns pull what they need in
  * one extra round. The lookup loop in turn.ts (MAX_LOOKUP_ROUNDS) resolves
  * these in parallel with source/web lookups, so most turns still complete in
  * a single follow-up.
@@ -53,32 +54,38 @@ function buildPendingBlock(pending: PendingEdit[]): string {
   );
 }
 
-function rubricIsEmpty(r: DeepPlanRubric): boolean {
+function planIsEmpty(p: PlanLookupPayload): boolean {
+  const r = p.requirements;
   return (
-    !r.title &&
+    p.plan.trim().length === 0 &&
+    r.wordCountMin === null &&
+    r.wordCountMax === null &&
     !r.form &&
     !r.audience &&
-    !r.lengthTarget &&
-    !r.thesis &&
-    r.mustCover.length === 0 &&
-    r.mustAvoid.length === 0 &&
-    !r.notes.trim()
+    !r.styleNotes
   );
 }
 
 /**
- * One-line teaser so the model knows a rubric exists and can decide whether
- * to pull it. We never inline the rubric itself — `rubric_lookup` gets it.
+ * One-line teaser so the model knows a plan exists and can decide whether
+ * to pull it. We never inline the plan itself — `plan_lookup` gets it.
  */
-function buildRubricTeaser(rubric: DeepPlanRubric | null): string {
-  if (!rubric || rubricIsEmpty(rubric)) return '';
+function buildPlanTeaser(plan: PlanLookupPayload | null): string {
+  if (!plan || planIsEmpty(plan)) return '';
+  const r = plan.requirements;
   const bits: string[] = [];
-  if (rubric.form) bits.push(rubric.form);
-  if (rubric.lengthTarget) bits.push(rubric.lengthTarget);
-  if (rubric.audience) bits.push(`for ${rubric.audience}`);
-  const label = rubric.title || bits.join(', ') || 'writing plan';
+  if (r.form) bits.push(r.form);
+  if (r.wordCountMin !== null && r.wordCountMax !== null) {
+    bits.push(
+      r.wordCountMin === r.wordCountMax
+        ? `~${r.wordCountMin} words`
+        : `${r.wordCountMin}–${r.wordCountMax} words`,
+    );
+  }
+  if (r.audience) bits.push(`for ${r.audience}`);
+  const label = bits.join(', ') || 'writing plan';
   return (
-    `\n\n[Deep Plan in play] "${label}". The full rubric (thesis, must-cover, must-avoid, notes) lives behind \`rubric_lookup\`. Pull it when the user references "the plan", "the rubric", or when you're about to make a structural decision.`
+    `\n\n[Deep Plan in play] ${label}. The full plan.md (thesis, section beats, source attributions) and hard requirements live behind \`plan_lookup\`. Pull it when the user references "the plan", or when you're about to make a structural decision.`
   );
 }
 
@@ -100,9 +107,9 @@ function buildLookupProtocols(): string {
     '3) **Character range** — when you need a specific region (e.g. the opening 500 chars).\n' +
     '```doc_lookup\n{"from": 0, "to": 500}\n```\n\n' +
     'Multiple `doc_lookup` blocks in one response resolve in parallel. Prefer `find` over full-body whenever possible — full-body reads are the biggest token cost of a turn.\n\n' +
-    '[rubric_lookup — pull the Deep Plan rubric]\n' +
-    '```rubric_lookup\n{}\n```\n' +
-    'Returns the thesis, must-cover, must-avoid, and notes the user agreed to during Deep Plan. Call when the user references "the plan"/"the rubric", or before a structural decision.\n\n' +
+    '[plan_lookup — pull the Deep Plan plan.md and requirements]\n' +
+    '```plan_lookup\n{}\n```\n' +
+    'Returns the task, hard requirements (word count, form, audience, style notes), and the full plan.md that the panel built. Call when the user references "the plan", or before a structural decision.\n\n' +
     '[queries_lookup — see what research has already been run]\n' +
     '```queries_lookup\n{}\n```\n' +
     "Returns every web search this project has already run during Deep Plan / Deep Search. Call before running a new web_search if the user's ask overlaps prior research territory — don't re-run the same query expecting different results."
@@ -150,21 +157,21 @@ export interface SystemPromptInput {
   document: string;
   pending: PendingEdit[];
   wikiIndex: string;
-  rubric: DeepPlanRubric | null;
+  plan: PlanLookupPayload | null;
   researchQueries: string[];
 }
 
 const WRITING_STYLE_RIDER =
-  '\n\n========== BEGIN prose-style guide. Applies to any prose the user will read (myst_edit new_strings, rewrites, chat answers, short replies). STRICTLY SECONDARY to the fenced-protocol rules above (doc_lookup, rubric_lookup, queries_lookup, source_lookup, myst_edit, web_search). If the two conflict, fence rules win. ==========\n' +
+  '\n\n========== BEGIN prose-style guide. Applies to any prose the user will read (myst_edit new_strings, rewrites, chat answers, short replies). STRICTLY SECONDARY to the fenced-protocol rules above (doc_lookup, plan_lookup, queries_lookup, source_lookup, myst_edit, web_search). If the two conflict, fence rules win. ==========\n' +
   PROSE_STYLE +
   '\n========== END prose-style guide ==========';
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
-  const { agentPrompt, docLabel, document, pending, wikiIndex, rubric } = input;
+  const { agentPrompt, docLabel, document, pending, wikiIndex, plan } = input;
   return [
     agentPrompt,
     TWEAK_ETIQUETTE,
-    buildRubricTeaser(rubric),
+    buildPlanTeaser(plan),
     buildDocHeader(docLabel, document.length),
     buildPendingBlock(pending),
     buildLookupProtocols(),

@@ -11,6 +11,7 @@ import { readSession as readDeepPlanSession } from '../deepPlan/state';
 import { readState as readDeepSearchState } from '../deepSearch/state';
 import { appendMessage, clearHistory, loadHistory } from './persistence';
 import { runTurn } from './turn';
+import type { PlanLookupPayload } from './contextLookups';
 
 /**
  * Chat feature entry point. The renderer calls `sendMessage` with the user's
@@ -54,24 +55,25 @@ export async function sendMessage(
   const wikiIndex = await readWikiIndex();
   const docLabel = activeDocument.replace(/\.md$/, '');
 
-  // Pull the Deep Plan rubric (if any) so the agent keeps its thesis,
-  // must-covers, and must-avoids in view across sessions. Skipped plans
-  // don't inject — the user explicitly opted out of the framing.
+  // Pull the Deep Plan plan.md + requirements (if any) so the agent keeps
+  // the thesis, section structure, and hard constraints in view across
+  // sessions. Skipped plans don't inject — the user explicitly opted out.
   const deepPlanSession = await readDeepPlanSession().catch(() => null);
-  const rubric =
-    deepPlanSession && !deepPlanSession.skipped ? deepPlanSession.rubric : null;
+  const plan: PlanLookupPayload | null =
+    deepPlanSession && !deepPlanSession.skipped
+      ? {
+          task: deepPlanSession.task,
+          requirements: deepPlanSession.requirements,
+          plan: deepPlanSession.plan,
+        }
+      : null;
 
-  // Combine research queries from both loops so the agent knows what's
-  // already been asked. De-duped preserving first-seen order.
+  // Research queries from the Deep Search side so the agent knows what's
+  // already been asked. (Deep Plan no longer persists a query list — the
+  // panel dispatches them inline; searchesUsed is a counter only.)
   const deepSearchState = await readDeepSearchState().catch(() => null);
   const researchQueries: string[] = [];
   const seen = new Set<string>();
-  for (const q of deepPlanSession?.researchQueries ?? []) {
-    const key = q.query.trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    researchQueries.push(q.query);
-  }
   for (const q of deepSearchState?.queries ?? []) {
     const key = q.query.trim().toLowerCase();
     if (!key || seen.has(key)) continue;
@@ -103,7 +105,7 @@ export async function sendMessage(
       activeDocument,
       userText,
       displayText,
-      rubric,
+      plan,
       researchQueries,
     });
   } catch (err) {

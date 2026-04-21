@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
   DeepPlanPhase,
-  DeepPlanRubric,
   DeepPlanSession,
   DeepPlanStatus,
+  PlanRequirements,
 } from '@shared/types';
 import { DEEP_PLAN_PHASE_ORDER } from '@shared/types';
 import { projectPath, projectRoot, ensureDir, log } from '../../platform';
@@ -29,21 +29,76 @@ function pendingFlagPath(): string {
   return projectPath('.myst', 'deep-plan', 'pending.flag');
 }
 
-function emptyRubric(): DeepPlanRubric {
+function emptyRoundsPerPhase(): Record<DeepPlanPhase, number> {
+  return { ideation: 0, planning: 0, reviewing: 0, done: 0 };
+}
+
+function emptyRequirements(): PlanRequirements {
   return {
-    title: null,
+    wordCountMin: null,
+    wordCountMax: null,
     form: null,
     audience: null,
-    lengthTarget: null,
-    thesis: null,
-    mustCover: [],
-    mustAvoid: [],
-    notes: '',
+    styleNotes: null,
   };
 }
 
-function emptyRoundsPerPhase(): Record<DeepPlanPhase, number> {
-  return { ideation: 0, planning: 0, reviewing: 0, done: 0 };
+/**
+ * Best-effort extraction of hard constraints from a freeform task string.
+ * We only pull what we can detect with high confidence — anything ambiguous
+ * stays null and gets filled in later by the Chair as the panel converges.
+ */
+export function extractRequirements(task: string): PlanRequirements {
+  const out = emptyRequirements();
+  const lower = task.toLowerCase();
+
+  // Word-count range: "1500-2500 words" / "1500 to 2500 words" / "~2000 words"
+  const rangeMatch = lower.match(
+    /(\d{3,6})\s*(?:-|–|to|\s)\s*(\d{3,6})\s*words?/,
+  );
+  if (rangeMatch) {
+    out.wordCountMin = Number(rangeMatch[1]);
+    out.wordCountMax = Number(rangeMatch[2]);
+  } else {
+    // Single target: "~2000 words" / "2000 words" / "a 2000-word essay"
+    const singleMatch = lower.match(/(\d{3,6})[-\s]?words?/);
+    if (singleMatch) {
+      const n = Number(singleMatch[1]);
+      out.wordCountMin = n;
+      out.wordCountMax = n;
+    }
+  }
+
+  // Form — match against a small known vocabulary. If none fits, leave null.
+  const forms = [
+    'essay',
+    'blog post',
+    'blog',
+    'article',
+    'report',
+    'memo',
+    'review',
+    'op-ed',
+    'editorial',
+    'whitepaper',
+    'case study',
+    'feature',
+    'profile',
+  ];
+  for (const f of forms) {
+    if (lower.includes(f)) {
+      out.form = f;
+      break;
+    }
+  }
+
+  // Audience — look for "for <X>" patterns. Crude but gets the common case.
+  const audienceMatch = task.match(
+    /\bfor\s+(?:a\s+|an\s+|the\s+)?([a-zA-Z][a-zA-Z\s-]{3,40}?)\s+(?:audience|readers?|community|crowd)\b/i,
+  );
+  if (audienceMatch) out.audience = audienceMatch[1]!.trim();
+
+  return out;
 }
 
 export async function ensureDeepPlanDir(): Promise<void> {
@@ -75,10 +130,10 @@ export async function shouldAutoStart(): Promise<boolean> {
 }
 
 /**
- * Best-effort backfill of legacy session files. Sessions written before the
- * phase rewrite had `stage` / `researchHints` / `skipped` at the top level.
- * We map the old stage family to a coarse phase so returning users don't
- * hit a crash — the loop will iterate from there.
+ * Best-effort backfill of legacy session files. Anything written before
+ * the plan.md rewrite carried a `rubric` + `researchQueries` shape; we
+ * drop those and seed the new fields so returning users don't crash. The
+ * loop will pick up wherever the old phase marker says.
  */
 function backfillLegacy(parsed: Record<string, unknown>): void {
   if (!parsed.phase && typeof parsed.stage === 'string') {
@@ -99,8 +154,20 @@ function backfillLegacy(parsed: Record<string, unknown>): void {
     delete parsed.stage;
   }
   if (!parsed.phase) parsed.phase = 'ideation';
-  if (!Array.isArray(parsed.researchQueries)) parsed.researchQueries = [];
   if (!Array.isArray(parsed.pendingQuestions)) parsed.pendingQuestions = [];
+  if (typeof parsed.plan !== 'string') parsed.plan = '';
+  if (
+    !parsed.requirements ||
+    typeof parsed.requirements !== 'object'
+  ) {
+    parsed.requirements = emptyRequirements();
+  } else {
+    parsed.requirements = {
+      ...emptyRequirements(),
+      ...(parsed.requirements as Record<string, unknown>),
+    };
+  }
+  if (typeof parsed.searchesUsed !== 'number') parsed.searchesUsed = 0;
   if (
     !parsed.roundsPerPhase ||
     typeof parsed.roundsPerPhase !== 'object'
@@ -115,6 +182,8 @@ function backfillLegacy(parsed: Record<string, unknown>): void {
   if (typeof parsed.tokensUsedK !== 'number') parsed.tokensUsedK = 0;
   // Drop fields that no longer exist so we don't carry dead weight forward.
   delete (parsed as { researchHints?: unknown }).researchHints;
+  delete (parsed as { researchQueries?: unknown }).researchQueries;
+  delete (parsed as { rubric?: unknown }).rubric;
 }
 
 export async function readSession(): Promise<DeepPlanSession | null> {
@@ -146,16 +215,18 @@ export async function deleteSession(): Promise<void> {
 export async function createSession(task: string): Promise<DeepPlanSession> {
   const root = projectRoot();
   const now = new Date().toISOString();
+  const trimmed = task.trim();
   const session: DeepPlanSession = {
     id: randomUUID(),
     projectPath: root,
     phase: 'ideation',
-    task: task.trim(),
-    rubric: emptyRubric(),
+    task: trimmed,
+    requirements: extractRequirements(trimmed),
+    plan: '',
     messages: [],
-    researchQueries: [],
     pendingQuestions: [],
     roundsPerPhase: emptyRoundsPerPhase(),
+    searchesUsed: 0,
     tokensUsedK: 0,
     createdAt: now,
     updatedAt: now,
@@ -163,7 +234,10 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
     completed: false,
   };
   await writeSession(session);
-  log('deep-plan', 'session.created', { task: task.slice(0, 120) });
+  log('deep-plan', 'session.created', {
+    task: trimmed.slice(0, 120),
+    requirements: session.requirements,
+  });
   return session;
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
-import type { ChatMessage, DeepPlanRubric, PendingEdit } from '@shared/types';
+import type { ChatMessage, PendingEdit } from '@shared/types';
 import { broadcast, log } from '../../platform';
 import { streamChat, type LlmMessage } from '../../llm';
 import {
@@ -21,11 +21,12 @@ import {
 } from '../research/webSearchLookup';
 import {
   formatDocReply,
+  formatPlanReply,
   formatQueriesReply,
-  formatRubricReply,
   parseDocLookups,
+  parsePlanLookups,
   parseQueriesLookups,
-  parseRubricLookups,
+  type PlanLookupPayload,
 } from './contextLookups';
 import {
   cleanChatContent,
@@ -60,7 +61,7 @@ export interface TurnContext {
   activeDocument: string;
   userText: string;
   displayText: string | undefined;
-  rubric: DeepPlanRubric | null;
+  plan: PlanLookupPayload | null;
   researchQueries: string[];
 }
 
@@ -156,7 +157,7 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     activeDocument,
     userText,
     displayText,
-    rubric,
+    plan,
     researchQueries,
   } = ctx;
 
@@ -183,7 +184,7 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     document,
     pending: existingPending,
     wikiIndex,
-    rubric,
+    plan,
     researchQueries,
   });
 
@@ -215,13 +216,13 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     const { requests: sourceRequests } = parseSourceLookups(fullContent);
     const { requests: webRequests } = parseWebSearches(fullContent);
     const { requests: docRequests } = parseDocLookups(fullContent);
-    const { requests: rubricRequests } = parseRubricLookups(fullContent);
+    const { requests: planRequests } = parsePlanLookups(fullContent);
     const { requests: queriesRequests } = parseQueriesLookups(fullContent);
     if (
       sourceRequests.length === 0 &&
       webRequests.length === 0 &&
       docRequests.length === 0 &&
-      rubricRequests.length === 0 &&
+      planRequests.length === 0 &&
       queriesRequests.length === 0
     ) {
       break;
@@ -231,7 +232,7 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
       sourceCount: sourceRequests.length,
       webCount: webRequests.length,
       docCount: docRequests.length,
-      rubricCount: rubricRequests.length,
+      planCount: planRequests.length,
       queriesCount: queriesRequests.length,
     });
     const [resolvedSources, resolvedWeb] = await Promise.all([
@@ -242,7 +243,7 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
     if (resolvedSources.length > 0) parts.push(formatLookupReply(resolvedSources));
     if (resolvedWeb.length > 0) parts.push(formatWebSearchReply(resolvedWeb));
     if (docRequests.length > 0) parts.push(formatDocReply(docLabel, document, docRequests));
-    if (rubricRequests.length > 0) parts.push(formatRubricReply(rubric));
+    if (planRequests.length > 0) parts.push(formatPlanReply(plan));
     if (queriesRequests.length > 0) parts.push(formatQueriesReply(researchQueries));
     const followUp = parts.join('\n\n');
     const replayMessages: LlmMessage[] = [
@@ -262,7 +263,7 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
   fullContent = parseSourceLookups(fullContent).stripped || fullContent;
   fullContent = parseWebSearches(fullContent).stripped || fullContent;
   fullContent = parseDocLookups(fullContent).stripped || fullContent;
-  fullContent = parseRubricLookups(fullContent).stripped || fullContent;
+  fullContent = parsePlanLookups(fullContent).stripped || fullContent;
   fullContent = parseQueriesLookups(fullContent).stripped || fullContent;
 
   let { edits, chatContent } = parseEditBlocks(fullContent);

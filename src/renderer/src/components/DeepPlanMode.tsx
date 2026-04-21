@@ -8,6 +8,7 @@ import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
 import { StageBar } from './deepPlan/StageBar';
 import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
+import { PlanColumn } from './deepPlan/PlanColumn';
 import { ConversationColumn } from './deepPlan/ConversationColumn';
 import { DraftGenerationModal } from './deepPlan/DraftGenerationModal';
 import { SourcePreviewPopup } from './SourcePreview';
@@ -44,6 +45,7 @@ export function DeepPlanMode(): JSX.Element {
   } = useDeepPlan();
 
   const [intentDraft, setIntentDraft] = useState('');
+  const [rightTab, setRightTab] = useState<'plan' | 'graph'>('plan');
 
   const pushResearchEvent = useResearchEvents((s) => s.push);
 
@@ -133,7 +135,29 @@ export function DeepPlanMode(): JSX.Element {
         </section>
 
         <aside className="dp-col dp-col-right" data-tutorial="dp-wiki">
-          <WikiGraphColumn />
+          <div className="dp-right-tabs" role="tablist" aria-label="Right panel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'plan'}
+              className={`dp-right-tab${rightTab === 'plan' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('plan')}
+            >
+              Plan
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'graph'}
+              className={`dp-right-tab${rightTab === 'graph' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('graph')}
+            >
+              Graph
+            </button>
+          </div>
+          <div className="dp-right-tabpanel">
+            {rightTab === 'plan' ? <PlanColumn /> : <WikiGraphColumn />}
+          </div>
         </aside>
       </div>
 

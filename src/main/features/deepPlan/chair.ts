@@ -3,6 +3,7 @@ import type {
   ChairOutput,
   DeepPlanSession,
   PanelOutput,
+  SourceMeta,
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { completeText, type LlmMessage } from '../../llm';
@@ -11,19 +12,19 @@ import { chairPrompt } from './prompts';
 import { parseChairOutput } from './parse';
 
 /**
- * Strong-model Chair call. Consumes the panel's structured findings,
- * emits a JSON object `{summary, questions, phaseAdvance, rubricPatch}`
- * that the renderer splits into a chat bubble + Question Card carousel.
+ * Strong-model Chair call. Consumes the panel's structured findings and
+ * the current plan.md, emits a JSON object `{summary, plan, questions,
+ * phaseAdvance}` where `plan` is the full rewritten plan.md.
  *
- * On parse failure we fall back to a minimal ChairOutput with the raw
- * text as summary and no questions, so the user always sees *something*
- * rather than a frozen UI.
+ * On parse failure we preserve the prior plan and surface the raw reply as
+ * the summary so the user sees *something* rather than a frozen UI.
  */
 export async function runChair(args: {
   session: DeepPlanSession;
   panelOutputs: PanelOutput[];
   newlyIngestedSourceSlugs: string[];
   roundNumber: number;
+  sources: SourceMeta[];
 }): Promise<ChairOutput> {
   broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-start' });
 
@@ -33,6 +34,7 @@ export async function runChair(args: {
     panelOutputs: args.panelOutputs,
     newlyIngestedSourceSlugs: args.newlyIngestedSourceSlugs,
     roundNumber: args.roundNumber,
+    sources: args.sources,
   });
 
   const messages: LlmMessage[] = [
@@ -51,6 +53,7 @@ export async function runChair(args: {
     broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-done' });
     return {
       summary: `I hit an error synthesising the panel: ${(err as Error).message}. You can hit Continue to move on.`,
+      plan: args.session.plan,
       questions: [],
       phaseAdvance: false,
     };
@@ -62,6 +65,7 @@ export async function runChair(args: {
     log('deep-plan', 'chair.emptyReply', {});
     return {
       summary: 'The panel had nothing substantive to add this round.',
+      plan: args.session.plan,
       questions: [],
       phaseAdvance: true,
     };
@@ -72,16 +76,21 @@ export async function runChair(args: {
     log('deep-plan', 'chair.parseFailed', { replyChars: reply.length });
     return {
       summary: reply.trim().slice(0, 500),
+      plan: args.session.plan,
       questions: [],
       phaseAdvance: false,
     };
   }
 
+  // If the model omitted the plan field, preserve the prior one rather than
+  // blanking the artefact the drafter depends on.
+  const planOut = parsed.plan.trim() ? parsed.plan : args.session.plan;
+
   log('deep-plan', 'chair.done', {
     questions: parsed.questions.length,
     phaseAdvance: parsed.phaseAdvance,
-    hasRubricPatch: Boolean(parsed.rubricPatch),
+    planChars: planOut.length,
   });
 
-  return parsed;
+  return { ...parsed, plan: planOut };
 }

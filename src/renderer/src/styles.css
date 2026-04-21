@@ -4949,3 +4949,198 @@ img.login-logo {
   cursor: not-allowed;
   box-shadow: none;
 }
+
+/* Panel-pick ribbon on the Chair's recommended choice. */
+.dp-qcard-choice-recommended {
+  position: relative;
+  border-color: var(--accent);
+}
+.dp-qcard-choice-ribbon {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent);
+}
+
+/* "Write my own" custom-answer textarea appended to a choice question. */
+.dp-qcard-choice-custom {
+  font-style: italic;
+  color: var(--muted);
+}
+.dp-qcard-choice-custom.dp-qcard-choice-selected {
+  font-style: normal;
+  color: var(--accent-fg);
+}
+.dp-qcard-custom-input {
+  width: 100%;
+  min-height: 80px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.dp-qcard-custom-input::placeholder {
+  color: var(--muted);
+}
+.dp-qcard-custom-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* Right-column tab switcher: Plan | Graph. */
+.dp-right-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt, #141414);
+}
+.dp-right-tab {
+  position: relative;
+  background: transparent;
+  border: none;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 14px 12px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.dp-right-tab:hover:not(.dp-right-tab-active) {
+  color: var(--fg);
+}
+.dp-right-tab-active {
+  color: var(--fg);
+}
+.dp-right-tab-active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+.dp-right-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: 4px;
+}
+.dp-right-tabpanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* plan.md markdown viewer. */
+.dp-plan {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+.dp-plan-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.dp-plan-empty .dp-muted {
+  max-width: 280px;
+}
+.dp-plan h1,
+.dp-plan h2,
+.dp-plan h3,
+.dp-plan h4 {
+  color: var(--fg);
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+.dp-plan h1 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.dp-plan h2 {
+  font-size: 15px;
+  font-weight: 700;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.dp-plan h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.dp-plan p {
+  margin: 0.6em 0;
+}
+.dp-plan ul,
+.dp-plan ol {
+  margin: 0.4em 0 0.8em;
+  padding-left: 1.4em;
+}
+.dp-plan li {
+  margin: 0.2em 0;
+}
+.dp-plan code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.dp-plan pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.dp-plan pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.dp-plan blockquote {
+  margin: 0.6em 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.dp-plan a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--accent);
+}
+.dp-plan a:hover {
+  border-bottom-style: solid;
+}
+
