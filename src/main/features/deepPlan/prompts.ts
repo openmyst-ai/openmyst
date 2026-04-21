@@ -299,9 +299,11 @@ ${rubricBlock(session.rubric)}
 Sources:
 ${sourcesBlock(sources)}
 
-Your job: ask 3-6 sharp, opinionated questions that would materially change the draft. Focus on tensions — places where your sources pull in different directions, places where the rubric is still fuzzy, places where a writer would need a decision before proceeding. Each question states your default view; the user confirms or redirects.
+Your job: ask 3-6 sharp, opinionated questions that would materially change the draft. Focus on tensions, places where your sources pull in different directions, places where the rubric is still fuzzy, places where a writer would need a decision before proceeding. Each question states your default view; the user confirms or redirects.
 
 Format as a short numbered list. Keep each question to one sentence. End with "Hit Continue when you're happy with these."
+
+IMPORTANT: Do NOT emit \`source_lookup\` fences at this stage. The detailed summaries and anchor labels above are sufficient for framing questions; pulling verbatim passages happens in the pre-draft pass, not here. Emitting a single lookup in this stage burns ~30s of user time for no gain. Ask the questions directly from what you can see.
 
 IMPORTANT: At the end of EVERY reply, emit a fenced code block tagged \`rubric_update\` with a JSON object capturing any decisions you've already inferred. Only include fields that changed. Example:
 

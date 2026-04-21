@@ -118,21 +118,24 @@ export function ConversationColumn({ session }: Props): JSX.Element {
           <MessageBubble key={m.id} message={m} />
         ))}
         {streaming && (() => {
-          const { visible, isWriting } = stripDeepPlanFences(streamingBuffer);
+          const { visible } = stripDeepPlanFences(streamingBuffer);
+          // Always show a Thinking indicator while the stream is open. Between
+          // multi-round source_lookup resolutions the model can go silent for
+          // 30–90s while disk/network work happens — if we only showed the
+          // dots when `isWriting` was true, the user sees visible prose from
+          // an earlier round just sitting there and assumes we're frozen.
           return (
             <div className="dp-msg dp-msg-assistant">
               <div className="dp-msg-body">
                 {visible && <Markdown text={visible} />}
-                {(isWriting || !visible) && (
-                  <div className="dp-typing dp-typing-fade">
-                    <span className="generating-dots">
-                      <span className="dot" />
-                      <span className="dot" />
-                      <span className="dot" />
-                    </span>
-                    <span className="dp-muted"> Thinking…</span>
-                  </div>
-                )}
+                <div className="dp-typing dp-typing-fade">
+                  <span className="generating-dots">
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </span>
+                  <span className="dp-muted"> Thinking…</span>
+                </div>
               </div>
             </div>
           );
