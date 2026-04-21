@@ -298,6 +298,16 @@ export interface ChairOutput {
   plan: string;
   questions: ChairQuestion[];
   phaseAdvance: boolean;
+  /**
+   * Chair's structured update to session.requirements for this round — the
+   * Chair fills this when the user just answered a question about a hard
+   * requirement (word count, form, audience, styleNotes). Only include
+   * fields that actually changed this round; omit the rest. The runner
+   * shallow-merges this into session.requirements. Without this, answers
+   * would live in the transcript but never mutate the requirements block,
+   * so the Chair would re-ask the same question every subsequent round.
+   */
+  requirementsPatch?: Partial<PlanRequirements> | null;
 }
 
 /**
@@ -347,9 +357,12 @@ export const DEEP_PLAN_MAX_QUESTIONS_PER_ROUND = 3;
 /**
  * Soft round limit per phase — once reached, the Chair is strongly
  * nudged toward `phaseAdvance: true` and asks the user if they'd like
- * to move on rather than opening a new round of questions.
+ * to move on rather than opening a new round of questions. Previously 2,
+ * bumped to 3 so ideation gets a genuine chance to dig — two rounds was
+ * shallow in practice (a vague thesis would advance without the panel
+ * surfacing audience/scope/word-count tensions hard enough).
  */
-export const DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE = 2;
+export const DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE = 3;
 
 export interface DeepPlanMessage {
   id: string;

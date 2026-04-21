@@ -40,6 +40,20 @@ export const DEEP_PLAN_COMMANDS: string = PROSE_STYLE;
 
 /* ───────────────────────────── Shared blocks ───────────────────────────── */
 
+/**
+ * Names the hard-requirement fields the task string didn't pin down. The
+ * Chair uses this to decide whether to open the round by asking the user
+ * for the missing constraints (word count, form, audience) before burning
+ * more panel rounds on a plan that can't be judged against anything.
+ */
+function missingRequirements(req: PlanRequirements): string[] {
+  const missing: string[] = [];
+  if (req.wordCountMin === null && req.wordCountMax === null) missing.push('word count');
+  if (!req.form) missing.push('form');
+  if (!req.audience) missing.push('audience');
+  return missing;
+}
+
 function requirementsBlock(req: PlanRequirements): string {
   const lengthLine = (() => {
     if (req.wordCountMin !== null && req.wordCountMax !== null) {
@@ -102,7 +116,7 @@ function richSourcesBlock(
 
 function searchBudgetBlock(session: DeepPlanSession): string {
   const remaining = Math.max(0, DEEP_PLAN_MAX_TOTAL_SEARCHES - session.searchesUsed);
-  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. The per-round panel cap is ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND}. Searching is EXPENSIVE — prefer reasoning over the plan and existing sources; only request a search when a specific gap in the wiki genuinely blocks progress.`;
+  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. Per-round panel cap: ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND}. Searches are welcome — especially early, when the plan is sparse and one grounding source can sharpen a whole section. Don't burn every round on searches, but don't go silent either: when a specific plan claim would land harder with a primary source the wiki doesn't have yet, propose the query.`;
 }
 
 export const DEEP_REFERENCE_RIDER = `[Deep reference] Each source above may list anchor ids (format \`slug#anchor-id\`) beneath it. To pull the EXACT verbatim passage for an anchor, emit a fenced \`source_lookup\` block. The system will resolve it deterministically and inject the verbatim text into the conversation before your next turn. Never paraphrase quotes from memory — use the lookup.
@@ -214,10 +228,10 @@ function panelContextBlock(ctx: PanelContext): string {
 
 export function panelistPrompt(role: PanelRole, ctx: PanelContext): string {
   const persona = ROLE_PERSONAS[role];
-  const canSearch = role === 'evidence' && ctx.remainingSearchBudget > 0;
+  const canSearch = ctx.remainingSearchBudget > 0;
   const searchClause = canSearch
-    ? `- \`needsResearch\`: at most ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND} queries, and ONLY when a specific plan claim is blocked by a gap the wiki does not cover. Most rounds should emit [].`
-    : `- \`needsResearch\`: emit []. You are not the Evidence role${ctx.remainingSearchBudget <= 0 ? ' and the session search budget is exhausted' : ''}. Work with the plan and wiki you already have.`;
+    ? `- \`needsResearch\`: up to ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND} queries when a specific plan claim would land harder with a source the wiki lacks. Any role may request — not just Evidence. Early ideation rounds benefit most: one or two seed queries on the core concept can reshape the whole plan.`
+    : `- \`needsResearch\`: emit []. The session search budget is exhausted — work with the plan and wiki you already have.`;
 
   return `You are ONE voice on an adversarial panel that is iteratively refining a writer's plan.md. You do NOT talk to the writer. You report structured findings to the Chair, who rewrites plan.md in full and synthesises the round for the user.
 
@@ -231,7 +245,7 @@ Your job this round:
 1. Read the current plan.md carefully. It is not empty in most rounds — it is the result of prior panel feedback.
 2. Through your role's lens, identify the 2–3 things that most need to change in the plan. Be specific: name the section, the claim, the framing, or the beat.
 3. For each finding, your \`suggestedAction\` should read as a concrete plan edit the Chair could apply verbatim ("rewrite §2 to open with the counter-example from smith-2022", "drop the intro paragraph — it restates the thesis before earning it", "add a §3.5 that names the opposing view and responds to it").
-4. Searching is a LAST RESORT, not a default. The goal is reasoning and plan refinement, not query dispatch.
+4. Searching is allowed and encouraged when the wiki lacks a source a specific plan claim would lean on. The goal is reasoning *plus* grounding: reasoning alone produces a plan that sounds confident but isn't anchored. In early ideation rounds especially, propose one or two seed queries on the core concept when the wiki is bare.
 
 Output ONLY a JSON object of this exact shape — no prose, no markdown fences, no commentary:
 
@@ -312,14 +326,21 @@ export function chairPrompt(args: ChairPromptArgs): string {
   const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources } = args;
   const phase = session.phase;
   const priorSummaries = priorChairDigest(session);
+  const missing = missingRequirements(session.requirements);
+  const requirementsComplete = missing.length === 0;
   const softLimitHit = roundNumber >= DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE;
   const researchNote =
     newlyIngestedSourceSlugs.length > 0
       ? `\nResearch dispatched this round landed ${newlyIngestedSourceSlugs.length} new source(s) in the wiki: ${newlyIngestedSourceSlugs.join(', ')}. Factor these into your rewrite.`
       : '';
-  const advanceNudge = softLimitHit
-    ? `\n\n[Round pressure] This is round ${roundNumber} of this phase. The user has given you enough signal — strongly prefer \`phaseAdvance: true\` and, if you ask a question, make it a single confirm-style "ready to move on?" rather than opening a new line of inquiry.`
+  const requirementsGap = !requirementsComplete
+    ? `\n\n[Requirements gap] The task string didn't pin down: ${missing.join(', ')}. Ask about these NOW — they're the hardest constraints on the final draft and the panel can't judge the plan without them. Use \`choice\` questions with sensible defaults marked \`recommended\`. Do NOT set \`phaseAdvance: true\` while any of these are still open.`
     : '';
+  const advanceNudge = softLimitHit && requirementsComplete
+    ? `\n\n[Round pressure] This is round ${roundNumber} of this phase. The user has given you enough signal — strongly prefer \`phaseAdvance: true\` and, if you ask a question, make it a single confirm-style "ready to move on?" rather than opening a new line of inquiry.`
+    : softLimitHit
+      ? `\n\n[Round pressure] This is round ${roundNumber} — normally we'd be ready to advance, but requirements are still incomplete (see above). Finish those first, then advance next round.`
+      : '';
 
   return `You are the CHAIR of an adversarial panel helping a writer build a plan.md. The panel has just produced ${panelOutputs.length} sets of findings. Your job has two parts:
 
@@ -333,7 +354,7 @@ Current round in this phase: ${roundNumber}${advanceNudge}
 User's task: "${session.task}"
 
 Task requirements (hard constraints — the plan MUST honour these; echo the word-count range inside the plan body where relevant):
-${requirementsBlock(session.requirements)}
+${requirementsBlock(session.requirements)}${requirementsGap}
 
 ${searchBudgetBlock(session)}
 
@@ -363,7 +384,13 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
       "rationale": "optional one-line why this matters"
     }
   ],
-  "phaseAdvance": true | false
+  "phaseAdvance": true | false,
+  "requirementsPatch": {
+    "wordCountMin": 1500, "wordCountMax": 2500,
+    "form": "exploratory essay",
+    "audience": "general educated reader",
+    "styleNotes": null
+  } | null
 }
 
 plan.md rules:
@@ -374,7 +401,8 @@ plan.md rules:
 - Plan.md is the drafter's sole planning input. If it's not in the plan, it won't make it into the draft.
 
 Question rules:
-- At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. The user has delegated reasoning to the panel — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). If the panel surfaced no such call, emit [].
+- **FIRST PRIORITY — missing hard requirements.** If the requirements block above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Word count is the tightest constraint on a draft and the panel literally cannot judge scope/depth without it. Use \`choice\` with 3–4 reasonable defaults and mark the panel's preferred option \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom write-in with \`allowCustom: true\`}.
+- At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. Once requirements are complete, the user has delegated reasoning to the panel — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). If the panel surfaced no such call AND requirements are already locked, emit [].
 - Prefer \`choice\` (labelled options) > \`confirm\` (yes/no) > \`multi\` > \`open\`. Open questions are heavy — use one only when no set of options captures the space.
 - On \`choice\` questions, mark ONE option with \`"recommended": true\` when there's a defensible default the panel leans toward. That option is what the panel would pick if the user delegated.
 - On \`choice\` questions, set \`"allowCustom": true\` when your options don't exhaust the space — the UI will offer a "Write my own" write-in.
@@ -382,7 +410,8 @@ Question rules:
 - Questions go into a dedicated card, not into chat. Phrase them so they read standalone.
 
 phaseAdvance rule:
-- \`true\` when the panel surfaced no substantive new tensions AND plan.md has what it needs for this phase. Err toward \`false\` until round ${DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE} — then err toward \`true\`.
+- NEVER \`true\` while any hard requirement (word count, form, audience) is still "(not specified)". The plan can't mature without these.
+- \`true\` when (a) all hard requirements are filled, (b) the panel surfaced no substantive new tensions this round, and (c) plan.md has what it needs for this phase. Err toward \`false\` until round ${DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE} — then err toward \`true\` (but still gated on (a)).
 
 Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.`;
 }
