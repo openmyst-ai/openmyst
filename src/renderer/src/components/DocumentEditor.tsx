@@ -179,7 +179,10 @@ function TiptapEditor({ initialValue, editable, onMarkdownChange, onEditorReady,
       TableRow,
       TableCell,
       TableHeader,
-      Link.configure({ openOnClick: false }),
+      // `confidence` is our custom scheme used by the post-draft confidence
+      // badges (`[N%](confidence://tier/N)`). Without whitelisting it, tiptap's
+      // Link extension strips the anchor wrapper and the CSS pill style vanishes.
+      Link.configure({ openOnClick: false, protocols: ['confidence'] }),
       Image,
       MarkdownBlockPaste,
       FindHighlight,

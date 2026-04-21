@@ -103,7 +103,6 @@ export const IpcChannels = {
     Chunk: 'deep-plan:chunk',
     ChunkDone: 'deep-plan:chunk-done',
     ResearchEvent: 'deep-plan:research-event',
-    FidelityUpdate: 'deep-plan:fidelity-update',
   },
   DeepSearch: {
     Status: 'deep-search:status',

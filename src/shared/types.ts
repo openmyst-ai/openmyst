@@ -317,16 +317,35 @@ export type DeepPlanResearchEvent =
     };
 
 /**
- * Progress ticks from the post-draft fidelity loop (critique → rewrite).
- * Emitted once per phase transition per round so the draft modal can show
- * "Verifying claims — round N" + a running count of issues fixed.
+ * One atomic citable claim extracted from the wiki before drafting. The
+ * drafter is constrained to only assert non-trivial facts that live in
+ * this menu, so hallucination is structurally harder. `quote` stays on
+ * the server side and feeds the post-draft confidence check.
  */
-export interface DeepPlanFidelityUpdate {
-  phase: 'critiquing' | 'rewriting' | 'done';
-  round: number;
-  maxRounds: number;
-  issueCount: number;
-  fixed: number;
+export interface ClaimMenuItem {
+  id: string;
+  slug: string;
+  anchor: string;
+  claim: string;
+  quote: string;
+}
+
+/**
+ * Per-citation confidence score produced after the draft finishes. A
+ * simple extractive n-gram overlap between the sentence containing the
+ * citation and the backing wiki text — no LLM in the loop. The score is
+ * baked into the written draft as an inline badge link of the form
+ * `[N%](confidence://tier/N)`, so the renderer gets visibility for free
+ * from the document markdown itself.
+ */
+export interface CitationConfidence {
+  /** 0-based index of the citation within the draft, in reading order. */
+  linkIndex: number;
+  slug: string;
+  /** Integer 0–100. */
+  confidence: number;
+  /** A short clipping from the source that scored highest against the cited sentence. */
+  backingSnippet: string;
 }
 
 export interface DeepSearchQueryRecord {

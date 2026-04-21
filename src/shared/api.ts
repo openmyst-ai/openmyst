@@ -2,7 +2,6 @@ import type {
   AppSettings,
   ChatMessage,
   Comment,
-  DeepPlanFidelityUpdate,
   DeepPlanResearchEvent,
   DeepPlanStatus,
   DeepSearchStatus,
@@ -137,7 +136,6 @@ export interface MystApi {
     onChanged: (callback: () => void) => () => void;
     onChunk: (callback: (chunk: string) => void) => () => void;
     onChunkDone: (callback: () => void) => () => void;
-    onFidelityUpdate: (callback: (update: DeepPlanFidelityUpdate) => void) => () => void;
     onResearchEvent: (callback: (event: DeepPlanResearchEvent) => void) => () => void;
   };
   deepSearch: {

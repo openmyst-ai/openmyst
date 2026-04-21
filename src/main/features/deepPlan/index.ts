@@ -10,7 +10,8 @@ import type {
 import { broadcast, log, logError } from '../../platform';
 import { ensureLlmReady, streamChat, completeText, type LlmMessage } from '../../llm';
 import { getDeepPlanModel, getSummaryModel } from '../settings';
-import { runFidelityLoop } from './fidelity';
+import { extractClaimMenu } from './claimMenu';
+import { annotateDraftWithConfidence } from './confidence';
 import { ensureSearchReady } from '../research/search';
 import { listSources, readSource } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
@@ -741,6 +742,20 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     docLabel: target.label,
   });
 
+  // Claim-menu extraction. One cheap summary-model call that reads every
+  // source and enumerates every atomic citable claim with a backing quote.
+  // The drafter is then scoped to "only make factual assertions that map
+  // to a row on this menu". An empty menu degrades gracefully — the
+  // HARD RULES still enforce citation discipline; we just lose the
+  // structural constraint.
+  const summaryModel = await getSummaryModel();
+  const claimMenu = await extractClaimMenu({
+    sources,
+    detailedSummaries,
+    summaryModel,
+    docLabel: target.label,
+  });
+
   const prompt = oneShotPrompt(
     session,
     sources,
@@ -748,6 +763,7 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     plannerSynthesis,
     researchSummary,
     prefetchedPassages,
+    claimMenu,
     target.label,
   );
   const messages: LlmMessage[] = [
@@ -793,54 +809,39 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     throw new Error('The generator returned an empty draft. Try again.');
   }
 
-  // Fidelity verification loop. Cheap summary-model critique flags
-  // unreferenced / unsupported claims; main model rewrites just those
-  // passages. Runs up to 5 rounds or until the critique comes back clean.
-  // Failures inside the loop degrade silently — the worst outcome is we
-  // ship the raw draft, which is what the old pipeline did anyway.
+  // Post-draft confidence pass. Pure string math (no LLM): for each
+  // inline citation we compute a token-ngram overlap between the
+  // sentence it sits in and the cited source's backing text, then
+  // splice an inline `[N%](confidence://N)` badge after each citation.
+  // Degrades to the raw draft if something throws — the worst outcome
+  // is we ship the draft unannotated, which is still a valid draft.
   let finalDraft = initialDraft;
-  let fidelityTokens = 0;
+  let confidenceRatings: ReturnType<typeof annotateDraftWithConfidence>['ratings'] = [];
   try {
-    const summaryModel = await getSummaryModel();
-    log('deep-plan', 'fidelity.start', {
-      mainModel: model,
-      summaryModel,
-      draftChars: initialDraft.length,
-    });
-    const result = await runFidelityLoop({
+    const annotated = annotateDraftWithConfidence({
       draft: initialDraft,
+      menu: claimMenu,
       sources,
       detailedSummaries,
-      prefetchedPassages,
-      rubric: session.rubric,
-      docLabel: target.label,
-      mainModel: model,
-      summaryModel,
-      onUpdate: (u) => broadcast(IpcChannels.DeepPlan.FidelityUpdate, u),
     });
-    finalDraft = result.finalDraft;
-    fidelityTokens = estimateTokensK(
-      result.totalIssuesFound * 500 + result.totalIssuesFixed * finalDraft.length * 0.1,
-    );
-    log('deep-plan', 'fidelity.done', {
-      rounds: result.roundsRun,
-      found: result.totalIssuesFound,
-      fixed: result.totalIssuesFixed,
-      finalChars: finalDraft.length,
-    });
+    finalDraft = annotated.annotatedDraft;
+    confidenceRatings = annotated.ratings;
   } catch (err) {
-    logError('deep-plan', 'fidelity.loop.failed', err);
-    // fall through with the un-verified draft
+    logError('deep-plan', 'confidence.annotate.failed', err);
   }
 
   await writeDocument(target.filename, finalDraft);
+
+  log('deep-plan', 'confidence.summary', {
+    doc: target.filename,
+    citations: confidenceRatings.length,
+  });
 
   await updateSession((s) => ({
     ...s,
     stage: 'done',
     completed: true,
-    tokensUsedK:
-      s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length) + fidelityTokens,
+    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length),
   }));
   await clearAutoStart();
   broadcast(IpcChannels.Document.Changed);

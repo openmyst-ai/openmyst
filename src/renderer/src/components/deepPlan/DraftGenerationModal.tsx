@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useDeepPlan } from '../../store/deepPlan';
 
 /**
- * Full-screen overlay shown while the drafter is running. Replaces the
- * old "watch text spawn into the doc" UX — the user explicitly asked for
- * a dedicated "generating" screen with a live word counter instead. The
- * finished draft lands in the document in one atomic write when the
- * stream closes.
+ * Full-screen overlay shown while the drafter is running. The user
+ * explicitly asked for a dedicated "generating" screen with a live word
+ * counter rather than watching text spawn into the document. The finished
+ * draft lands in the editor in one atomic write when the stream closes.
  *
  * Reads `drafting` + `draftBuffer` out of the Deep Plan store. The buffer
  * is never rendered; we only derive a word count from it.
@@ -14,7 +13,6 @@ import { useDeepPlan } from '../../store/deepPlan';
 export function DraftGenerationModal(): JSX.Element | null {
   const drafting = useDeepPlan((s) => s.drafting);
   const buffer = useDeepPlan((s) => s.draftBuffer);
-  const fidelity = useDeepPlan((s) => s.fidelity);
 
   const wordCount = useMemo(() => {
     const trimmed = buffer.trim();
@@ -22,22 +20,10 @@ export function DraftGenerationModal(): JSX.Element | null {
     return trimmed.split(/\s+/).length;
   }, [buffer]);
 
-  // Three phases, in order: warming (no chunks yet) → writing (streaming
-  // into the draft buffer) → verifying (fidelity loop running). Fidelity
-  // updates only arrive after the stream closes, so we can detect its
-  // phase purely from the presence of a `fidelity` payload.
-  const verifying = fidelity !== null && fidelity.phase !== 'done';
-  const phase = verifying ? 'verifying' : buffer.length === 0 ? 'warming' : 'writing';
-  const label =
-    phase === 'warming'
-      ? 'Preparing draft…'
-      : phase === 'writing'
-        ? 'Writing draft…'
-        : fidelity?.phase === 'critiquing'
-          ? `Checking claims — round ${fidelity.round} / ${fidelity.maxRounds}`
-          : `Repairing ${fidelity?.issueCount ?? 0} claim${
-              (fidelity?.issueCount ?? 0) === 1 ? '' : 's'
-            } — round ${fidelity?.round ?? 0} / ${fidelity?.maxRounds ?? 5}`;
+  // Two phases: warming (no chunks yet — usually covers the pre-draft
+  // claim-menu extraction pass) → writing (drafter streaming tokens).
+  const phase = buffer.length === 0 ? 'warming' : 'writing';
+  const label = phase === 'warming' ? 'Preparing draft…' : 'Writing draft…';
 
   const displayCount = useSmoothCount(wordCount);
 
@@ -52,26 +38,14 @@ export function DraftGenerationModal(): JSX.Element | null {
           <span className="dot" />
         </div>
         <div className="dp-draft-modal-label">{label}</div>
-        {phase !== 'verifying' && (
-          <div className="dp-draft-modal-count">
-            <span className="dp-draft-modal-count-num">{displayCount.toLocaleString()}</span>
-            <span className="dp-draft-modal-count-unit">
-              {displayCount === 1 ? 'word' : 'words'}
-            </span>
-          </div>
-        )}
-        {phase === 'verifying' && fidelity && fidelity.fixed > 0 && (
-          <div className="dp-draft-modal-count">
-            <span className="dp-draft-modal-count-num">{fidelity.fixed}</span>
-            <span className="dp-draft-modal-count-unit">
-              {fidelity.fixed === 1 ? 'claim patched' : 'claims patched'}
-            </span>
-          </div>
-        )}
+        <div className="dp-draft-modal-count">
+          <span className="dp-draft-modal-count-num">{displayCount.toLocaleString()}</span>
+          <span className="dp-draft-modal-count-unit">
+            {displayCount === 1 ? 'word' : 'words'}
+          </span>
+        </div>
         <div className="dp-draft-modal-hint">
-          {phase === 'verifying'
-            ? 'Re-grounding every claim against your wiki. This usually takes under a minute per round.'
-            : 'The finished draft will appear in your document when this wraps up.'}
+          The finished draft will appear in your document when this wraps up.
         </div>
       </div>
     </div>
@@ -80,9 +54,7 @@ export function DraftGenerationModal(): JSX.Element | null {
 
 /**
  * Tween the word counter so it feels alive rather than snapping in big
- * jumps when chunks arrive. Not a hard animation — we just step the
- * displayed number towards the target every frame-ish tick, capped at a
- * few dozen per step so long stretches catch up quickly.
+ * jumps when chunks arrive.
  */
 function useSmoothCount(target: number): number {
   const [display, setDisplay] = useState(target);

@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { MystApi } from '@shared/api';
-import type { DeepPlanFidelityUpdate, DeepPlanResearchEvent } from '@shared/types';
+import type { DeepPlanResearchEvent } from '@shared/types';
 
 const api: MystApi = {
   auth: {
@@ -204,18 +204,6 @@ const api: MystApi = {
       ipcRenderer.on(IpcChannels.DeepPlan.ChunkDone, handler);
       return () => {
         ipcRenderer.removeListener(IpcChannels.DeepPlan.ChunkDone, handler);
-      };
-    },
-    onFidelityUpdate: (callback) => {
-      const handler = (
-        _event: Electron.IpcRendererEvent,
-        payload: DeepPlanFidelityUpdate,
-      ): void => {
-        callback(payload);
-      };
-      ipcRenderer.on(IpcChannels.DeepPlan.FidelityUpdate, handler);
-      return () => {
-        ipcRenderer.removeListener(IpcChannels.DeepPlan.FidelityUpdate, handler);
       };
     },
     onResearchEvent: (callback) => {
