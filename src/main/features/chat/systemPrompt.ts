@@ -1,5 +1,5 @@
 import type { DeepPlanRubric, PendingEdit } from '@shared/types';
-import { WRITING_SKILL } from '../../writing';
+import { PROSE_STYLE } from '../../writing';
 
 /**
  * System prompt builder — the one file you touch to change how the agent is
@@ -148,9 +148,9 @@ export interface SystemPromptInput {
 }
 
 const WRITING_STYLE_RIDER =
-  '\n\n========== BEGIN writing-style guide — applies to any prose you write for the user (myst_edit new_strings, rewrites, draft continuations). Does NOT apply to short conversational replies like "done", "sure", or answering a question about the doc. When you are about to produce prose the user will read as part of their document, internalise this first. ==========\n' +
-  WRITING_SKILL +
-  '\n========== END writing-style guide ==========';
+  '\n\n========== BEGIN prose-style guide. Applies to any prose the user will read (myst_edit new_strings, rewrites, chat answers, short replies). STRICTLY SECONDARY to the fenced-protocol rules elsewhere in this prompt (source_lookup, myst_edit, web_search). If the two conflict, fence rules win. ==========\n' +
+  PROSE_STYLE +
+  '\n========== END prose-style guide ==========';
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const {

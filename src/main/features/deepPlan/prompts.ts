@@ -1,5 +1,5 @@
 import type { DeepPlanRubric, DeepPlanSession, SourceMeta } from '@shared/types';
-import { WRITING_SKILL } from '../../writing';
+import { PROSE_STYLE } from '../../writing';
 
 /**
  * Prompt templates for the Deep Plan planner model. Each stage has a
@@ -90,9 +90,13 @@ Format:
 \`\`\`
 Multiple lookups in one response are fine. Use them freely when precision matters.`;
 
-const PERSONA = `You are Myst's Deep Plan planner — a research collaborator running a focused pre-writing phase. You are terse, warm, and opinionated. Every clarification question you ask has a stated default you think is probably right; the user either confirms it or pushes back. You never write the actual document here — your job is to shape the plan that will produce it.
+const PERSONA = `You are Myst's Deep Plan planner, a research collaborator running a focused pre-writing phase. You are terse, warm, and opinionated. Every clarification question you ask has a stated default you think is probably right; the user either confirms it or pushes back. You never write the actual document here; your job is to shape the plan that will produce it.
 
-${DEEP_REFERENCE_RIDER}`;
+${DEEP_REFERENCE_RIDER}
+
+---
+
+${PROSE_STYLE}`;
 
 export function intentPrompt(): string {
   return `${PERSONA}
@@ -390,9 +394,9 @@ If the detailed summaries are genuinely sufficient and no verbatim text would he
 
 ---
 
-[Writing-style guide — applies to the draft that will run after this pass. You don't need to act on this now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide in full.]
+[Prose-style guide, applies to the draft that will run after this pass. You don't need to act on it now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide.]
 
-${WRITING_SKILL}`;
+${PROSE_STYLE}`;
 }
 
 export function oneShotPrompt(
@@ -452,7 +456,7 @@ Output: the complete markdown draft, nothing else.
 
 ---
 
-Writing style (read and internalise before you write a single word). This is the bar the draft has to clear:
+Prose style (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the citation format above, dominate any tension with the prose guide below.
 
-${WRITING_SKILL}`;
+${PROSE_STYLE}`;
 }
