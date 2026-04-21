@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { MystApi } from '@shared/api';
-import type { DeepPlanResearchEvent } from '@shared/types';
+import type { DeepPlanResearchEvent, PanelProgressEvent } from '@shared/types';
 
 const api: MystApi = {
   auth: {
@@ -172,10 +172,8 @@ const api: MystApi = {
     status: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Status),
     start: (task) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task),
     sendMessage: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.SendMessage, message),
+    submitAnswers: (answers) => ipcRenderer.invoke(IpcChannels.DeepPlan.SubmitAnswers, answers),
     advance: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Advance),
-    runResearch: () => ipcRenderer.invoke(IpcChannels.DeepPlan.RunResearch),
-    stopResearch: () => ipcRenderer.invoke(IpcChannels.DeepPlan.StopResearch),
-    addResearchHint: (hint) => ipcRenderer.invoke(IpcChannels.DeepPlan.AddResearchHint, hint),
     skip: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Skip),
     oneShot: () => ipcRenderer.invoke(IpcChannels.DeepPlan.OneShot),
     reset: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Reset),
@@ -216,6 +214,18 @@ const api: MystApi = {
       ipcRenderer.on(IpcChannels.DeepPlan.ResearchEvent, handler);
       return () => {
         ipcRenderer.removeListener(IpcChannels.DeepPlan.ResearchEvent, handler);
+      };
+    },
+    onPanelProgress: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: PanelProgressEvent,
+      ): void => {
+        callback(payload);
+      };
+      ipcRenderer.on(IpcChannels.DeepPlan.PanelProgress, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.DeepPlan.PanelProgress, handler);
       };
     },
   },

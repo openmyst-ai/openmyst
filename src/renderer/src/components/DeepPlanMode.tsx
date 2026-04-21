@@ -33,14 +33,13 @@ export function DeepPlanMode(): JSX.Element {
   const { project, openSettings, settings } = useApp();
   const {
     status,
-    streaming,
-    streamingBuffer,
     busy,
     error,
     refresh,
     start,
     ingestChunk,
     finishStream,
+    applyPanelEvent,
     clearError,
   } = useDeepPlan();
 
@@ -63,13 +62,15 @@ export function DeepPlanMode(): JSX.Element {
     const offChunk = bridge.deepPlan.onChunk(ingestChunk);
     const offDone = bridge.deepPlan.onChunkDone(finishStream);
     const offEvent = bridge.deepPlan.onResearchEvent(pushResearchEvent);
+    const offPanel = bridge.deepPlan.onPanelProgress(applyPanelEvent);
     return () => {
       offChanged();
       offChunk();
       offDone();
       offEvent();
+      offPanel();
     };
-  }, [refresh, ingestChunk, finishStream, pushResearchEvent]);
+  }, [refresh, ingestChunk, finishStream, pushResearchEvent, applyPanelEvent]);
 
   const handleStart = useCallback(
     async (e: React.FormEvent) => {
@@ -81,21 +82,15 @@ export function DeepPlanMode(): JSX.Element {
   );
 
   const session = status?.session ?? null;
-  const needsIntent = !session || session.stage === 'intent';
-  // Managed-mode users don't bring their own OpenRouter key — the backend
-  // supplies one via the auth-gated proxy. Only the BYOK dev build needs
-  // to block Deep Plan on `hasOpenRouterKey`. Prior to this guard,
-  // managed users were seeing "Deep Plan needs an OpenRouter API key"
-  // and couldn't start a session because the warning disabled the input.
+  const needsIntent = !session;
   const hasOpenRouterKey = USE_OPENMYST ? true : (settings?.hasOpenRouterKey ?? false);
-  const isResearchStage = session?.stage === 'research';
 
   const tutorial = useTutorial('deepPlan');
 
   return (
     <div className="dp-root">
       <StageBar
-        stage={session?.stage ?? 'intent'}
+        phase={session?.phase ?? 'ideation'}
         onOpenSettings={openSettings}
       />
 
@@ -117,7 +112,7 @@ export function DeepPlanMode(): JSX.Element {
         </div>
       )}
 
-      <div className={`dp-body${isResearchStage ? ' dp-body-research' : ''}`}>
+      <div className="dp-body">
         <aside className="dp-col dp-col-left" data-tutorial="dp-sources">
           <SourcesColumn />
         </aside>
@@ -134,9 +129,6 @@ export function DeepPlanMode(): JSX.Element {
             />
           ) : (
             <ConversationColumn session={session!} />
-          )}
-          {streaming && needsIntent && (
-            <div className="dp-stream-pre">{streamingBuffer}</div>
           )}
         </section>
 
