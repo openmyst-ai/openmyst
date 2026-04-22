@@ -25,4 +25,12 @@ export interface CompleteTextOptions {
   messages: LlmMessage[];
   model?: string;
   logScope?: string;
+  /**
+   * Upper bound on response tokens. Forwarded as `max_tokens` to the
+   * backend. Omit to use the provider's default (usually 4096). Bump when
+   * the caller needs a genuinely long structured response — Deep Plan's
+   * Chair, for example, emits vision rewrites that can run ~2k output
+   * tokens and need headroom.
+   */
+  maxTokens?: number;
 }

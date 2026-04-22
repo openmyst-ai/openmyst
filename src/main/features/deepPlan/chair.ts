@@ -13,6 +13,30 @@ import { chairPrompt } from './prompts';
 import { parseChairOutput } from './parse';
 
 /**
+ * Best-effort recovery when the Chair's JSON reply was truncated mid-field
+ * (usually inside `visionUpdate`). We scan for the `"summary": "..."`
+ * field and extract just that value so the user at least sees the Chair's
+ * framing of the round. JSON.parse can't help here because the object
+ * isn't balanced.
+ *
+ * Returns null if no recognisable summary can be found — caller falls
+ * back to a generic apology in that case.
+ */
+function salvageSummaryFromTruncatedJson(raw: string): string | null {
+  const match = raw.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!match) return null;
+  try {
+    // Re-parse the captured string literal so JSON escapes (\n, \", \\)
+    // decode cleanly before we hand it to the UI.
+    const decoded = JSON.parse(`"${match[1]}"`) as string;
+    const trimmed = decoded.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Chair runner post-overhaul. The Chair's output is now small: a summary,
  * an optional vision.md replacement, a list of anchor ids to append, the
  * usual question/advance/requirements fields. No plan.md rewrite, no
@@ -64,7 +88,18 @@ export async function runChair(args: {
 
   let reply: string | null = null;
   try {
-    reply = await completeText({ model, messages, logScope: 'deep-plan' });
+    // Chair needs genuine output headroom — a full vision rewrite is up
+    // to ~1500 words (~2k tokens), plus summary + anchor adds + questions
+    // on top. A 4k default was silently truncating mid-visionUpdate,
+    // which collapsed the whole JSON parse and left the user with no
+    // summary + no call-to-action. 16k buys enough room even for the
+    // biggest reasonable round.
+    reply = await completeText({
+      model,
+      messages,
+      logScope: 'deep-plan',
+      maxTokens: 16000,
+    });
   } catch (err) {
     logError('deep-plan', 'chair.failed', err);
     broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-done' });
@@ -83,7 +118,20 @@ export async function runChair(args: {
   const parsed = parseChairOutput(reply);
   if (!parsed) {
     log('deep-plan', 'chair.parseFailed', { replyChars: reply.length });
-    return fallback(reply.trim().slice(0, 500));
+    // Best-effort salvage: pull just the `"summary": "..."` field out of
+    // the malformed JSON so the user still sees something meaningful in
+    // the chair bubble. When even that fails, surface a clean apology +
+    // actionable nudge rather than dumping the raw JSON blob.
+    const salvaged = salvageSummaryFromTruncatedJson(reply);
+    if (salvaged) {
+      log('deep-plan', 'chair.parseFailed.summarySalvaged', { chars: salvaged.length });
+      return fallback(
+        `${salvaged}\n\n(My response got cut off before I could finish updating the vision and anchor log. Hit "Take to panel" to retry this round, or keep chatting.)`,
+      );
+    }
+    return fallback(
+      'My response came back malformed. Try "Take to panel" to retry this round, or keep chatting and I\'ll try again next round.',
+    );
   }
 
   log('deep-plan', 'chair.done', {

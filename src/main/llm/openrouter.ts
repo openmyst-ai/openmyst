@@ -136,14 +136,17 @@ export async function openrouterCompleteText(options: {
   model: string;
   messages: LlmMessage[];
   logScope?: string;
+  maxTokens?: number;
 }): Promise<string | null> {
-  const { apiKey, model, messages, logScope = 'llm' } = options;
+  const { apiKey, model, messages, logScope = 'llm', maxTokens } = options;
 
   try {
+    const body: Record<string, unknown> = { model, messages, stream: false };
+    if (maxTokens !== undefined) body['max_tokens'] = maxTokens;
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: buildHeaders(apiKey),
-      body: JSON.stringify({ model, messages, stream: false }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
