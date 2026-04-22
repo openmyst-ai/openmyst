@@ -439,10 +439,12 @@ CITATION FORMAT — this is load-bearing. DIFFERENT rules at different phases:
 
 Anchor citation format (when you ARE citing):
 - Harvard-style inline markdown link IN PARENTHESES, ending the sentence or clause: \`([Name](slug.md#anchor-id))\`. The \`#anchor-id\` MUST be a literal anchor id from the wiki list above — copy it verbatim, do not paraphrase or invent.
+- **\`[Name]\` is the SOURCE'S DISPLAY NAME — nothing else.** Use the bold source name from the wiki block exactly (e.g., "Smith 2022", "Stanford Encyclopedia", "Pareto Optimality Definition Misleading"). NEVER put the anchor-id, anchor label, or a hyphen-separated slug fragment inside the \`[Name]\` brackets — readers see \`[Name]\` as the citation's visible label, and raw slugs like "pareto-efficiency-is-criticized-for-ignoring-equity-and-dist" leaking into prose is a shipping failure. If a source name is long, abbreviate conservatively — but keep it human.
 - Before writing ANY \`([Name](slug.md#anchor-id))\`: scan the wiki block. If the exact \`#anchor-id\` is not listed under that source's bullets, DO NOT WRITE IT. A hallucinated anchor id silently fails the materialiser pass and hover lookup; it's worse than no citation at all.
 - Slug-only citations are allowed: \`([Name](slug.md))\`. Use these when you want to credit a source but no specific anchor grounds the specific claim — better than a fake \`#anchor-id\`.
 - If a sentence draws on two anchors, emit two adjacent citations: \`([Smith](smith.md#x)) ([Jones](jones.md#y))\`.
 - Trivial connective prose ("This matters because…", "In the next section…") does NOT need a citation.
+- Consolidate repetition: if the same source grounds three adjacent claims in a section, cite ONCE at the natural anchor point, not every sentence. Plan.md is a planning artefact, not a receipt; the drafter reads it and consolidates further, so you should already be consolidating here.
 - The verbatim passage for each resolved \`([Name](slug.md#anchor-id))\` is AUTOMATICALLY inserted as a blockquote beneath the claim by the system after you respond. You do NOT write the blockquote yourself.
 
 UNANCHORED CLAIM MARKER:
@@ -570,10 +572,10 @@ export function oneShotPrompt(session: DeepPlanSession, docLabel: string): strin
   return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
 - ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
 - Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
-- EVERY non-trivial claim in the draft must preserve the anchored citation from plan.md. Plan.md below is the entire evidence base — every factual claim there already carries a Harvard-style link and a verbatim blockquote. Keep the citations intact when you turn claims into prose. Do not invent new sources, do not drop citations, do not paraphrase a quote that plan.md shows you verbatim.
+- Cite only SOURCE-DERIVED claims that carry real analytical weight. Plan.md is working material, not a receipt — you are expected to CONSOLIDATE its citations, not reproduce them 1-to-1. A finished essay of 2,000 words carries roughly 10–20 citations, not 40+. Over-citation reads like an unfinished research brief and actively disrupts reading.
 - HONOUR THE WORD-COUNT RANGE in the requirements below. This is a contract. Going over or under by more than 10% is a failure — use plan.md's section breakdown to budget your words before you start writing.
 
-You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. The Deep Plan process already did the research, chose the thesis, structured the sections, and grounded every claim in a specific anchor from a credible source. Your job is to turn that anchored plan into finished prose.
+You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle, not a citation manager. Plan.md below is the evidence the panel gathered; your job is to turn it into finished analytical prose — led by your own argumentative voice, supported (not buried) by citations where they earn their weight.
 
 User's task: "${session.task}"
 
@@ -584,23 +586,53 @@ plan.md — the complete output of the Deep Plan session. This is your ENTIRE ev
 
 ${planBlock(session.plan)}
 
-How to approach this draft:
+VOICE AND INTEGRATION (read this before you start drafting):
 
-1. **Follow plan.md's structure and thesis.** The plan is the distillation of an entire adversarial-panel session — its structure, thesis, and source attributions were chosen deliberately. If the plan names a section, write that section. If the plan anchors a claim, keep the anchor.
-2. **Preserve every citation.** When plan.md says "X is true ([Smith](smith.md#claim-3))", your draft should make the same claim and keep the same citation. You can reshape the sentence around the claim, but the citation moves with it.
-3. **Use the blockquotes as primary evidence.** When plan.md shows a verbatim passage beneath a citation, that passage is yours to quote directly (wrap it in quote marks inline, or re-emit it as a blockquote if the prose calls for it). Do NOT paraphrase a verbatim passage unless the prose genuinely reads better that way.
-4. **Do not introduce unanchored claims.** If you want to say something that plan.md doesn't ground, either frame it as your own reasoning/interpretation (which needs no citation) or omit it. Do not smuggle in facts, names, dates, or numbers that plan.md doesn't carry.
-5. **Remove the blockquotes from the final prose.** The blockquotes exist so you have the verbatim evidence at hand while drafting. In the final draft, integrate the quote inline (as a short inline quotation) or summarise the claim and keep just the citation — a long trailing blockquote after every claim makes the draft unreadable. Use blockquotes sparingly and only when a full-sentence direct quote genuinely serves the draft.
+Plan.md has been built by a panel of cheap adversarial models and a strong Chair. Every section is anchored, every factual claim carries a source. That's done. What's NOT done is the essay itself — and the fastest way to ship a mediocre draft is to march sentence-by-sentence through the plan, each sentence ending in a citation, each paragraph a chain of cited claims with no argumentative through-line.
+
+Write like an essayist, not a transcriber:
+- Lead each paragraph with YOUR analytical claim or framing. Bring in the plan's evidence where it earns its weight. A paragraph's first sentence should almost never be a cited external claim; it should be your move.
+- Paragraphs are arguments, not citation lists. If you find yourself writing three consecutive sentences that each end in a \`([Name](...))\`, stop and restructure. Compress the evidence, lift the argument.
+- **Anchors are a starting point, not a script.** The blockquotes beneath each citation in plan.md are the verbatim source passages. Your job is to use them NATURALLY — paraphrase the idea in your own voice, compress three source sentences into one of yours, lift the load-bearing phrase while dropping the rest. DO NOT transcribe or lightly reword a blockquote sentence-by-sentence; that reads as mechanical and defeats the point of a human-quality draft. Think of the blockquote as "here's what the source says — now say what MATTERS about it in your own words".
+- Integrate quotes INTO sentences when you genuinely quote. Prefer "Pareto himself insisted that 'political economy does not have to take morality into account' ([Pareto](pareto.md#x))" over a standalone blockquote. Reserve blockquotes for passages where the full verbatim wording is genuinely load-bearing — at most one or two in a 2,000-word essay.
+- The blockquotes shown beneath citations in plan.md are WORKING MATERIAL. They are there so you have the source's exact wording at hand while drafting. They MUST NOT appear as literal blockquotes in the final draft (except for those rare one or two cases). Integrate, paraphrase, or quote inline.
+
+PRESERVE ANCHOR IDs — this is load-bearing for the product's value prop:
+- Every citation in the final draft keeps its full \`#anchor-id\` fragment exactly as plan.md has it: \`([Name](slug.md#anchor-id))\`, NOT \`([Name](slug.md))\`. The \`#anchor-id\` is what powers the hover feature — readers can hover any citation and see the verbatim source passage you paraphrased from. This is how the system lets users cross-check your work; dropping the fragment breaks that contract.
+- If plan.md's citation has a \`#anchor-id\`, your draft's citation MUST have the same \`#anchor-id\`. Carrying this through is non-negotiable.
+- The \`#anchor-id\` is invisible to readers in normal rendered markdown — it only appears on hover. So preserving it costs nothing visually and gives the reader full provenance on demand.
+
+Citation consolidation (this is the single biggest fix from prior drafts):
+- When consecutive sentences draw on the SAME source, cite ONCE — at the natural anchor point for that claim cluster (end of the topic sentence, or end of the paragraph's synthesis). Not at the end of every sentence.
+- When a claim is textbook-level common knowledge in the domain ("neoclassical welfare theory rests on three efficiency conditions", "the First Welfare Theorem requires complete markets"), DO NOT cite. Uncited prose is earned when the claim is uncontested background.
+- When a paragraph is mostly your analysis drawing on one source's evidence, a single citation at the paragraph's thesis point is sufficient.
+- Load-bearing citations that DO earn their own inline link: specific numbers, named figures, contested positions, primary quotes, definitions of technical terms, specific historical facts.
+- If plan.md cites the same source five times in one section, your section should cite it one or two times and trust the reader. This is a consolidation the drafter is expected to perform.
+
+Blockquote discipline:
+- Zero blockquotes in the final draft is a legitimate default. One or two blockquotes max if a primary-source quotation genuinely carries unique rhetorical weight.
+- Never copy a materialised blockquote verbatim into your draft — paraphrase the claim and attach the citation, or pull the key phrase inline with quote marks.
+
+Citation-name discipline (important cleanup):
+- The \`[Name]\` inside a citation must read as a human-readable source label. If plan.md contains a citation whose \`[Name]\` looks like a raw slug or anchor id (hyphen-separated lowercase, no spaces — e.g., "pareto-efficiency-is-criticized-for-ignoring-equity-and-dist"), REWRITE the \`[Name]\` to a clean short label (a surname, a publication short-name, or a sensible descriptor) while preserving the \`(slug.md#anchor-id)\` link target exactly. Readers see the \`[Name]\`; raw slugs in prose are a shipping failure.
+
+Transitions and prose voice:
+- Transitions should DO WORK. "The historical context matters" is dead weight — name what it matters FOR. "The criticism cuts deeper" is filler — replace with the specific cut. Good transitions reframe, pivot, or raise stakes; bad transitions announce "moving on".
+- Avoid the following stock interjections — they read as LLM signature: "These are not minor caveats", "The silence is not incidental", "It's worth noting", "The conclusion is straightforward", "This is significant because". If you catch yourself writing one, rewrite the sentence so the claim does the work the interjection was trying to do.
+
+Counter-argument and conclusion balance:
+- Address the strongest objection to your thesis before rebutting or conceding. Name it specifically.
+- The conclusion must engage with each major thread the body developed. If the body covered five threads (framing, historical context, distributional critique, modern applications, a defense), the conclusion addresses all five — named specifically, not gestured at. A conclusion that ends with a generic list ("supplementing with frameworks that engage distributional weights and rights-based constraints...") without development is a failure. Close with a specific claim about what the concept does and does not do.
 
 Citation format in the draft (strict):
-- Every non-trivial claim keeps its parenthesised Harvard-style link, exactly as it appears in plan.md: \`([Name](slug.md#anchor-id))\` or \`([Name](slug.md))\` when the plan cited the source without an anchor.
-- If a sentence draws on two anchors, emit two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
+- Harvard-style inline, always in parentheses: \`([Name](slug.md#anchor-id))\` or \`([Name](slug.md))\` when the plan cited the source without an anchor.
+- If a sentence draws on two anchors, two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
 - Never wrap citations in backticks, never emit numeric footnote markers, never write "Smith et al. (2022)" style prose.
 
 References section (required, end of draft):
 - Add a \`## References\` heading (sentence case, no variations).
-- List every unique slug cited in the body, once each. Format each entry as a markdown bullet: \`- [Name](slug.md)\`. One line per source. Alphabetise by Name.
-- Do NOT list sources you didn't cite in the body. Do NOT duplicate. Keep it tight.
+- List every unique slug actually cited in the body, once each. Format: \`- [Name](slug.md)\`. One line per source. Alphabetise by Name.
+- Do NOT list sources you didn't cite. Do NOT duplicate.
 
 Form + output rules:
 - Hit the requirements above — length, form, audience. The word-count range is the single most important constraint.
@@ -611,7 +643,7 @@ Output: the complete markdown draft, nothing else.
 
 ---
 
-Prose style / commands (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the citation format above, dominate any tension with the prose guide below.
+Prose style / commands (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the voice + citation rules above, dominate any tension with the prose guide below.
 
 ${DEEP_PLAN_COMMANDS}`;
 }

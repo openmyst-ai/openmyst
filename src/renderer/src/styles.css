@@ -5236,6 +5236,27 @@ img.login-logo {
   color: var(--muted);
   font-style: italic;
 }
+.dp-citation-hover-excerpt {
+  border-left: 2px solid var(--accent);
+  padding: 4px 0 4px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dp-citation-hover-excerpt-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.dp-citation-hover-excerpt-body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow-y: auto;
+}
 .dp-citation-hover-keywords {
   display: flex;
   flex-wrap: wrap;

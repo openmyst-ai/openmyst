@@ -30,6 +30,7 @@ interface PopoverState {
   anchorId: string | null;
   status: 'loading' | 'loaded' | 'missing' | 'error';
   anchor?: SourceAnchor;
+  text?: string;
   sourceName?: string;
   sourceUrl?: string;
   error?: string;
@@ -39,6 +40,7 @@ type CacheValue =
   | {
       status: 'loaded';
       anchor?: SourceAnchor;
+      text?: string;
       sourceName?: string;
       sourceUrl?: string;
     }
@@ -142,6 +144,7 @@ export const CitationHoverScope = forwardRef<HTMLDivElement, CitationHoverScopeP
         const value: CacheValue = {
           status: 'loaded',
           anchor: hit.anchor,
+          text: hit.text,
           sourceName: hit.sourceName,
           sourceUrl: hit.sourceUrl,
         };
@@ -221,7 +224,7 @@ function CitationPopover({
   onMouseEnter,
   onMouseLeave,
 }: CitationPopoverProps): JSX.Element {
-  const { x, y, slug, anchorId, status, anchor, sourceName, sourceUrl, error } = state;
+  const { x, y, slug, anchorId, status, anchor, text, sourceName, sourceUrl, error } = state;
   const title = sourceName ?? slug;
   return (
     <div
@@ -254,6 +257,12 @@ function CitationPopover({
       {status === 'loading' && (
         <div className="dp-citation-hover-body dp-citation-hover-loading">
           Reading source…
+        </div>
+      )}
+      {status === 'loaded' && text && (
+        <div className="dp-citation-hover-excerpt">
+          <div className="dp-citation-hover-excerpt-label">Source excerpt (verbatim)</div>
+          <div className="dp-citation-hover-excerpt-body">{text}</div>
         </div>
       )}
       {status === 'loaded' && anchor?.keywords && anchor.keywords.length > 0 && (
