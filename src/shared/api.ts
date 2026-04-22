@@ -139,6 +139,10 @@ export interface MystApi {
     status: () => Promise<DeepPlanStatus>;
     start: (task: string) => Promise<DeepPlanStatus>;
     sendMessage: (message: string) => Promise<DeepPlanStatus>;
+    /** Cheap free-chat with the Chair — single LLM call, no panel, no plan rewrite. */
+    chat: (message: string) => Promise<DeepPlanStatus>;
+    /** Explicitly trigger a panel round — consumes pendingChatNotes as context. */
+    runPanel: () => Promise<DeepPlanStatus>;
     submitAnswers: (answers: ChairAnswerMap) => Promise<DeepPlanStatus>;
     advance: () => Promise<DeepPlanStatus>;
     skip: () => Promise<DeepPlanStatus>;

@@ -5147,6 +5147,42 @@ img.login-logo {
 /* Phase-advance CTA — shown in the chat scroll when the Chair signals
  * phaseAdvance and there are no pending questions. Hugging the copy to the
  * left (subtle, not a modal) keeps the discussion path equally prominent. */
+/* Free-chat bubbles — same markdown treatment as normal messages but
+ * visually lighter so the user can distinguish "just talking to the
+ * Chair" from "weighty panel-round summary". */
+.dp-msg-chat .dp-msg-body {
+  opacity: 0.88;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.dp-msg-chat-chair .dp-msg-body {
+  border-left: 2px solid var(--border);
+  padding-left: 10px !important;
+}
+.dp-msg-chat-user .dp-msg-body {
+  background: transparent !important;
+  border: 1px dashed var(--border) !important;
+  color: var(--fg) !important;
+}
+
+/* Chat-notes chip above the input — shows how many chat notes are
+ * queued for the next panel round, plus an explicit escalation button. */
+.dp-chat-notes-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+}
+.dp-chat-notes-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .dp-advance-cta {
   align-self: stretch;
   display: flex;

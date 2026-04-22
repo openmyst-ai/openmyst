@@ -11,7 +11,7 @@ import { completeText, type LlmMessage } from '../../llm';
 import { getDeepPlanModel } from '../settings';
 import { chairPrompt } from './prompts';
 import { parseChairOutput } from './parse';
-import { countCitations, materialiseAnchors } from './materialise';
+import { applyPlanPatch, countCitations, materialiseAnchors } from './materialise';
 
 /**
  * Strong-model Chair call. Consumes the panel's structured findings and
@@ -28,6 +28,8 @@ export async function runChair(args: {
   roundNumber: number;
   sources: SourceMeta[];
   lastAnswers: ChairAnswerMap | null;
+  /** User's free-chat notes since the last panel round — steering, not overriding. */
+  chatNotes: string[];
 }): Promise<ChairOutput> {
   broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-start' });
 
@@ -39,6 +41,7 @@ export async function runChair(args: {
     roundNumber: args.roundNumber,
     sources: args.sources,
     lastAnswers: args.lastAnswers,
+    chatNotes: args.chatNotes,
   });
 
   const messages: LlmMessage[] = [
@@ -86,9 +89,23 @@ export async function runChair(args: {
     };
   }
 
-  // If the model omitted the plan field, preserve the prior one rather than
-  // blanking the artefact the drafter depends on.
-  const rawPlan = parsed.plan.trim() ? parsed.plan : args.session.plan;
+  // Lever 2: if the Chair emitted a `planPatch`, apply it to the prior
+  // plan instead of swallowing a full rewrite. This saves massive output
+  // tokens on mature plans where only a claim or two actually changed.
+  // Full-plan `plan` field still wins when present AND non-empty —
+  // that's the safe fallback for rounds where the Chair wants to
+  // restructure broadly.
+  let patchStats: { applied: number; skipped: number } | null = null;
+  let rawPlan: string;
+  if (parsed.plan.trim()) {
+    rawPlan = parsed.plan;
+  } else if (parsed.planPatch) {
+    const result = applyPlanPatch(args.session.plan, parsed.planPatch);
+    rawPlan = result.plan;
+    patchStats = { applied: result.applied, skipped: result.skipped };
+  } else {
+    rawPlan = args.session.plan;
+  }
 
   // Phase 5: materialise every `([Name](slug.md#anchor-id))` citation into
   // a verbatim blockquote pulled from the source index. The Chair only
@@ -121,6 +138,9 @@ export async function runChair(args: {
     priorCitations,
     newCitations,
     droppedCitations,
+    patchMode: patchStats !== null,
+    patchApplied: patchStats?.applied ?? 0,
+    patchSkipped: patchStats?.skipped ?? 0,
   });
 
   return { ...parsed, plan: planOut };

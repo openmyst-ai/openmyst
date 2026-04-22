@@ -24,6 +24,7 @@ import {
 import { oneShotPrompt } from './prompts';
 import { runPanelRound } from './panel';
 import { runChair } from './chair';
+import { runChairChat } from './chat';
 import {
   formatLookupReply,
   parseSourceLookups,
@@ -130,6 +131,9 @@ export async function startSession(task: string): Promise<DeepPlanStatus> {
  * Free-text user turn. Stored as a plain chat message so the next panel
  * round can see it in the transcript. Does not trigger a round on its own
  * — the user hits Continue or submits answers to drive forward.
+ *
+ * Legacy path kept for any call sites that want the silent-append behaviour.
+ * The default UX now routes to `chatWithChair` for actual conversation.
  */
 export async function sendUserMessage(text: string): Promise<DeepPlanStatus> {
   const session = await readSession();
@@ -137,6 +141,73 @@ export async function sendUserMessage(text: string): Promise<DeepPlanStatus> {
   if (!text.trim()) return buildStatus();
   await updateSession((s) => appendMessage(s, 'user', text));
   notifyChanged();
+  return buildStatus();
+}
+
+/**
+ * Free-chat with the Chair. Single cheap LLM call: record the user's
+ * message, fetch a one- or two-paragraph reply from the Chair, record
+ * that too. The user's message also lands in `pendingChatNotes` so the
+ * next panel round (via `runPanelRoundManual` or `advancePhase`) can
+ * factor it in — nothing is lost even though no panel fired here.
+ *
+ * This is the default send path after the initial round completes. Panels
+ * are expensive; most turns are thinking out loud and don't need them.
+ */
+export async function chatWithChair(text: string): Promise<DeepPlanStatus> {
+  const session = await readSession();
+  if (!session) throw new Error('No Deep Plan session is active.');
+  const trimmed = text.trim();
+  if (!trimmed) return buildStatus();
+  if (session.phase === 'done') return buildStatus();
+
+  await requireLlm();
+
+  // Record the user turn + accumulate for next panel round BEFORE firing
+  // the Chair call, so the UI reflects it immediately and the note
+  // survives even if the LLM call fails.
+  await updateSession((s) => {
+    const withMsg = appendMessage(s, 'user', trimmed, 'user-chat');
+    return { ...withMsg, pendingChatNotes: [...s.pendingChatNotes, trimmed] };
+  });
+  notifyChanged();
+
+  const sources = await listSources();
+  const freshSession = await readSession();
+  if (!freshSession) return buildStatus();
+
+  const reply = await runChairChat({
+    session: freshSession,
+    sources,
+    userMessage: trimmed,
+  });
+
+  const replyText =
+    reply ??
+    `I hit an error replying just now — your note is saved. Hit "Take to panel" when you're ready to pull this into a panel round.`;
+  await updateSession((s) => appendMessage(s, 'assistant', replyText, 'chair-chat'));
+  notifyChanged();
+
+  return buildStatus();
+}
+
+/**
+ * Explicitly trigger a panel round, consuming any `pendingChatNotes` as
+ * context. UI wiring: the "Take this to panel" button next to the chat
+ * input, and implicitly on phase advance via `advancePhase`.
+ */
+export async function runPanelRoundManual(): Promise<DeepPlanStatus> {
+  const session = await readSession();
+  if (!session) throw new Error('No Deep Plan session is active.');
+  if (roundRunning) {
+    log('deep-plan', 'runPanel.rejected.roundRunning', {});
+    return buildStatus();
+  }
+  if (session.phase === 'done') return buildStatus();
+
+  void runPanelAndChair().catch((err) => {
+    logError('deep-plan', 'panel.runPanel.failed', err);
+  });
   return buildStatus();
 }
 
@@ -244,11 +315,17 @@ async function runPanelAndChair(): Promise<void> {
     const lastAnswers = lastUserAnswers(session);
     const roundNumber = (session.roundsPerPhase[session.phase] ?? 0) + 1;
 
+    // Snapshot pendingChatNotes for this round. The Chair + panel see
+    // them as steering context; we clear them from session state after
+    // the round so they don't bleed into the next one.
+    const chatNotes = [...session.pendingChatNotes];
+
     const { panelOutputs, newlyIngestedSourceSlugs, searchesDispatched } = await runPanelRound({
       session,
       sources,
       lastChairSummary: lastSummary,
       lastAnswers,
+      chatNotes,
     });
 
     // If the panel pulled in new sources, re-read the wiki so the Chair
@@ -263,6 +340,7 @@ async function runPanelAndChair(): Promise<void> {
       roundNumber,
       sources: sourcesForChair,
       lastAnswers,
+      chatNotes,
     });
 
     await updateSession((s) => {
@@ -283,6 +361,10 @@ async function runPanelAndChair(): Promise<void> {
         requirements: mergedRequirements,
         plan: chairOutput.plan || next.plan,
         pendingQuestions: chairOutput.questions,
+        // Drain the chat-notes queue — this round has consumed them as
+        // context. Any free-chat the user does AFTER this round starts
+        // accumulates fresh for the next panel round.
+        pendingChatNotes: [],
         searchesUsed: next.searchesUsed + searchesDispatched,
         roundsPerPhase: {
           ...next.roundsPerPhase,

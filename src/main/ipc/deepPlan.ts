@@ -4,8 +4,10 @@ import type { ChairAnswerMap } from '@shared/types';
 import {
   advancePhase,
   buildStatus,
+  chatWithChair,
   resetSession,
   runOneShot,
+  runPanelRoundManual,
   sendUserMessage,
   skipSession,
   startSession,
@@ -26,6 +28,13 @@ export function registerDeepPlanIpc(): void {
     if (typeof message !== 'string') throw new Error('Message must be a string.');
     return sendUserMessage(message);
   });
+
+  ipcMain.handle(IpcChannels.DeepPlan.Chat, async (_event, message: unknown) => {
+    if (typeof message !== 'string') throw new Error('Message must be a string.');
+    return chatWithChair(message);
+  });
+
+  ipcMain.handle(IpcChannels.DeepPlan.RunPanel, () => runPanelRoundManual());
 
   ipcMain.handle(IpcChannels.DeepPlan.SubmitAnswers, async (_event, answers: unknown) => {
     if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {

@@ -99,6 +99,12 @@ export interface PanelRoundArgs {
   sources: SourceMeta[];
   lastChairSummary: string | null;
   lastAnswers: ChairAnswerMap | null;
+  /**
+   * User's free-chat notes accumulated since the last panel round. Injected
+   * into the panel + Chair prompts as "points the user raised in chat" so
+   * the round factors them in. Cleared on the session side after the round.
+   */
+  chatNotes?: string[];
 }
 
 export interface PanelRoundResult {
@@ -124,6 +130,7 @@ async function runOnePanelist(
     lastAnswers: args.lastAnswers,
     priorFindingsDigest,
     remainingSearchBudget,
+    chatNotes: args.chatNotes ?? [],
   });
 
   const messages: LlmMessage[] = [

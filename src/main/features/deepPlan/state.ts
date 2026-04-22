@@ -155,6 +155,7 @@ function backfillLegacy(parsed: Record<string, unknown>): void {
   }
   if (!parsed.phase) parsed.phase = 'ideation';
   if (!Array.isArray(parsed.pendingQuestions)) parsed.pendingQuestions = [];
+  if (!Array.isArray(parsed.pendingChatNotes)) parsed.pendingChatNotes = [];
   if (typeof parsed.plan !== 'string') parsed.plan = '';
   if (
     !parsed.requirements ||
@@ -225,6 +226,7 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
     plan: '',
     messages: [],
     pendingQuestions: [],
+    pendingChatNotes: [],
     roundsPerPhase: emptyRoundsPerPhase(),
     searchesUsed: 0,
     tokensUsedK: 0,

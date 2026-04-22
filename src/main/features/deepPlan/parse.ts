@@ -240,6 +240,51 @@ function sanitizeChairQuestion(item: unknown, index: number): ChairQuestion | nu
  * null when nothing usable was present (so the caller doesn't overwrite
  * existing requirements with empty data).
  */
+function sanitizePlanPatch(raw: unknown): NonNullable<ChairOutput['planPatch']> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Record<string, unknown>;
+  const out: NonNullable<ChairOutput['planPatch']> = {};
+  if (Array.isArray(rec.edits)) {
+    const edits: { claimId: string; newLine: string }[] = [];
+    for (const e of rec.edits) {
+      if (!e || typeof e !== 'object') continue;
+      const er = e as Record<string, unknown>;
+      const rawId = er.claimId ?? er.claim_id ?? er.id;
+      const claimId = typeof rawId === 'string' ? rawId.trim() : '';
+      const newLine = typeof er.newLine === 'string'
+        ? er.newLine
+        : typeof er.new_line === 'string'
+          ? er.new_line
+          : '';
+      if (!claimId || !newLine) continue;
+      edits.push({ claimId, newLine });
+    }
+    if (edits.length > 0) out.edits = edits;
+  }
+  if (Array.isArray(rec.drops)) {
+    const drops = rec.drops
+      .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+      .map((d) => d.trim());
+    if (drops.length > 0) out.drops = drops;
+  }
+  if (Array.isArray(rec.adds)) {
+    const adds: { afterClaimId: string | null; line: string }[] = [];
+    for (const a of rec.adds) {
+      if (!a || typeof a !== 'object') continue;
+      const ar = a as Record<string, unknown>;
+      const rawAfter = ar.afterClaimId ?? ar.after_claim_id ?? ar.after;
+      const afterClaimId =
+        typeof rawAfter === 'string' && rawAfter.trim().length > 0 ? rawAfter.trim() : null;
+      const line = typeof ar.line === 'string' ? ar.line : '';
+      if (!line) continue;
+      adds.push({ afterClaimId, line });
+    }
+    if (adds.length > 0) out.adds = adds;
+  }
+  const hasAny = (out.edits?.length ?? 0) + (out.drops?.length ?? 0) + (out.adds?.length ?? 0) > 0;
+  return hasAny ? out : null;
+}
+
 function sanitizeRequirementsPatch(item: unknown): Partial<PlanRequirements> | null {
   if (!item || typeof item !== 'object') return null;
   const rec = item as Record<string, unknown>;
@@ -283,11 +328,14 @@ export function parseChairOutput(raw: string): ChairOutput | null {
     rec.requirementsPatch ?? rec.requirements_patch,
   );
 
+  const planPatch = sanitizePlanPatch(rec.planPatch ?? rec.plan_patch);
+
   return {
     summary,
     plan,
     questions: questions.slice(0, 3),
     phaseAdvance,
     requirementsPatch,
+    planPatch,
   };
 }

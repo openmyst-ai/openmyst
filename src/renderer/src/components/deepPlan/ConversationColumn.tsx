@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function ConversationColumn({ session }: Props): JSX.Element {
-  const { status, busy, sendMessage, advance, oneShot, panelProgress } = useDeepPlan();
+  const { status, busy, chat, runPanel, advance, oneShot, panelProgress } = useDeepPlan();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -86,16 +86,27 @@ export function ConversationColumn({ session }: Props): JSX.Element {
 
   const isDone = session.phase === 'done';
 
+  const pendingChatNotes = session.pendingChatNotes ?? [];
+  const hasChatNotes = pendingChatNotes.length > 0;
+
   const handleSend = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       const text = draft.trim();
       if (!text || busy) return;
       setDraft('');
-      await sendMessage(text);
+      // Default path after the first round: free-chat with the Chair.
+      // Before the first round has completed there is nothing to chat about
+      // yet, so we no-op silently (the round is firing).
+      await chat(text);
     },
-    [draft, busy, sendMessage],
+    [draft, busy, chat],
   );
+
+  const handleTakeToPanel = useCallback(async () => {
+    if (busy || roundRunning) return;
+    await runPanel();
+  }, [busy, roundRunning, runPanel]);
 
   return (
     <div className="dp-chat">
@@ -125,6 +136,22 @@ export function ConversationColumn({ session }: Props): JSX.Element {
       </CitationHoverScope>
 
       <div className="dp-chat-footer">
+        {hasChatNotes && !roundRunning && (
+          <div className="dp-chat-notes-chip">
+            <span className="dp-chat-notes-label">
+              {pendingChatNotes.length} chat {pendingChatNotes.length === 1 ? 'note' : 'notes'} queued for panel
+            </span>
+            <button
+              type="button"
+              className="dp-btn dp-btn-ghost dp-btn-small"
+              onClick={() => void handleTakeToPanel()}
+              disabled={busy}
+              title="Run a fresh panel round with your chat notes as context"
+            >
+              Take to panel
+            </button>
+          </div>
+        )}
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
           <AutoResizeTextarea
             className="dp-chat-input"
@@ -132,8 +159,8 @@ export function ConversationColumn({ session }: Props): JSX.Element {
               isDone
                 ? 'Deep Plan complete.'
                 : pendingQuestions.length > 0
-                ? 'Answer the card — or type a free-text note…'
-                : 'Write a reply or hit Continue to advance…'
+                ? 'Answer the card — or chat with the Chair…'
+                : 'Chat with the Chair about the plan…'
             }
             value={draft}
             onChange={setDraft}
@@ -219,6 +246,22 @@ function MessageBubble({
         answers={message.answers ?? {}}
         questions={answeredQuestions ?? []}
       />
+    );
+  }
+  if (message.kind === 'user-chat' || message.kind === 'chair-chat') {
+    // Free-chat turns are styled lighter than panel-round messages so the
+    // user can see at a glance which threads are "panel work" vs "just
+    // talking". Still markdown-rendered so citations + links work.
+    const klass =
+      message.kind === 'user-chat'
+        ? 'dp-msg dp-msg-user dp-msg-chat dp-msg-chat-user'
+        : 'dp-msg dp-msg-assistant dp-msg-chat dp-msg-chat-chair';
+    return (
+      <div className={klass}>
+        <div className="dp-msg-body">
+          <Markdown text={message.content} />
+        </div>
+      </div>
     );
   }
 

@@ -135,6 +135,161 @@ function injectBlockquotes(plan: string, resolved: Map<string, string | null>): 
 const NEEDS_ANCHOR_RE = /\[needs-anchor\]/gi;
 
 /**
+ * Matches an inline claim-id annotation: `<!-- claim:c42 -->`. These are
+ * injected by `annotateClaimIds` onto every cited/marked claim line so
+ * the Chair can reference the line by a stable id across rounds. HTML
+ * comments render as nothing, so they're invisible in the rendered plan.
+ * Lever 2 of the token-efficiency work uses these IDs as patch keys.
+ */
+const CLAIM_ID_RE = /<!--\s*claim:(c\d+)\s*-->/;
+const CLAIM_ID_RE_G = /<!--\s*claim:(c\d+)\s*-->/g;
+
+/**
+ * Walk plan.md line-by-line. Any line that (a) carries a citation or (b)
+ * carries a `[needs-anchor]` marker, and doesn't already have a claim id,
+ * gets one appended as `<!-- claim:cN -->`. Existing ids are preserved so
+ * the Chair's "modify claim cN" patch-language stays meaningful across
+ * rounds.
+ *
+ * Returns the annotated plan + the highest claim id now in use so callers
+ * can plumb it back to session state if they want.
+ */
+function annotateClaimIds(plan: string): { plan: string; maxId: number } {
+  // Scan existing ids so new ones don't collide.
+  let maxSeen = 0;
+  for (const m of plan.matchAll(CLAIM_ID_RE_G)) {
+    const n = Number((m[1] ?? '').replace(/^c/, ''));
+    if (Number.isFinite(n) && n > maxSeen) maxSeen = n;
+  }
+  const lines = plan.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (CLAIM_ID_RE.test(line)) continue;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('#')) continue; // Headings.
+    if (trimmed.startsWith('>')) continue; // Blockquotes.
+    CITATION_RE.lastIndex = 0;
+    SLUG_ONLY_CITATION_RE.lastIndex = 0;
+    NEEDS_ANCHOR_RE.lastIndex = 0;
+    const hasCitation =
+      CITATION_RE.test(trimmed) ||
+      SLUG_ONLY_CITATION_RE.test(trimmed) ||
+      NEEDS_ANCHOR_RE.test(trimmed);
+    if (!hasCitation) continue;
+    maxSeen += 1;
+    lines[i] = `${line.replace(/\s+$/, '')} <!-- claim:c${maxSeen} -->`;
+  }
+  return { plan: lines.join('\n'), maxId: maxSeen };
+}
+
+/**
+ * Enumerate every claim id currently in plan.md, preserving reading order.
+ * The Chair references these ids when emitting a `planPatch`, and the
+ * applier uses them to locate the matching line for edit/drop operations.
+ */
+export function listClaimIds(plan: string): string[] {
+  const ids: string[] = [];
+  for (const m of plan.matchAll(CLAIM_ID_RE_G)) {
+    if (m[1]) ids.push(m[1]);
+  }
+  return ids;
+}
+
+/**
+ * Chair's opt-in patch format. When the round's changes are narrow (edit
+ * a sentence, drop one claim, add one new claim) this is drastically
+ * cheaper to emit than a full plan rewrite. Each entry is keyed by a
+ * `cN` claim id from the previous round's annotated plan.md.
+ *
+ * Applied by `applyPlanPatch`. If any operation's claim id doesn't exist,
+ * that op is skipped (logged loud) and the rest of the patch still runs.
+ * The Chair is told to fall back to a full plan rewrite if the changes
+ * are large enough that a patch would be noisy.
+ */
+export interface PlanPatch {
+  edits?: { claimId: string; newLine: string }[];
+  drops?: string[];
+  adds?: { afterClaimId: string | null; line: string }[];
+}
+
+/**
+ * Apply a patch to the existing plan. `afterClaimId: null` on an add means
+ * "insert at the end of the plan body (before any References/closing
+ * section)". Claim ids in new lines are NOT auto-assigned here; the next
+ * materialiser pass will tag them on its normal walk.
+ */
+export function applyPlanPatch(plan: string, patch: PlanPatch): {
+  plan: string;
+  applied: number;
+  skipped: number;
+} {
+  let applied = 0;
+  let skipped = 0;
+  const lines = plan.split('\n');
+
+  // Build a claim-id → line-index map for fast edit/drop lookups.
+  const idToIdx = new Map<string, number>();
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i]!.match(CLAIM_ID_RE);
+    if (m && m[1]) idToIdx.set(m[1], i);
+  }
+
+  // Apply drops first (so edit/add indices stay stable relative to dropped
+  // lines, which we replace with a sentinel and strip at the end).
+  const DROPPED = ' DROPPED ';
+  for (const id of patch.drops ?? []) {
+    const idx = idToIdx.get(id);
+    if (idx === undefined) {
+      skipped++;
+      continue;
+    }
+    lines[idx] = DROPPED;
+    applied++;
+  }
+
+  // Edits: replace the line outright, but append the claim-id comment if
+  // the model dropped it so the next round can still reference this line.
+  for (const edit of patch.edits ?? []) {
+    const idx = idToIdx.get(edit.claimId);
+    if (idx === undefined || lines[idx] === DROPPED) {
+      skipped++;
+      continue;
+    }
+    const hasId = CLAIM_ID_RE.test(edit.newLine);
+    lines[idx] = hasId
+      ? edit.newLine
+      : `${edit.newLine.replace(/\s+$/, '')} <!-- claim:${edit.claimId} -->`;
+    applied++;
+  }
+
+  // Adds: insert after the named claim, or at plan end when null. Collect
+  // inserts first, then apply in reverse so earlier indices don't shift.
+  const inserts: { atIdx: number; line: string }[] = [];
+  for (const add of patch.adds ?? []) {
+    if (add.afterClaimId === null) {
+      inserts.push({ atIdx: lines.length, line: add.line });
+      applied++;
+      continue;
+    }
+    const idx = idToIdx.get(add.afterClaimId);
+    if (idx === undefined || lines[idx] === DROPPED) {
+      skipped++;
+      continue;
+    }
+    inserts.push({ atIdx: idx + 1, line: add.line });
+    applied++;
+  }
+  inserts.sort((a, b) => b.atIdx - a.atIdx);
+  for (const ins of inserts) {
+    lines.splice(ins.atIdx, 0, ins.line);
+  }
+
+  const stripped = lines.filter((l) => l !== DROPPED);
+  return { plan: stripped.join('\n'), applied, skipped };
+}
+
+/**
  * Count every Harvard-style citation in plan text — both \`#anchor-id\`
  * anchored and slug-only. Used for continuity monitoring: if the Chair's
  * rewritten plan has fewer citations than the prior plan, it dropped
@@ -231,7 +386,11 @@ export async function materialiseAnchors(
   const hallucinatedAnchors = Array.from(resolved.values()).filter(
     (v) => v === null,
   ).length;
-  const rewritten = injectBlockquotes(plan, resolved);
+  const withQuotes = injectBlockquotes(plan, resolved);
+  // Lever 2: annotate each cited/marked claim line with a stable claim id
+  // so the Chair can reference it in a `planPatch` next round instead of
+  // rewriting the whole plan. Comments are invisible in rendered markdown.
+  const { plan: rewritten } = annotateClaimIds(withQuotes);
   const { silentlyUnanchored, needsAnchor, sample } = unanchoredLint(rewritten);
   log('deep-plan', 'chair.anchorLint', {
     materialised,

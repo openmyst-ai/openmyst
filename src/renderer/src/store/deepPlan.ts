@@ -50,6 +50,8 @@ interface DeepPlanState {
   hide: () => void;
   start: (task: string) => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
+  chat: (message: string) => Promise<void>;
+  runPanel: () => Promise<void>;
   submitAnswers: (answers: ChairAnswerMap) => Promise<void>;
   advance: () => Promise<void>;
   skip: () => Promise<void>;
@@ -102,6 +104,30 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
     set({ busy: true, error: null });
     try {
       const status = await bridge.deepPlan.sendMessage(message);
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  chat: async (message) => {
+    set({ busy: true, error: null });
+    try {
+      const status = await bridge.deepPlan.chat(message);
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  runPanel: async () => {
+    set({ busy: true, error: null });
+    try {
+      const status = await bridge.deepPlan.runPanel();
       set({ status });
     } catch (err) {
       set({ error: (err as Error).message });

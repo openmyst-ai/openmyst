@@ -326,6 +326,19 @@ export interface ChairOutput {
    * so the Chair would re-ask the same question every subsequent round.
    */
   requirementsPatch?: Partial<PlanRequirements> | null;
+  /**
+   * OPT-IN: Chair can emit a narrow patch instead of a full `plan` rewrite
+   * when the round's changes are few. Applied on top of the existing
+   * plan.md by `applyPlanPatch`. Huge token savings on mature plans where
+   * rewriting the whole thing is wasteful. When both `plan` and
+   * `planPatch` are present the patch wins; when neither moves anything,
+   * the prior plan is preserved.
+   */
+  planPatch?: {
+    edits?: { claimId: string; newLine: string }[];
+    drops?: string[];
+    adds?: { afterClaimId: string | null; line: string }[];
+  } | null;
 }
 
 /**
@@ -390,7 +403,11 @@ export interface DeepPlanMessage {
     | 'chat'
     | 'chair-turn'
     | 'user-answers'
-    | 'phase-transition';
+    | 'phase-transition'
+    /** User free-chat turn — cheap conversational exchange with the Chair, no panel. */
+    | 'user-chat'
+    /** Chair's reply during free-chat. Not a round summary; no plan rewrite. */
+    | 'chair-chat';
   timestamp: string;
   /** Populated when `kind === 'chair-turn'`. */
   chair?: ChairOutput;
@@ -415,6 +432,14 @@ export interface DeepPlanSession {
   messages: DeepPlanMessage[];
   /** Chair-authored questions awaiting user response, if any. */
   pendingQuestions: ChairQuestion[];
+  /**
+   * Free-chat notes the user has typed since the last panel round. These
+   * don't trigger panel work on their own — they accumulate here and get
+   * injected into the next panel round's context (via `sendToPanel` or
+   * `advancePhase`) as "points the user raised in chat". Cleared when that
+   * happens. Keeps the panel's expensive fanout out of casual conversation.
+   */
+  pendingChatNotes: string[];
   /** Running count of panel rounds per phase (convergence heuristic). */
   roundsPerPhase: Record<DeepPlanPhase, number>;
   /** Running total of web-search queries dispatched by the panel. Capped at DEEP_PLAN_MAX_TOTAL_SEARCHES. */

@@ -75,12 +75,53 @@ function requirementsBlock(req: PlanRequirements): string {
   ].join('\n');
 }
 
-function planBlock(plan: string): string {
+/**
+ * Strip the materialiser's injected `> verbatim passage` blockquotes from
+ * a plan.md string. The blockquotes exist for the drafter and the user's
+ * hover UI — they are dead weight when we feed plan.md back into the Chair
+ * or panel, where anchor labels in the wiki block already tell the model
+ * what each cited anchor says.
+ *
+ * Critical: this ONLY drops lines starting with `>`. The `([Name](slug.md#anchor-id))`
+ * citations themselves stay intact, so anchor/ID tracking across rounds is
+ * deterministic — the materialiser re-injects blockquotes from the fresh
+ * Chair output each round using those citation markers.
+ *
+ * Cost savings: on a mature plan this cuts plan.md token volume by roughly
+ * 40–70% on Chair/panel rewrite paths.
+ */
+function stripMaterialisedBlockquotes(plan: string): string {
+  const lines = plan.split('\n');
+  const out: string[] = [];
+  let droppedBlank = false;
+  for (const line of lines) {
+    if (line.trim().startsWith('>')) {
+      droppedBlank = true;
+      continue;
+    }
+    // Collapse the blank line that typically precedes a stripped blockquote.
+    if (droppedBlank && line.trim() === '') {
+      droppedBlank = false;
+      continue;
+    }
+    droppedBlank = false;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+/**
+ * Render plan.md for an LLM context. By default strips materialised
+ * blockquotes (see `stripMaterialisedBlockquotes`) — use `{ keepBlockquotes:
+ * true }` only for the drafter handoff, which needs the verbatim passages
+ * inline so it can paraphrase from them.
+ */
+function planBlock(plan: string, opts: { keepBlockquotes?: boolean } = {}): string {
   const trimmed = plan.trim();
   if (!trimmed) {
     return '_(plan.md is empty — this is the first round. Propose its initial skeleton.)_';
   }
-  return trimmed;
+  return opts.keepBlockquotes ? trimmed : stripMaterialisedBlockquotes(trimmed);
 }
 
 function sourcesBlock(sources: SourceMeta[]): string {
@@ -152,6 +193,8 @@ interface PanelContext {
   lastAnswers: ChairAnswerMap | null;
   priorFindingsDigest: string;
   remainingSearchBudget: number;
+  /** User's free-chat notes since the last panel round. Empty array = none. */
+  chatNotes: string[];
 }
 
 function answersBlock(answers: ChairAnswerMap | null, questions: ChairQuestion[]): string {
@@ -183,8 +226,14 @@ function answersBlock(answers: ChairAnswerMap | null, questions: ChairQuestion[]
   return lines.join('\n');
 }
 
+function chatNotesBlock(notes: string[]): string {
+  if (notes.length === 0) return '';
+  const list = notes.map((n, i) => `${i + 1}. ${n}`).join('\n');
+  return `\n\nUser's free-chat notes since the last panel round (treat these as steering — the user raised these points while thinking out loud; factor them into your findings for this round):\n${list}`;
+}
+
 function panelContextBlock(ctx: PanelContext): string {
-  const { session, sources, lastChairSummary, lastAnswers, priorFindingsDigest } = ctx;
+  const { session, sources, lastChairSummary, lastAnswers, priorFindingsDigest, chatNotes } = ctx;
   const lastQuestions = (() => {
     const lastChairMsg = [...session.messages].reverse().find((m) => m.kind === 'chair-turn');
     return lastChairMsg?.chair?.questions ?? [];
@@ -209,6 +258,7 @@ function panelContextBlock(ctx: PanelContext): string {
       : '(this is the first panel round for this phase)',
     '',
     `Last user answers:\n${answersBlock(lastAnswers, lastQuestions)}`,
+    chatNotesBlock(chatNotes),
     '',
     priorFindingsDigest
       ? `Prior-round findings digest (do NOT repeat these — raise NEW points):\n${priorFindingsDigest}`
@@ -328,10 +378,16 @@ export interface ChairPromptArgs {
    * and will re-ask the same questions every round.
    */
   lastAnswers: ChairAnswerMap | null;
+  /**
+   * Free-chat notes the user typed since the last panel round. The Chair
+   * should reflect these in its summary + plan rewrite this round so the
+   * conversation-layer of Deep Plan actually affects the plan.
+   */
+  chatNotes: string[];
 }
 
 export function chairPrompt(args: ChairPromptArgs): string {
-  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources, lastAnswers } = args;
+  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources, lastAnswers, chatNotes } = args;
   const phase = session.phase;
   const priorSummaries = priorChairDigest(session);
   const missing = missingRequirements(session.requirements);
@@ -363,6 +419,9 @@ export function chairPrompt(args: ChairPromptArgs): string {
     : softLimitHit
       ? `\n\n[Round pressure] This is round ${roundNumber} — normally we'd be ready to advance, but requirements are still incomplete (see above). Finish those first, then advance next round.`
       : '';
+  const chatNotesSection = chatNotes.length > 0
+    ? `\n\nUser's free-chat notes since the last panel round (the writer typed these between rounds — factor them into your summary AND into the plan rewrite where relevant):\n${chatNotes.map((n, i) => `${i + 1}. ${n}`).join('\n')}`
+    : '';
 
   return `You are the CHAIR of an adversarial panel helping a writer build a plan.md. The panel has just produced ${panelOutputs.length} sets of findings. Your job has two parts:
 
@@ -376,7 +435,7 @@ Current round in this phase: ${roundNumber}${advanceNudge}
 User's task: "${session.task}"
 
 Task requirements (hard constraints — the plan MUST honour these; echo the word-count range inside the plan body where relevant):
-${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection}
+${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection}${chatNotesSection}
 
 ${searchBudgetBlock(session)}
 
@@ -412,8 +471,23 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
     "form": "exploratory essay",
     "audience": "general educated reader",
     "styleNotes": null
+  } | null,
+  "planPatch": {
+    "edits": [{"claimId": "c12", "newLine": "Pareto optimality requires three efficiency conditions ([Smith](smith.md#def-pareto)). <!-- claim:c12 -->"}],
+    "drops": ["c17"],
+    "adds": [{"afterClaimId": "c12", "line": "The conditions are exchange, production, and output ([Smith](smith.md#three-conditions))."}]
   } | null
 }
+
+TOKEN-EFFICIENT OUTPUT — \`plan\` vs \`planPatch\` (Lever 2):
+- The current plan.md above has \`<!-- claim:cN -->\` annotations on every cited/marked claim line. These are stable ids — the same claim keeps the same id across rounds.
+- If THIS round's changes are narrow (edit 1–5 claims, drop 1–3, add 1–5), emit \`planPatch\` and leave \`plan\` as an empty string. The system applies the patch to the prior plan on your behalf. This is drastically cheaper than a full rewrite.
+- If THIS round's changes are broad (restructuring sections, rewriting the thesis, major reordering), emit a full \`plan\` string as before and leave \`planPatch\` null.
+- \`planPatch.edits\` replaces a line outright. Keep the \`<!-- claim:cN -->\` suffix intact so the id survives.
+- \`planPatch.drops\` is an array of claim ids to delete.
+- \`planPatch.adds\` inserts new lines. \`afterClaimId: null\` appends at the end of the plan body. New lines will get fresh ids assigned by the system — do NOT invent new \`cN\` values yourself.
+- NEVER emit both \`plan\` (non-empty) AND \`planPatch\`. If you're unsure, prefer the full \`plan\` rewrite — it's always safe.
+- First round of a phase: the plan is empty, so ALWAYS emit full \`plan\`, not a patch.
 
 plan.md rules:
 - Rewrite it IN FULL every round. The drafter only ever sees the latest version.
@@ -480,6 +554,63 @@ requirementsPatch rule (critical — the system mutates session state from this)
 - If you ASKED about a requirement this round but the user hasn't answered yet, do NOT patch those fields. Leave the question in \`questions\` and wait for next round.
 
 Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.`;
+}
+
+/* ────────────────────── Chair free-chat ────────────────────── */
+
+/**
+ * Prompt for a cheap single-turn Chair reply during free-chat mode. The
+ * user is thinking out loud, not asking for a full panel round. We give
+ * the Chair just enough context to respond like a thoughtful colleague:
+ * the task, the phase, the current plan (blockquotes stripped), the
+ * recent chat exchange, and the user's latest message.
+ *
+ * No JSON envelope, no plan rewrite, no question-card authoring — this is
+ * pure conversation. The Chair responds in plain prose. Any concrete
+ * ideas the user raises get cashed in on the NEXT panel round via
+ * `pendingChatNotes`; the Chair doesn't need to act on them itself.
+ */
+export interface ChairChatArgs {
+  session: DeepPlanSession;
+  sources: SourceMeta[];
+  /** Recent chat-turn transcript, oldest → newest, trimmed to the last N turns. */
+  recentChat: { role: 'user' | 'chair'; text: string }[];
+  /** The message the user just sent — NOT yet in recentChat. */
+  userMessage: string;
+}
+
+export function chairChatPrompt(args: ChairChatArgs): string {
+  const { session, sources, recentChat, userMessage } = args;
+  const transcriptBlock =
+    recentChat.length === 0
+      ? '(no prior chat turns this round)'
+      : recentChat
+          .map((t) => `${t.role === 'user' ? 'User' : 'Chair'}: ${t.text}`)
+          .join('\n\n');
+
+  return `You are the CHAIR of an adversarial writing panel, but right now you are NOT running a round — you are chatting with the writer between rounds. They want to think out loud, push back on a choice, raise a new angle, or just talk through the plan. Keep it conversational: one or two short paragraphs, colleague-tone, direct.
+
+You are NOT rewriting plan.md. You are NOT asking question-card questions. You are NOT calling the panel. If the writer raises something concrete that deserves a panel round, acknowledge it briefly and let them know they can hit "Take to panel" to escalate — don't pretend to run one yourself.
+
+Task: "${session.task}"
+Current phase: ${session.phase}
+
+Task requirements:
+${requirementsBlock(session.requirements)}
+
+Current plan.md (blockquotes stripped for brevity — the full verbatim passages live beneath each citation in the user's view):
+${planBlock(session.plan)}
+
+Wiki — sources ingested so far:
+${sourcesBlock(sources)}
+
+Recent chat transcript (this round, context for your reply):
+${transcriptBlock}
+
+User's latest message:
+"${userMessage}"
+
+Reply now, in plain prose, 1–2 short paragraphs max. No JSON, no markdown fences, no headings. Be specific — reference the plan, a source, or a prior panel finding where it's relevant. If the user's message is a question you can answer directly from the plan/wiki, answer it. If it's a suggestion, react to it (agree, push back, refine). If it's vague, ask one sharpening question.`;
 }
 
 /* ─────────────────── Deep Search planner ─────────────────── */
@@ -584,7 +715,7 @@ ${requirementsBlock(session.requirements)}
 
 plan.md — the complete output of the Deep Plan session. This is your ENTIRE evidence base. Every non-trivial claim already has a Harvard-style citation \`([Name](slug.md#anchor-id))\` followed by a blockquote with the verbatim source passage. You do NOT need any other sources; you should not reference anything that isn't in this plan.
 
-${planBlock(session.plan)}
+${planBlock(session.plan, { keepBlockquotes: true })}
 
 VOICE AND INTEGRATION (read this before you start drafting):
 

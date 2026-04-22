@@ -94,6 +94,10 @@ export const IpcChannels = {
     Start: 'deep-plan:start',
     /** Submit a free-text turn (e.g. a follow-up question during ideation). */
     SendMessage: 'deep-plan:send-message',
+    /** Cheap chat with the Chair — no panel, no plan rewrite. Accumulates into pendingChatNotes. */
+    Chat: 'deep-plan:chat',
+    /** Explicitly trigger a panel round, optionally consuming pendingChatNotes. */
+    RunPanel: 'deep-plan:run-panel',
     /** Submit answers to the Chair's pending questions. */
     SubmitAnswers: 'deep-plan:submit-answers',
     /** Force-advance to the next phase even if the Chair hasn't signalled. */
