@@ -3,7 +3,6 @@ import type {
   ChairQuestion,
   ChairQuestionChoice,
   ChairQuestionType,
-  PanelFinding,
   PanelOutput,
   PanelResearchRequest,
   PanelRole,
@@ -118,22 +117,6 @@ function strOr(v: unknown, fallback = ''): string {
   return typeof v === 'string' ? v.trim() : fallback;
 }
 
-function sanitizePanelFinding(item: unknown): PanelFinding | null {
-  if (!item || typeof item !== 'object') return null;
-  const rec = item as Record<string, unknown>;
-  const claim = strOr(rec.claim);
-  if (!claim) return null;
-  const rawSeverity = strOr(rec.severity).toLowerCase();
-  const severity: PanelFinding['severity'] =
-    rawSeverity === 'high' || rawSeverity === 'low' ? rawSeverity : 'mid';
-  return {
-    severity,
-    claim,
-    rationale: strOr(rec.rationale),
-    suggestedAction: strOr(rec.suggestedAction ?? rec.suggested_action),
-  };
-}
-
 function sanitizePanelResearch(item: unknown): PanelResearchRequest | null {
   if (!item || typeof item !== 'object') return null;
   const rec = item as Record<string, unknown>;
@@ -142,19 +125,50 @@ function sanitizePanelResearch(item: unknown): PanelResearchRequest | null {
   return { query, rationale: strOr(rec.rationale) };
 }
 
+/**
+ * A panelist's anchor proposal is a plain `slug#anchor-id` string. Models
+ * sometimes dress it up ({id: "slug#x"}, {anchor: "..."}, etc.); we
+ * accept any of those shapes and extract the string.
+ */
+function sanitizeAnchorProposal(item: unknown): string | null {
+  if (typeof item === 'string') {
+    const s = item.trim();
+    return s && s.includes('#') ? s : null;
+  }
+  if (item && typeof item === 'object') {
+    const rec = item as Record<string, unknown>;
+    for (const k of ['id', 'anchor', 'anchorId', 'anchor_id']) {
+      const v = rec[k];
+      if (typeof v === 'string' && v.trim().includes('#')) return v.trim();
+    }
+  }
+  return null;
+}
+
 export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
   const parsed = extractJsonBlob(raw);
-  const findings: PanelFinding[] = [];
+  const anchorProposals: string[] = [];
   const needsResearch: PanelResearchRequest[] = [];
+  let visionNotes = '';
 
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const rec = parsed as Record<string, unknown>;
-    if (Array.isArray(rec.findings)) {
-      for (const item of rec.findings) {
-        const f = sanitizePanelFinding(item);
-        if (f) findings.push(f);
+    const proposalSource =
+      (Array.isArray(rec.anchorProposals) && rec.anchorProposals) ||
+      (Array.isArray(rec.anchor_proposals) && rec.anchor_proposals) ||
+      (Array.isArray(rec.anchors) && rec.anchors) ||
+      null;
+    if (proposalSource) {
+      const seen = new Set<string>();
+      for (const item of proposalSource) {
+        const p = sanitizeAnchorProposal(item);
+        if (p && !seen.has(p)) {
+          seen.add(p);
+          anchorProposals.push(p);
+        }
       }
     }
+    visionNotes = strOr(rec.visionNotes ?? rec.vision_notes);
     const researchSource =
       (Array.isArray(rec.needsResearch) && rec.needsResearch) ||
       (Array.isArray(rec.needs_research) && rec.needs_research) ||
@@ -167,12 +181,13 @@ export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
     }
   }
 
-  // Tight caps: research is expensive and panelists tend to over-request
-  // when the prompt doesn't bite hard. Findings are critical thinking —
-  // keep it focused; 3 strong findings beat 5 weak ones.
+  // Caps: 3 anchors per role per round keeps the log growing at a
+  // manageable pace (panel has 3–4 roles per phase × multiple rounds).
+  // Research is expensive, so 2 queries per role is a hard ceiling.
   return {
     role,
-    findings: findings.slice(0, 3),
+    anchorProposals: anchorProposals.slice(0, 3),
+    visionNotes: visionNotes.slice(0, 500),
     needsResearch: needsResearch.slice(0, 2),
   };
 }
@@ -240,49 +255,36 @@ function sanitizeChairQuestion(item: unknown, index: number): ChairQuestion | nu
  * null when nothing usable was present (so the caller doesn't overwrite
  * existing requirements with empty data).
  */
-function sanitizePlanPatch(raw: unknown): NonNullable<ChairOutput['planPatch']> | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const rec = raw as Record<string, unknown>;
-  const out: NonNullable<ChairOutput['planPatch']> = {};
-  if (Array.isArray(rec.edits)) {
-    const edits: { claimId: string; newLine: string }[] = [];
-    for (const e of rec.edits) {
-      if (!e || typeof e !== 'object') continue;
-      const er = e as Record<string, unknown>;
-      const rawId = er.claimId ?? er.claim_id ?? er.id;
-      const claimId = typeof rawId === 'string' ? rawId.trim() : '';
-      const newLine = typeof er.newLine === 'string'
-        ? er.newLine
-        : typeof er.new_line === 'string'
-          ? er.new_line
-          : '';
-      if (!claimId || !newLine) continue;
-      edits.push({ claimId, newLine });
+/**
+ * Tolerantly pull the Chair's anchor-log additions. Each element can be a
+ * plain `slug#anchor-id` string or a `{id, note}` object. Returns an
+ * empty array rather than null — downstream code always treats it as a
+ * list to append.
+ */
+function sanitizeAnchorLogAdd(raw: unknown): { id: string; note?: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { id: string; note?: string }[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item === 'string') {
+      const id = item.trim();
+      if (id.includes('#') && !seen.has(id)) {
+        seen.add(id);
+        out.push({ id });
+      }
+      continue;
     }
-    if (edits.length > 0) out.edits = edits;
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const rawId = rec.id ?? rec.anchor ?? rec.anchorId ?? rec.anchor_id;
+    const id = typeof rawId === 'string' ? rawId.trim() : '';
+    if (!id.includes('#') || seen.has(id)) continue;
+    seen.add(id);
+    const noteRaw = rec.note;
+    const note = typeof noteRaw === 'string' ? noteRaw.trim() : '';
+    out.push(note ? { id, note } : { id });
   }
-  if (Array.isArray(rec.drops)) {
-    const drops = rec.drops
-      .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
-      .map((d) => d.trim());
-    if (drops.length > 0) out.drops = drops;
-  }
-  if (Array.isArray(rec.adds)) {
-    const adds: { afterClaimId: string | null; line: string }[] = [];
-    for (const a of rec.adds) {
-      if (!a || typeof a !== 'object') continue;
-      const ar = a as Record<string, unknown>;
-      const rawAfter = ar.afterClaimId ?? ar.after_claim_id ?? ar.after;
-      const afterClaimId =
-        typeof rawAfter === 'string' && rawAfter.trim().length > 0 ? rawAfter.trim() : null;
-      const line = typeof ar.line === 'string' ? ar.line : '';
-      if (!line) continue;
-      adds.push({ afterClaimId, line });
-    }
-    if (adds.length > 0) out.adds = adds;
-  }
-  const hasAny = (out.edits?.length ?? 0) + (out.drops?.length ?? 0) + (out.adds?.length ?? 0) > 0;
-  return hasAny ? out : null;
+  return out;
 }
 
 function sanitizeRequirementsPatch(item: unknown): Partial<PlanRequirements> | null {
@@ -312,7 +314,19 @@ export function parseChairOutput(raw: string): ChairOutput | null {
   const summary = strOr(rec.summary);
   if (!summary) return null;
 
-  const plan = typeof rec.plan === 'string' ? rec.plan : '';
+  // visionUpdate: string when the Chair wants a full new vision, null when
+  // it wants to keep the prior vision. Empty strings are coerced to null
+  // (empty vision is never intentional — it'd mean "wipe everything",
+  // which we don't allow from a single round).
+  const rawVision = rec.visionUpdate ?? rec.vision_update ?? rec.vision;
+  let visionUpdate: string | null = null;
+  if (typeof rawVision === 'string' && rawVision.trim().length > 0) {
+    visionUpdate = rawVision;
+  }
+
+  const anchorLogAdd = sanitizeAnchorLogAdd(
+    rec.anchorLogAdd ?? rec.anchor_log_add ?? rec.anchorAdditions ?? rec.anchors,
+  );
 
   const rawQuestions = Array.isArray(rec.questions) ? rec.questions : [];
   const questions: ChairQuestion[] = [];
@@ -328,14 +342,12 @@ export function parseChairOutput(raw: string): ChairOutput | null {
     rec.requirementsPatch ?? rec.requirements_patch,
   );
 
-  const planPatch = sanitizePlanPatch(rec.planPatch ?? rec.plan_patch);
-
   return {
     summary,
-    plan,
+    visionUpdate,
+    anchorLogAdd,
     questions: questions.slice(0, 3),
     phaseAdvance,
     requirementsPatch,
-    planPatch,
   };
 }

@@ -1,4 +1,5 @@
 import type {
+  AnchorLogEntry,
   ChairAnswerMap,
   ChairQuestion,
   DeepPlanPhase,
@@ -76,52 +77,56 @@ function requirementsBlock(req: PlanRequirements): string {
 }
 
 /**
- * Strip the materialiser's injected `> verbatim passage` blockquotes from
- * a plan.md string. The blockquotes exist for the drafter and the user's
- * hover UI — they are dead weight when we feed plan.md back into the Chair
- * or panel, where anchor labels in the wiki block already tell the model
- * what each cited anchor says.
- *
- * Critical: this ONLY drops lines starting with `>`. The `([Name](slug.md#anchor-id))`
- * citations themselves stay intact, so anchor/ID tracking across rounds is
- * deterministic — the materialiser re-injects blockquotes from the fresh
- * Chair output each round using those citation markers.
- *
- * Cost savings: on a mature plan this cuts plan.md token volume by roughly
- * 40–70% on Chair/panel rewrite paths.
+ * Render vision.md for an LLM context. Vision is small dot-point
+ * intellectual spine — thesis, POV, section intents, novel insights.
+ * No citations needed; anchors live in the log.
  */
-function stripMaterialisedBlockquotes(plan: string): string {
-  const lines = plan.split('\n');
-  const out: string[] = [];
-  let droppedBlank = false;
-  for (const line of lines) {
-    if (line.trim().startsWith('>')) {
-      droppedBlank = true;
-      continue;
-    }
-    // Collapse the blank line that typically precedes a stripped blockquote.
-    if (droppedBlank && line.trim() === '') {
-      droppedBlank = false;
-      continue;
-    }
-    droppedBlank = false;
-    out.push(line);
+function visionBlock(vision: string): string {
+  const trimmed = vision.trim();
+  if (!trimmed) {
+    return '_(vision.md is empty — this is the first round. Populate it with the task\'s working thesis, POV, and rough section intents as dot-points.)_';
   }
-  return out.join('\n');
+  return trimmed;
 }
 
 /**
- * Render plan.md for an LLM context. By default strips materialised
- * blockquotes (see `stripMaterialisedBlockquotes`) — use `{ keepBlockquotes:
- * true }` only for the drafter handoff, which needs the verbatim passages
- * inline so it can paraphrase from them.
+ * Render the anchor log as a compact enumerated block. Each entry shows
+ * id, type, source name, and the verbatim text. The drafter gets this
+ * near-verbatim; the panel gets a shorter version that just shows what's
+ * already in the log (so they don't re-propose duplicates).
  */
-function planBlock(plan: string, opts: { keepBlockquotes?: boolean } = {}): string {
-  const trimmed = plan.trim();
-  if (!trimmed) {
-    return '_(plan.md is empty — this is the first round. Propose its initial skeleton.)_';
-  }
-  return opts.keepBlockquotes ? trimmed : stripMaterialisedBlockquotes(trimmed);
+function anchorLogBlock(
+  anchorLog: AnchorLogEntry[],
+  opts: { includeText?: boolean; includeNote?: boolean } = {},
+): string {
+  if (anchorLog.length === 0) return '_(anchor log is empty)_';
+  const { includeText = true, includeNote = true } = opts;
+  return anchorLog
+    .map((e, i) => {
+      const head = `${i + 1}. [${e.type}] ([${e.sourceName}](${e.slug}.md#${e.id.split('#')[1] ?? ''}))`;
+      const body = includeText ? `\n   "${e.text.replace(/\n+/g, ' ').trim()}"` : '';
+      const note = includeNote && e.note ? `\n   Chair note: ${e.note}` : '';
+      return `${head}${body}${note}`;
+    })
+    .join('\n');
+}
+
+/**
+ * Compact anchor-log view for panelists: shows ids + one-line labels
+ * (derived from the first sentence of text) so panel can see what's
+ * covered without spending tokens on full excerpt text.
+ */
+function anchorLogIndexBlock(anchorLog: AnchorLogEntry[]): string {
+  if (anchorLog.length === 0) return '_(anchor log is empty — you are proposing from scratch)_';
+  return anchorLog
+    .map((e) => {
+      const preview = e.text
+        .replace(/\n+/g, ' ')
+        .trim()
+        .slice(0, 110);
+      return `- \`${e.id}\` [${e.type}] ${preview}${preview.length < e.text.length ? '…' : ''}`;
+    })
+    .join('\n');
 }
 
 function sourcesBlock(sources: SourceMeta[]): string {
@@ -242,13 +247,16 @@ function panelContextBlock(ctx: PanelContext): string {
     `User's task: "${session.task}"`,
     `Current phase: ${session.phase}`,
     '',
-    'Task requirements (hard constraints — the final draft MUST honour these):',
+    'RUBRIC (hard constraints — the draft must honour these):',
     requirementsBlock(session.requirements),
     '',
-    'Current plan.md (the living artefact — this is what you are here to improve):',
-    planBlock(session.plan),
+    'VISION (the writer + Chair\'s intellectual spine for this piece — dot-points, not prose. Your anchor proposals should sharpen or extend this vision):',
+    visionBlock(session.vision),
     '',
-    'Wiki — sources already ingested:',
+    'ANCHOR LOG — anchors already pulled into the session (do NOT re-propose these; look for NEW anchors the log is missing):',
+    anchorLogIndexBlock(session.anchorLog),
+    '',
+    'Wiki — sources the panel can draw anchors from (each anchor id + one-line label shown; pick from these when proposing):',
     sourcesBlock(sources),
     '',
     searchBudgetBlock(session),
@@ -261,7 +269,7 @@ function panelContextBlock(ctx: PanelContext): string {
     chatNotesBlock(chatNotes),
     '',
     priorFindingsDigest
-      ? `Prior-round findings digest (do NOT repeat these — raise NEW points):\n${priorFindingsDigest}`
+      ? `Prior-round panel output digest (do NOT repeat these — raise NEW proposals):\n${priorFindingsDigest}`
       : '(no prior rounds)',
   ].join('\n');
 }
@@ -273,7 +281,7 @@ export function panelistPrompt(role: PanelRole, ctx: PanelContext): string {
     ? `- \`needsResearch\`: up to ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND} queries when a specific plan claim would land harder with a source the wiki lacks. Any role may request — not just Evidence. Early ideation rounds benefit most: one or two seed queries on the core concept can reshape the whole plan.`
     : `- \`needsResearch\`: emit []. The session search budget is exhausted — work with the plan and wiki you already have.`;
 
-  return `You are ONE voice on an adversarial panel that is iteratively refining a writer's plan.md. You do NOT talk to the writer. You report structured findings to the Chair, who rewrites plan.md in full and synthesises the round for the user.
+  return `You are ONE voice on an evidence-hunting panel. You do NOT talk to the writer. You do NOT critique prose. You do NOT rewrite anything. Your job is narrow and concrete: given the vision + rubric + current anchor log, propose new anchors from the wiki that make the vision stronger, and when the wiki is missing coverage, request research to fill it.
 
 Your role:
 ${persona}
@@ -281,53 +289,41 @@ ${persona}
 Context:
 ${panelContextBlock(ctx)}
 
-The anchor-first rule (this is the core of how the panel works now):
-Plan.md is a DOCUMENT OF ANCHORED CLAIMS. Every non-trivial claim in it must point to a specific anchor in the wiki above — the exact sentence from a source that grounds the claim. If there's no anchor for a claim, the claim doesn't go in the plan. The panel's whole job, across every role, is to drive plan.md toward "every claim anchored". That means:
-- Unanchored claims already in plan.md are bugs. Either find the anchor that supports them (from the wiki above) or propose a research query that would produce such an anchor.
-- Findings that just restructure prose without touching evidence are low-value. Findings that surface a missing anchor, or propose swapping a weak anchor for a stronger one, are high-value.
-- Searches exist to hunt anchors — not to "explore the space". A good \`needsResearch\` query is shaped to return a source containing a specific missing statistic, definition, or finding.
+How to think about your job:
+The vision above is what the writer + Chair have decided this piece is ABOUT — the thesis, POV, section intents, novel angles. The anchor log is the evidence the drafter will use. Your role, through your persona's lens, is to spot:
+1. Claims implied by the vision that the anchor log doesn't yet support.
+2. Anchors already in the wiki (see sources block) that would sharpen the vision but aren't in the log yet.
+3. Counter-evidence, stress-tests, or adjacent angles the log is missing.
+4. When the wiki genuinely lacks coverage for something load-bearing → emit a \`needsResearch\` query shaped to yield a SPECIFIC anchor (a statistic, a definition, a primary claim).
 
-Your job this round:
-1. Read the current plan.md and the wiki anchor list carefully. Anchor labels are one-sentence paraphrases — they tell you what each anchor actually says. Use them to judge whether the plan's claims are properly grounded.
-2. Through your role's lens, identify the 2–3 most important anchor gaps or mis-groundings. Be specific: name the claim, the anchor missing, and the anchor that should replace or ground it.
-3. For each finding, \`suggestedAction\` must be a concrete plan edit tied to an anchor. One of:
-   - "Ground the claim in §X by citing ([Name](slug.md#anchor-id)) — the anchor states <paraphrase>."
-   - "Swap the ([Old](old.md#x)) citation in §Y for ([New](new.md#y)) — stronger evidence because <reason>."
-   - "Drop the unsupported sentence in §Z — no anchor in the wiki backs it and the claim isn't load-bearing."
-   - "Add a §N grounded in ([Name](slug.md#anchor-id))."
-4. When no anchor in the wiki supports a load-bearing claim, emit a \`needsResearch\` query. Frame it as "I need a [statistic|definition|claim|finding|quote] about X" — that tells the Chair what anchor type to hunt for. Reasoning alone produces a plan that sounds confident but isn't anchored.
+You are NOT trying to cover the topic comprehensively. You're trying to surface the best 1–3 new anchors or research directions your role is positioned to spot. Small and sharp beats broad and shallow.
 
 Output ONLY a JSON object of this exact shape — no prose, no markdown fences, no commentary:
 
 {
-  "findings": [
-    {
-      "severity": "high" | "mid" | "low",
-      "claim": "one sentence naming the anchor gap or mis-grounding in the plan",
-      "rationale": "one sentence saying why it matters",
-      "suggestedAction": "one sentence naming the concrete plan edit tied to an anchor (use Harvard markdown links)"
-    }
+  "anchorProposals": [
+    "slug#anchor-id"
   ],
+  "visionNotes": "≤ 2 sentences. What's missing or off about the vision, through your role's lens. Empty string when you have nothing to add.",
   "needsResearch": [
-    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "what anchor type (statistic/definition/claim/finding/quote) this query should yield, and which specific plan claim it unblocks"}
+    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "what anchor type (statistic/definition/claim/finding/quote) this query should yield, and what claim in the vision it unblocks"}
   ]
 }
 
 Rules:
-- At most 3 findings. Quality over quantity. Findings that don't name an anchor or propose one are worthless.
-- Research requests must target NEW ground. Before emitting a \`needsResearch\` query, scan the wiki: if two or more sources already cover the same concept at a similar depth, do NOT request a third — a 4th "Pareto Efficiency Explained" adds noise, not evidence. Pivot instead to a primary-source author (Sen, Arrow, Feldstein), a specific landmark paper, or a contested/adjacent angle the wiki doesn't touch.
+- \`anchorProposals\`: at most 3 per role per round. Each must be a \`slug#anchor-id\` that EXISTS in the wiki above (the anchor bullets under each source). Do NOT invent ids. Do NOT re-propose ids already in the anchor log.
+- \`visionNotes\`: optional, concise. One crisp observation per role, not a list of five vague suggestions. If the vision is solid from your lens, emit "".
+- \`needsResearch\`: queries must target NEW ground. If the wiki already has 2+ sources on the same concept at similar depth, do NOT request a third — pivot to a primary-source author, a landmark paper, or an adjacent angle instead.
 ${searchClause}
-- When a \`suggestedAction\` references a source, write it as a Harvard-style markdown link: \`([Name](slug.md))\` or \`([Name](slug.md#anchor-id))\`. NEVER use backticked slug tokens (\`\`\`slug\`\`\`, \`\`\`slug#anchor\`\`\`) — the Chair copies your phrasing into plan.md body, and backticks render as code blocks there.
-- Do NOT duplicate findings already raised in prior rounds (see digest above).
-- If the plan is already cleanly anchored and no new tensions have surfaced, output {"findings": [], "needsResearch": []}. This is the right answer when the plan has converged.`;
+- If you have nothing useful this round, output {"anchorProposals": [], "visionNotes": "", "needsResearch": []}. Going silent is the right move when your lens is already addressed.`;
 }
 
 /* ────────────────────────── Chair (strong-model) ────────────────────────── */
 
 const PHASE_INTENT: Record<DeepPlanPhase, string> = {
-  ideation: `IDEATION — shape a vague task into a concrete idea. By end of phase the plan has a clear thesis candidate, an identified audience, and a rough angle. Plan.md at this phase is a skeleton: thesis sentence, audience line, a rough section list. Light on evidence.`,
-  planning: `PLANNING — identify the key points, arguments, and evidence the piece will use. Plan.md gains sub-sections, per-section thesis beats, and source attributions. The strongest counter-argument appears in the plan with a response.`,
-  reviewing: `REVIEWING — stress-test the plan and lock the concrete section beat sheet. Plan.md at end of phase reads as something a drafter could write from directly: every section has a title, a one-line intent, and the anchors it leans on.`,
+  ideation: `IDEATION — shape a vague task into a concrete direction. By end of phase the VISION has a clear thesis candidate, an identified audience, and a rough angle. Anchor log starts filling with foundational definitions + core claims. Light-touch.`,
+  planning: `PLANNING — nail the argument structure and pull in the evidence that carries it. Vision gains section intents + key POV. Anchor log grows to most of its final size (specific statistics, findings, definitions, strong counter-evidence).`,
+  reviewing: `REVIEWING — stress-test the argument. Vision gains the counter-argument + novel insights surfaced in conversation. Anchor log fills remaining gaps (adversary angles, primary-source quotes). End of phase: vision + log together are a complete handoff package for the drafter.`,
   done: `DONE — the drafter has written the piece. You should not be called in this phase.`,
 };
 
@@ -336,22 +332,23 @@ function findingsBlock(panelOutputs: PanelOutput[]): string {
   return panelOutputs
     .map((p) => {
       const header = `### ${p.role.toUpperCase()}`;
-      if (p.findings.length === 0 && p.needsResearch.length === 0) {
-        return `${header}\n(no findings this round)`;
-      }
-      const findings = p.findings
-        .map(
-          (f) =>
-            `- [${f.severity.toUpperCase()}] ${f.claim}\n  why: ${f.rationale}\n  action: ${f.suggestedAction}`,
-        )
-        .join('\n');
+      const silent =
+        p.anchorProposals.length === 0 &&
+        !p.visionNotes.trim() &&
+        p.needsResearch.length === 0;
+      if (silent) return `${header}\n(no proposals this round)`;
+      const anchors =
+        p.anchorProposals.length > 0
+          ? `Anchor proposals:\n${p.anchorProposals.map((id) => `  - ${id}`).join('\n')}`
+          : '';
+      const vision = p.visionNotes.trim() ? `\nVision note: ${p.visionNotes.trim()}` : '';
       const research =
         p.needsResearch.length > 0
           ? `\nResearch requested:\n${p.needsResearch
               .map((r) => `  - "${r.query}" — ${r.rationale}`)
               .join('\n')}`
           : '';
-      return `${header}\n${findings}${research}`;
+      return `${header}\n${anchors}${vision}${research}`.trim();
     })
     .join('\n\n');
 }
@@ -424,10 +421,14 @@ export function chairPrompt(args: ChairPromptArgs): string {
     ? `\n\nUser's free-chat notes since the last panel round (the writer typed these between rounds — factor them into your summary AND into the plan rewrite where relevant):\n${chatNotes.map((n, i) => `${i + 1}. ${n}`).join('\n')}`
     : '';
 
-  return `You are the CHAIR of an adversarial panel helping a writer build a plan.md. The panel has just produced ${panelOutputs.length} sets of findings. Your job has two parts:
+  return `You are the CHAIR of an evidence-hunting panel helping a writer build a piece. The session has TWO small artefacts you maintain, plus an append-only anchor log. Plan.md does not exist any more; you do NOT rewrite anything long.
 
-  1. REWRITE plan.md in full — absorb the panel's edits, keep what works, improve what doesn't. This is the artefact the final drafter will read.
-  2. Speak to the user in a short summary, and ONLY when a genuine judgment call needs them, ask 1–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions.
+Your job each round is narrow:
+1. **Steer** — reply to the user in a short \`summary\` (≤60 words). Reference what the panel surfaced, or what you're nudging the user toward.
+2. **Sharpen the VISION** — only when the round's findings genuinely move the thesis, POV, or section intents. If vision doesn't need to change this round, emit \`visionUpdate: null\`.
+3. **Curate the ANCHOR LOG** — pick the subset of panel anchor proposals worth pulling in. Append-only; the system resolves each id and drops invalid ones automatically, so you don't need to double-check the wiki yourself.
+4. **Probe the user** — ask 0–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions only when a genuine judgment call needs them.
+5. **Update the rubric** — \`requirementsPatch\` when the user just answered a hard-requirement question.
 
 Phase intent:
 ${PHASE_INTENT[phase]}
@@ -435,52 +436,37 @@ ${PHASE_INTENT[phase]}
 Current round in this phase: ${roundNumber}${advanceNudge}
 User's task: "${session.task}"
 
-Task requirements (hard constraints — the plan MUST honour these; echo the word-count range inside the plan body where relevant):
+RUBRIC (hard constraints — the draft must honour these):
 ${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection}${chatNotesSection}
 
 ${searchBudgetBlock(session)}
 
-Wiki — sources ingested so far (use these slugs verbatim when the plan attributes a claim):
+Wiki — sources ingested so far (anchors listed under each source are the ONLY valid anchor-ids to pull into the log):
 ${sourcesBlock(sources)}
 
-Current plan.md (what you are rewriting — do NOT start from scratch unless this is empty):
-${planBlock(session.plan)}
+CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the panel's output genuinely moves the thesis/POV/section intents):
+${visionBlock(session.vision)}
 
-Panel findings this round:
+CURRENT ANCHOR LOG (${session.anchorLog.length} entries — append-only; you cannot drop or reorder):
+${anchorLogIndexBlock(session.anchorLog)}
+
+Panel output this round:
 ${findingsBlock(panelOutputs)}${researchNote}
 
-${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move the plan FORWARD):\n${priorSummaries}\n\n` : ''}SELF-CHECK — run these mentally before you emit your JSON. These are non-negotiable; catching a miss here saves a round:
-
-1. **Citation count floor.** Count the \`([Name](...](...))\` citations in the CURRENT plan.md shown above. Your new plan (or the plan after your patch applies) must carry AT LEAST that many citations. If you're about to emit fewer, stop — you're dropping committed groundings. Carry them forward, even if you reword the surrounding prose.
-
-2. **Every \`#anchor-id\` you write MUST appear in the wiki block above.** Before finalising any \`([Name](slug.md#anchor-id))\`, locate that exact \`#anchor-id\` in the wiki's per-source bullet list. If it's not there, you have three options and only three:
-   a. Find a different, real anchor in the same or a different source.
-   b. Downgrade to slug-only: \`([Name](slug.md)) [needs-anchor]\` — honest about the gap.
-   c. Drop the citation and mark the claim \`[needs-anchor]\`.
-   Do NOT invent plausible-sounding anchor ids. The system auto-validates and downgrades invented ids, so you're just wasting the panel's next round and shipping a weaker plan.
-
-3. **[needs-anchor] carry-forward.** Every \`[needs-anchor]\` marker already in the current plan must either:
-   a. Be resolved this round (you found an anchor for it — replace the marker with the real citation), or
-   b. Survive verbatim (same sentence, same \`[needs-anchor]\` token) so the panel keeps hunting.
-   Silently dropping a \`[needs-anchor]\` claim without anchoring it loses work and breaks continuity.
-
-4. **Patch vs full rewrite decision.** If today's changes are narrow (1–5 edits + drops + adds combined), emit \`planPatch\` and leave \`plan\` as "". If they're broad, emit the full \`plan\`. Don't emit both.
-
-5. **Question-card necessity.** If you have no judgment call for the user AND hard requirements are filled, emit \`"questions": []\`. Questions that just narrate the panel's work are noise.
-
-Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
+${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move the session FORWARD):\n${priorSummaries}\n\n` : ''}Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
 
 {
-  "summary": "≤ 2 sentences, ≤ 60 words. What changed in plan.md this round and (if you're asking) what you need from the user.",
-  "plan": "the FULL rewritten plan.md as a markdown string. Use \\n for line breaks inside the JSON string.",
+  "summary": "≤ 2 sentences, ≤ 60 words. What moved this round and (if you're asking) what you need from the user.",
+  "visionUpdate": "the FULL new vision.md as a markdown string" OR null (to keep the current vision),
+  "anchorLogAdd": [
+    {"id": "smith-2022#def-pareto", "note": "optional: why this anchor earns a spot in the log"}
+  ],
   "questions": [
     {
       "id": "q1",
       "type": "choice" | "multi" | "open" | "confirm",
       "prompt": "the question as a single clear sentence",
-      "choices": [
-        {"id": "short-id", "label": "the option as the user sees it", "recommended": true}
-      ],
+      "choices": [{"id": "short-id", "label": "the option as the user sees it", "recommended": true}],
       "allowCustom": false,
       "rationale": "optional one-line why this matters"
     }
@@ -491,87 +477,38 @@ Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
     "form": "exploratory essay",
     "audience": "general educated reader",
     "styleNotes": null
-  } | null,
-  "planPatch": {
-    "edits": [{"claimId": "c12", "newLine": "Pareto optimality requires three efficiency conditions ([Smith](smith.md#def-pareto)). <!-- claim:c12 -->"}],
-    "drops": ["c17"],
-    "adds": [{"afterClaimId": "c12", "line": "The conditions are exchange, production, and output ([Smith](smith.md#three-conditions))."}]
   } | null
 }
 
-TOKEN-EFFICIENT OUTPUT — \`plan\` vs \`planPatch\` (Lever 2):
-- The current plan.md above has \`<!-- claim:cN -->\` annotations on every cited/marked claim line. These are stable ids — the same claim keeps the same id across rounds.
-- If THIS round's changes are narrow (edit 1–5 claims, drop 1–3, add 1–5), emit \`planPatch\` and leave \`plan\` as an empty string. The system applies the patch to the prior plan on your behalf. This is drastically cheaper than a full rewrite.
-- If THIS round's changes are broad (restructuring sections, rewriting the thesis, major reordering), emit a full \`plan\` string as before and leave \`planPatch\` null.
-- \`planPatch.edits\` replaces a line outright. Keep the \`<!-- claim:cN -->\` suffix intact so the id survives.
-- \`planPatch.drops\` is an array of claim ids to delete.
-- \`planPatch.adds\` inserts new lines. \`afterClaimId: null\` appends at the end of the plan body. New lines will get fresh ids assigned by the system — do NOT invent new \`cN\` values yourself.
-- NEVER emit both \`plan\` (non-empty) AND \`planPatch\`. If you're unsure, prefer the full \`plan\` rewrite — it's always safe.
-- First round of a phase: the plan is empty, so ALWAYS emit full \`plan\`, not a patch.
+VISION.md rules:
+- Vision is SMALL. Target 200–800 words. Dot-points, not prose. The upper cap is 1500 words — past that you're drifting into plan.md territory.
+- Vision carries IDEAS, not citations. No \`([Name](slug.md#...))\` references inside vision. No blockquotes. No long paragraphs. Citations live in the anchor log; vision tells the drafter WHAT to do with them.
+- Good vision sections: "Thesis", "POV / angle", "Section intents" (bullet per section with a one-line intent + maybe the 1–3 key anchors it leans on — but referenced by short label like "the Sen's theorem claim", not by \`#id\`), "Novel insights surfaced in conversation", "Counter-argument to engage", "What this piece is NOT".
+- \`visionUpdate: null\` is the right call on rounds where nothing substantive shifted. Don't rewrite vision just to rewrite it — small churn is noise.
+- When you DO rewrite vision, you're rewriting the WHOLE thing in full (no patches). Preserve what still holds; sharpen what just moved.
 
-plan.md rules:
-- Rewrite it IN FULL every round. The drafter only ever sees the latest version.
-- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and the claims it will develop.
-- Honour the task requirements at the top of the plan — echo the word-count range and form in the thesis paragraph so the drafter can't miss them.
-- Plan.md is the drafter's SOLE input. After Deep Plan completes, the drafter sees ONLY plan.md, the requirements, and the prose-style guide — no raw sources, no detailed summaries. Any evidence the draft needs has to be anchored inside plan.md by the end of the reviewing phase.
-
-CONTINUITY — this is the single most important rule:
-- Plan.md ACCUMULATES. It is not reset at phase transitions. Ideation's claims carry into planning; planning's carry into reviewing. A phase transition changes what you ADD this round — it never licenses dropping claims from prior rounds.
-- **Every anchored claim from a prior round is COMMITTED.** Preserve it. You may reword the surrounding prose, move a claim between sections, or attach it to a different argument, but you MUST keep the \`([Name](slug.md#anchor-id))\` citation exactly as it was. A citation attached to a claim is a contract — the previous Chair or panel did the work to find that anchor, and you do not get to undo it.
-- Before emitting your rewrite, count the \`([...](...))\` citations in the current plan.md shown above. Your new plan must contain AT LEAST that many citations. Fewer = you dropped committed work. More = you added new groundings. Same-or-more is the floor.
-- **NEVER drop an existing claim just because it isn't anchored yet.** Unanchored claims are WORK TO DO, not content to delete. Carry them forward, mark them with \`[needs-anchor]\` (see UNANCHORED CLAIM MARKER below), and use the panel's research budget to produce anchors for them next round.
-- Blockquotes beneath anchored claims (lines starting with \`>\`) are SYSTEM-INSERTED after your output by the materialiser. You do not need to preserve them in your rewrite — just emit the \`([Name](slug.md#anchor-id))\` citations and the system re-injects the quotes. Ignoring existing blockquotes while rewriting is fine; deleting the citations that produced them is not.
-- Phase transitions change the FOCUS, never the content floor:
-  - ideation → planning: keep every ideation claim; now add structure, sub-claims, and anchor-hunting for claims that still need grounding.
-  - planning → reviewing: keep every planning claim; now stress-test the argument and finalise the beat sheet. This is when unanchored claims that have survived the panel's research attempts can be considered for dropping — but only with a panelist's explicit recommendation.
-
-CITATION FORMAT — this is load-bearing. DIFFERENT rules at different phases:
-
-- **ideation**: plan.md is still a rough skeleton. Most claims will be unanchored and that's FINE. Only emit a citation when you can literally match a claim to an anchor you can see in the wiki list above. Do NOT hallucinate anchor ids. Unanchored claims carry the UNANCHORED CLAIM MARKER (below) so the panel and user can see what still needs grounding.
-- **planning**: the wiki should be filling up with real sources now. Prefer to anchor every factual claim, but keep unanchored claims that matter (marked) while the panel hunts for their grounding.
-- **reviewing**: every non-trivial claim MUST be anchored OR explicitly dropped. This is the only phase where "drop the claim" is the right move for persistent unanchored claims — and even then, only after the panel has had a full round to find an anchor for it.
-
-Anchor citation format (when you ARE citing):
-- Harvard-style inline markdown link IN PARENTHESES, ending the sentence or clause: \`([Name](slug.md#anchor-id))\`. The \`#anchor-id\` MUST be a literal anchor id from the wiki list above — copy it verbatim, do not paraphrase or invent.
-- **\`[Name]\` is the SOURCE'S DISPLAY NAME — nothing else.** Use the bold source name from the wiki block exactly (e.g., "Smith 2022", "Stanford Encyclopedia", "Pareto Optimality Definition Misleading"). NEVER put the anchor-id, anchor label, or a hyphen-separated slug fragment inside the \`[Name]\` brackets — readers see \`[Name]\` as the citation's visible label, and raw slugs like "pareto-efficiency-is-criticized-for-ignoring-equity-and-dist" leaking into prose is a shipping failure. If a source name is long, abbreviate conservatively — but keep it human.
-- Before writing ANY \`([Name](slug.md#anchor-id))\`: scan the wiki block. If the exact \`#anchor-id\` is not listed under that source's bullets, DO NOT WRITE IT. A hallucinated anchor id silently fails the materialiser pass and hover lookup; it's worse than no citation at all.
-- Slug-only citations are allowed: \`([Name](slug.md))\`. Use these when you want to credit a source but no specific anchor grounds the specific claim — better than a fake \`#anchor-id\`.
-- If a sentence draws on two anchors, emit two adjacent citations: \`([Smith](smith.md#x)) ([Jones](jones.md#y))\`.
-- Trivial connective prose ("This matters because…", "In the next section…") does NOT need a citation.
-- Consolidate repetition: if the same source grounds three adjacent claims in a section, cite ONCE at the natural anchor point, not every sentence. Plan.md is a planning artefact, not a receipt; the drafter reads it and consolidates further, so you should already be consolidating here.
-- The verbatim passage for each resolved \`([Name](slug.md#anchor-id))\` is AUTOMATICALLY inserted as a blockquote beneath the claim by the system after you respond. You do NOT write the blockquote yourself.
-
-UNANCHORED CLAIM MARKER:
-- For any non-trivial claim that doesn't yet have an anchor from the wiki above, end the sentence with the literal token \`[needs-anchor]\` (lowercase, in square brackets, no slug). Example: "Pareto efficiency depends on initial endowments [needs-anchor]."
-- This is NOT a failure mode — early ideation plans should have LOTS of \`[needs-anchor]\` markers. They're the panel's to-do list: each one is a hint at a research query that will produce the anchor next round.
-- Do NOT delete a \`[needs-anchor]\` claim just to shrink the plan. Only drop it when (a) a panelist explicitly says the claim isn't load-bearing, or (b) we're in the reviewing phase and the panel has tried and failed to anchor it.
-
-Other forbidden forms:
-- NEVER emit bare backticked slug tokens like \`\`\`slug\`\`\` or \`\`\`slug#anchor-id\`\`\`. Those render as code blocks and break the reader flow.
-- NEVER emit footnote markers, numeric refs like "[1]", or "Smith et al. (2022)" prose — use the markdown-link form above.
-- NEVER invent a slug or an anchor id. If the wiki doesn't have it, use \`[needs-anchor]\` instead.
+ANCHOR LOG rules:
+- Append-only. Pick from the panel's \`anchorProposals\` (shown above). You can also add anchors the panel missed that you notice in the wiki — do NOT invent ids, only reference ids that exist in the wiki block.
+- Quality over quantity. 0–5 anchor adds per round is typical; 10+ means you're hoarding. The target end-state by end of reviewing is 20–50 active anchors total.
+- Optional \`note\` per anchor: a one-liner on why this anchor matters for the vision ("grounds the three-conditions decomposition", "Feldstein's strongest counter-argument"). The drafter reads these notes.
+- Do NOT add an anchor that's already in the log (shown above). Duplicate ids are silently ignored but it wastes output tokens.
 
 Question rules:
-- **FIRST PRIORITY — missing hard requirements.** If the requirements block above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Word count is the tightest constraint on a draft and the panel literally cannot judge scope/depth without it. Use \`choice\` with 3–4 reasonable defaults and mark the panel's preferred option \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom write-in with \`allowCustom: true\`}.
-- At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. Once requirements are complete, the user has delegated reasoning to the panel — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). If the panel surfaced no such call AND requirements are already locked, emit [].
-- Prefer \`choice\` (labelled options) > \`confirm\` (yes/no) > \`multi\` > \`open\`. Open questions are heavy — use one only when no set of options captures the space.
-- On \`choice\` questions, mark ONE option with \`"recommended": true\` when there's a defensible default the panel leans toward. That option is what the panel would pick if the user delegated.
-- On \`choice\` questions, set \`"allowCustom": true\` when your options don't exhaust the space — the UI will offer a "Write my own" write-in.
-- Every \`choice\`/\`multi\` question MUST include 2–5 \`choices\`. \`confirm\` questions do not need \`choices\` (the UI injects Yes/No).
-- Questions go into a dedicated card, not into chat. Phrase them so they read standalone.
+- **FIRST PRIORITY — missing hard requirements.** If the rubric above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Use \`choice\` with 3–4 reasonable defaults and mark one \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom with \`allowCustom: true\`}.
+- At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. Once requirements are complete, the user has delegated — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). Empty array is often the right answer.
+- Prefer \`choice\` > \`confirm\` > \`multi\` > \`open\`. Mark ONE choice \`recommended\` when there's a defensible default. Set \`allowCustom: true\` when the options don't exhaust the space.
 
 phaseAdvance rule:
-- NEVER \`true\` while any hard requirement (word count, form, audience) is still "(not specified)". The plan can't mature without these.
-- \`true\` when (a) all hard requirements are filled, (b) the panel surfaced no substantive new tensions this round, and (c) plan.md has what it needs for this phase. Err toward \`false\` until round ${DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE} — then err toward \`true\` (but still gated on (a)).
+- NEVER \`true\` while any hard requirement (word count, form, audience) is still "(not specified)".
+- \`true\` when (a) requirements are filled, (b) the panel surfaced no substantive new ground this round, (c) the vision reads ready for this phase, and (d) the anchor log has enough depth for this phase. Err toward \`false\` until round ${DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE}, then err toward \`true\`.
 
-requirementsPatch rule (critical — the system mutates session state from this):
-- When the user's last answers (visible in the "Last Chair summary" / panel context above) answered a question about a hard requirement, POPULATE the corresponding fields in \`requirementsPatch\`. The system shallow-merges this into session.requirements so those fields become "specified" and you don't re-ask next round.
-- \`wordCountMin\` / \`wordCountMax\`: integers in words. If the user picked "1500–2500", set both. If they picked a single number ("around 2000"), set both min and max equal. If they delegated, pick sensible defaults for the form (essay: 1500–2500; blog post: 800–1500; report: 2500–4000) and use those.
-- \`form\`: short lowercase label ("exploratory essay", "blog post", "op-ed", "report").
-- \`audience\`: short lowercase label ("general educated reader", "economists and policy professionals", etc.).
-- \`styleNotes\`: free text — ONLY when the user stated specific style constraints. Otherwise \`null\`.
-- Emit \`null\` (or omit) when the user's answers this round didn't touch hard requirements. Do NOT echo fields that are already specified unchanged — include only what's new or actually changed.
-- If you ASKED about a requirement this round but the user hasn't answered yet, do NOT patch those fields. Leave the question in \`questions\` and wait for next round.
+requirementsPatch rule:
+- When the user's last answers answered a question about a hard requirement, populate matching fields. The system shallow-merges this into session.requirements.
+- \`wordCountMin\` / \`wordCountMax\`: integers. Match what the user picked; if they delegated, use sensible defaults (essay: 1500–2500; blog post: 800–1500; report: 2500–4000).
+- \`form\`: short lowercase ("exploratory essay", "blog post", "op-ed", "report").
+- \`audience\`: short lowercase ("general educated reader", "economists and policy professionals").
+- \`styleNotes\`: free text ONLY when the user stated specific style constraints. Otherwise null.
+- Emit null/omit when this round didn't touch hard requirements. Don't echo unchanged fields.
 
 Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.`;
 }
@@ -608,28 +545,31 @@ export function chairChatPrompt(args: ChairChatArgs): string {
           .map((t) => `${t.role === 'user' ? 'User' : 'Chair'}: ${t.text}`)
           .join('\n\n');
 
-  return `You are the CHAIR of an adversarial writing panel, but right now you are NOT running a round — you are chatting with the writer between rounds. They want to think out loud, push back on a choice, raise a new angle, or just talk through the plan. Keep it conversational: one or two short paragraphs, colleague-tone, direct.
+  return `You are the CHAIR of an evidence-hunting panel, but right now you are NOT running a round — you are chatting with the writer between rounds. They want to think out loud, push back on a choice, raise a new angle, or just talk through the piece. Keep it conversational: one or two short paragraphs, colleague-tone, direct.
 
-You are NOT rewriting plan.md. You are NOT asking question-card questions. You are NOT calling the panel. If the writer raises something concrete that deserves a panel round, acknowledge it briefly and let them know they can hit "Take to panel" to escalate — don't pretend to run one yourself.
+You are NOT rewriting vision.md. You are NOT adding to the anchor log. You are NOT asking question-card questions. You are NOT calling the panel. If the writer raises something concrete that deserves a panel round, acknowledge it briefly and let them know they can hit "Take to panel" to escalate — don't pretend to run one yourself.
 
-DEFAULT TO YES when the user asks for something. They know the plan better than you do; if they're asking, there's almost always a gap you're not seeing. "We already have that covered" is rarely the right answer — it's defensive and usually wrong in spirit even when technically true. Good Chair-chat moves:
-- "Good call — I'll queue that for the panel. The current treatment of X is thin; we could get more depth by pulling in Y."
+DEFAULT TO YES when the user asks for something. They know the piece better than you do; if they're asking, there's almost always a gap you're not seeing. "We already have that covered" is rarely the right answer — it's defensive and usually wrong in spirit even when technically true. Good Chair-chat moves:
+- "Good call — I'll queue that for the panel. The vision's take on X is thin; we could sharpen it by pulling in Y."
 - "Yes, that's a real gap. Let me flag it for the next round."
-- "Fair. The plan has some of this but not the angle you're pointing at — I'll note it."
+- "Fair. The vision has some of this but not the angle you're pointing at — I'll note it."
 Bad Chair-chat moves:
-- "You already have both covered" (defensive; the user's ASKING because something feels off).
-- Listing what's already in the plan as a counter-argument (you're arguing with the writer, not helping them).
-- Gatekeeping: "Is there a specific angle you feel is underrepresented?" (The user's signal IS the angle — stop making them prove themselves.)
-Push back only when the user's proposal would genuinely hurt the plan: violates a hard requirement, contradicts a choice they made earlier, or literally duplicates existing work word-for-word. Short of that: yes, queue it, move on.
+- "You already have that covered" (defensive; the user's ASKING because something feels off).
+- Listing what's already in the vision or log as a counter-argument (you're arguing with the writer, not helping them).
+- Gatekeeping: "Is there a specific angle you feel is underrepresented?" (The user's signal IS the angle.)
+Push back only when the user's proposal would genuinely hurt the piece: violates a hard requirement, contradicts a choice they made earlier, or literally duplicates existing work. Short of that: yes, queue it, move on.
 
 Task: "${session.task}"
 Current phase: ${session.phase}
 
-Task requirements:
+RUBRIC:
 ${requirementsBlock(session.requirements)}
 
-Current plan.md (blockquotes stripped for brevity — the full verbatim passages live beneath each citation in the user's view):
-${planBlock(session.plan)}
+VISION.md (the writer + Chair's working thesis and POV):
+${visionBlock(session.vision)}
+
+ANCHOR LOG (${session.anchorLog.length} entries — what the piece will be grounded in):
+${anchorLogIndexBlock(session.anchorLog)}
 
 Wiki — sources ingested so far:
 ${sourcesBlock(sources)}
@@ -640,7 +580,7 @@ ${transcriptBlock}
 User's latest message:
 "${userMessage}"
 
-Reply now, in plain prose, 1–2 short paragraphs max. No JSON, no markdown fences, no headings. Be specific — reference the plan, a source, or a prior panel finding where it's relevant. If the user's message is a question you can answer directly from the plan/wiki, answer it. If it's a suggestion, react to it (agree, push back, refine). If it's vague, ask one sharpening question.`;
+Reply now, in plain prose, 1–2 short paragraphs max. No JSON, no markdown fences, no headings. Be specific — reference the vision, a specific anchor, or a prior panel output where it's relevant. If the user's message is a question you can answer directly from the vision/log, answer it. If it's a suggestion, react to it (default to yes, queue for panel). If it's vague, ask one sharpening question.`;
 }
 
 /* ─────────────────── Deep Search planner ─────────────────── */
@@ -717,94 +657,83 @@ If the wiki already covers the task, emit an empty array \`[]\`.`;
 
 
 /**
- * Phase-6 drafter prompt. Deliberately minimal: plan.md has already been
- * built by the Deep Plan panel + Chair, with every non-trivial claim
- * followed by a verbatim blockquote from the source it's anchored to (the
- * materialiser injects those after the Chair finishes each round). By the
- * time we reach this prompt, plan.md IS the evidence base — the drafter
- * does not need the wiki, the detailed summaries, or a pre-draft lookup
- * pass.
+ * Drafter prompt post-overhaul. The Deep Plan session produces three tiny
+ * artefacts the drafter consumes: the rubric (hard constraints), vision.md
+ * (dot-point intellectual spine), and the anchor log (20–50 verbatim
+ * source statements). No plan.md, no blockquote materialiser, no full
+ * source summaries — the anchor log IS the reference material, and each
+ * entry carries the verbatim text inline.
  *
- * Inputs the drafter gets: requirements, plan.md, prose-style guide.
- * That's it. The drafter's job is to turn anchored-claims-with-quotes into
- * finished prose while preserving every citation.
+ * The drafter's job: turn the vision into finished prose, grounded by
+ * anchors from the log. Anchors must be cited (Harvard-style with
+ * `#anchor-id` for hover), but their text does not need to be copied
+ * verbatim — the drafter paraphrases naturally.
  */
 export function oneShotPrompt(session: DeepPlanSession, docLabel: string): string {
   return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
 - ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
 - Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
-- Cite only SOURCE-DERIVED claims that carry real analytical weight. Plan.md is working material, not a receipt — you are expected to CONSOLIDATE its citations, not reproduce them 1-to-1. A finished essay of 2,000 words carries roughly 10–20 citations, not 40+. Over-citation reads like an unfinished research brief and actively disrupts reading.
-- HONOUR THE WORD-COUNT RANGE in the requirements below. This is a contract. Going over or under by more than 10% is a failure — use plan.md's section breakdown to budget your words before you start writing.
+- Cite only SOURCE-DERIVED claims that carry real analytical weight. The anchor log below is evidence you USE, not a list to reproduce. A finished essay of 2,000 words carries roughly 10–20 citations, not 40+. Over-citation reads like an unfinished research brief.
+- HONOUR THE WORD-COUNT RANGE in the rubric below. This is a contract. Going over or under by more than 10% is a failure.
 
-You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle, not a citation manager. Plan.md below is the evidence the panel gathered; your job is to turn it into finished analytical prose — led by your own argumentative voice, supported (not buried) by citations where they earn their weight.
+You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle. The VISION below is the intellectual spine — thesis, POV, section intents, the novel insights the writer + Chair agreed on. The ANCHOR LOG is the pile of verbatim source statements the piece is grounded in. Your job: turn the vision into finished analytical prose, grounded by the anchors where they earn their weight, paraphrased naturally in your own voice.
 
 User's task: "${session.task}"
 
-Task requirements (HARD constraints — the draft is judged against these):
+RUBRIC (HARD constraints — the draft is judged against these):
 ${requirementsBlock(session.requirements)}
 
-plan.md — the complete output of the Deep Plan session. This is your ENTIRE evidence base. Every non-trivial claim already has a Harvard-style citation \`([Name](slug.md#anchor-id))\` followed by a blockquote with the verbatim source passage. You do NOT need any other sources; you should not reference anything that isn't in this plan.
+VISION — the intellectual spine of this piece. Follow its thesis, POV, and section intents. The vision itself has no citations; it tells you WHAT to write. You do not reference or quote vision; you execute it.
 
-${planBlock(session.plan, { keepBlockquotes: true })}
+${visionBlock(session.vision)}
 
-VOICE AND INTEGRATION (read this before you start drafting):
+ANCHOR LOG — the evidence you ground the piece in. Each entry shows source, type, and verbatim text. Reference anchors with their full \`([SourceName](slug.md#anchor-id))\` link so hover works; paraphrase the text naturally — do NOT copy verbatim unless the exact wording is load-bearing. Chair notes (when present) tell you what each anchor is FOR.
 
-Plan.md has been built by a panel of cheap adversarial models and a strong Chair. Every section is anchored, every factual claim carries a source. That's done. What's NOT done is the essay itself — and the fastest way to ship a mediocre draft is to march sentence-by-sentence through the plan, each sentence ending in a citation, each paragraph a chain of cited claims with no argumentative through-line.
+${anchorLogBlock(session.anchorLog)}
 
-Write like an essayist, not a transcriber:
-- Lead each paragraph with YOUR analytical claim or framing. Bring in the plan's evidence where it earns its weight. A paragraph's first sentence should almost never be a cited external claim; it should be your move.
-- Paragraphs are arguments, not citation lists. If you find yourself writing three consecutive sentences that each end in a \`([Name](...))\`, stop and restructure. Compress the evidence, lift the argument.
-- **Anchors are a starting point, not a script.** The blockquotes beneath each citation in plan.md are the verbatim source passages. Your job is to use them NATURALLY — paraphrase the idea in your own voice, compress three source sentences into one of yours, lift the load-bearing phrase while dropping the rest. DO NOT transcribe or lightly reword a blockquote sentence-by-sentence; that reads as mechanical and defeats the point of a human-quality draft. Think of the blockquote as "here's what the source says — now say what MATTERS about it in your own words".
-- Integrate quotes INTO sentences when you genuinely quote. Prefer "Pareto himself insisted that 'political economy does not have to take morality into account' ([Pareto](pareto.md#x))" over a standalone blockquote. Reserve blockquotes for passages where the full verbatim wording is genuinely load-bearing — at most one or two in a 2,000-word essay.
-- The blockquotes shown beneath citations in plan.md are WORKING MATERIAL. They are there so you have the source's exact wording at hand while drafting. They MUST NOT appear as literal blockquotes in the final draft (except for those rare one or two cases). Integrate, paraphrase, or quote inline.
+HOW TO WRITE THE DRAFT:
 
-PRESERVE ANCHOR IDs — this is load-bearing for the product's value prop:
-- Every citation in the final draft keeps its full \`#anchor-id\` fragment exactly as plan.md has it: \`([Name](slug.md#anchor-id))\`, NOT \`([Name](slug.md))\`. The \`#anchor-id\` is what powers the hover feature — readers can hover any citation and see the verbatim source passage you paraphrased from. This is how the system lets users cross-check your work; dropping the fragment breaks that contract.
-- If plan.md's citation has a \`#anchor-id\`, your draft's citation MUST have the same \`#anchor-id\`. Carrying this through is non-negotiable.
-- The \`#anchor-id\` is invisible to readers in normal rendered markdown — it only appears on hover. So preserving it costs nothing visually and gives the reader full provenance on demand.
+1. **Vision is your spine.** Its section intents are the rough structure. Its POV is the voice. Its novel insights are things the piece ARGUES. Execute the vision — don't deviate into topics it didn't signal.
+2. **Anchors are evidence, not a script.** Reference each anchor with its full Harvard link so the hover feature resolves; paraphrase the content in your own voice. Compress three source sentences into one of yours, lift the load-bearing phrase, drop the rest. Transcribing anchor text sentence-by-sentence reads as mechanical and defeats the draft.
+3. **Use every anchor that earns a spot.** The log was curated — each entry earned its place. Most should surface in the draft at least once (not every sentence of the anchor, but its core claim). If an anchor doesn't fit the vision, skip it rather than force it.
+4. **You may occasionally go uncited.** Connective prose, your own reasoning, textbook-level common knowledge — no citation needed. Uncited prose is earned when the claim is uncontested background or pure argumentation. Factual claims, numbers, named positions, and contested points always cite.
+5. **Lead paragraphs with YOUR claim.** A paragraph's first sentence should almost never be a cited external claim — it should be your analytical move, with the evidence brought in to support it.
 
-Citation consolidation (this is the single biggest fix from prior drafts):
-- When consecutive sentences draw on the SAME source, cite ONCE — at the natural anchor point for that claim cluster (end of the topic sentence, or end of the paragraph's synthesis). Not at the end of every sentence.
-- When a claim is textbook-level common knowledge in the domain ("neoclassical welfare theory rests on three efficiency conditions", "the First Welfare Theorem requires complete markets"), DO NOT cite. Uncited prose is earned when the claim is uncontested background.
-- When a paragraph is mostly your analysis drawing on one source's evidence, a single citation at the paragraph's thesis point is sufficient.
-- Load-bearing citations that DO earn their own inline link: specific numbers, named figures, contested positions, primary quotes, definitions of technical terms, specific historical facts.
-- If plan.md cites the same source five times in one section, your section should cite it one or two times and trust the reader. This is a consolidation the drafter is expected to perform.
+PRESERVE ANCHOR IDs — load-bearing for the product:
+- Every citation keeps its full \`#anchor-id\` fragment exactly as the log has it: \`([SourceName](slug.md#anchor-id))\`, NOT \`([SourceName](slug.md))\`. The \`#anchor-id\` powers the hover feature — readers hover to see the verbatim source passage you paraphrased from. Dropping the fragment breaks cross-check.
+- \`[SourceName]\` is the source's display name as shown in the log. NEVER put a raw slug or anchor id inside the \`[Name]\` brackets.
+
+Citation consolidation:
+- When consecutive sentences draw on the SAME anchor or source, cite ONCE at the natural anchor point, not every sentence.
+- When an anchor is textbook-level common knowledge in the domain, you may leave the claim uncited even though an anchor backs it.
+- Two sources on the same sentence → two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
 
 Blockquote discipline:
-- Zero blockquotes in the final draft is a legitimate default. One or two blockquotes max if a primary-source quotation genuinely carries unique rhetorical weight.
-- Never copy a materialised blockquote verbatim into your draft — paraphrase the claim and attach the citation, or pull the key phrase inline with quote marks.
-
-Citation-name discipline (important cleanup):
-- The \`[Name]\` inside a citation must read as a human-readable source label. If plan.md contains a citation whose \`[Name]\` looks like a raw slug or anchor id (hyphen-separated lowercase, no spaces — e.g., "pareto-efficiency-is-criticized-for-ignoring-equity-and-dist"), REWRITE the \`[Name]\` to a clean short label (a surname, a publication short-name, or a sensible descriptor) while preserving the \`(slug.md#anchor-id)\` link target exactly. Readers see the \`[Name]\`; raw slugs in prose are a shipping failure.
+- Zero blockquotes in the final draft is the default. One or two short blockquotes max, only when a primary-source quotation genuinely carries unique rhetorical weight.
 
 Transitions and prose voice:
-- Transitions should DO WORK. "The historical context matters" is dead weight — name what it matters FOR. "The criticism cuts deeper" is filler — replace with the specific cut. Good transitions reframe, pivot, or raise stakes; bad transitions announce "moving on".
-- Avoid the following stock interjections — they read as LLM signature: "These are not minor caveats", "The silence is not incidental", "It's worth noting", "The conclusion is straightforward", "This is significant because". If you catch yourself writing one, rewrite the sentence so the claim does the work the interjection was trying to do.
+- Transitions should DO WORK. "The historical context matters" is dead weight — name what it matters FOR. "The criticism cuts deeper" is filler — replace with the specific cut.
+- Avoid stock interjections — LLM signature: "These are not minor caveats", "The silence is not incidental", "It's worth noting", "The conclusion is straightforward", "This is significant because". If you write one, rewrite the sentence.
 
 Counter-argument and conclusion balance:
-- Address the strongest objection to your thesis before rebutting or conceding. Name it specifically.
-- The conclusion must engage with each major thread the body developed. If the body covered five threads (framing, historical context, distributional critique, modern applications, a defense), the conclusion addresses all five — named specifically, not gestured at. A conclusion that ends with a generic list ("supplementing with frameworks that engage distributional weights and rights-based constraints...") without development is a failure. Close with a specific claim about what the concept does and does not do.
-
-Citation format in the draft (strict):
-- Harvard-style inline, always in parentheses: \`([Name](slug.md#anchor-id))\` or \`([Name](slug.md))\` when the plan cited the source without an anchor.
-- If a sentence draws on two anchors, two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
-- Never wrap citations in backticks, never emit numeric footnote markers, never write "Smith et al. (2022)" style prose.
+- Address the strongest objection to the thesis before rebutting or conceding. Name it specifically.
+- The conclusion engages every major thread the body developed, named specifically. No generic "supplementing with frameworks that engage..." lists.
 
 References section (required, end of draft):
 - Add a \`## References\` heading (sentence case, no variations).
-- List every unique slug actually cited in the body, once each. Format: \`- [Name](slug.md)\`. One line per source. Alphabetise by Name.
-- Do NOT list sources you didn't cite. Do NOT duplicate.
+- List every unique slug actually cited in the body, once each. Format: \`- [SourceName](slug.md)\`. Alphabetise by SourceName.
+- Do NOT list sources you didn't cite.
 
 Form + output rules:
-- Hit the requirements above — length, form, audience. The word-count range is the single most important constraint.
-- No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
+- Hit the rubric — length, form, audience. Word count is the single most important constraint.
+- No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write straight through.
 - Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
 
 Output: the complete markdown draft, nothing else.
 
 ---
 
-Prose style / commands (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top of this prompt, and the voice + citation rules above, dominate any tension with the prose guide below.
+Prose style / commands (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top, and the voice + citation rules above, dominate any tension with the prose guide below.
 
 ${DEEP_PLAN_COMMANDS}`;
 }

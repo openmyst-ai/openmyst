@@ -5147,6 +5147,92 @@ img.login-logo {
 /* Phase-advance CTA — shown in the chat scroll when the Chair signals
  * phaseAdvance and there are no pending questions. Hugging the copy to the
  * left (subtle, not a modal) keeps the discussion path equally prominent. */
+/* Anchor-log column — the append-only evidence pile. Each entry is a
+ * card with source chip, type badge, verbatim text, and optional Chair
+ * note. Kept visually distinct from prose so the user reads it as "the
+ * pile" rather than "the plan". */
+.dp-anchor-log-scope {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dp-anchor-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+}
+.dp-anchor-log-count {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.dp-anchor-entry {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dp-anchor-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.dp-anchor-entry-type {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.dp-anchor-entry-type-definition { border-color: #6b88c4; color: #6b88c4; }
+.dp-anchor-entry-type-claim { border-color: #c4836b; color: #c4836b; }
+.dp-anchor-entry-type-statistic { border-color: #59a379; color: #59a379; }
+.dp-anchor-entry-type-quote { border-color: #a47ac4; color: #a47ac4; }
+.dp-anchor-entry-type-finding { border-color: #d89a2b; color: #d89a2b; }
+.dp-anchor-entry-source {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--accent);
+}
+.dp-anchor-entry-source:hover {
+  border-bottom-style: solid;
+}
+.dp-anchor-entry-text {
+  font-size: 13px;
+  color: var(--fg);
+  margin: 0;
+  white-space: pre-wrap;
+}
+.dp-anchor-entry-note {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+
 /* Anchor-hygiene chips — shown under a chair-turn summary so the user
  * sees at a glance how many anchors got properly resolved and how many
  * the Chair fumbled (downgraded auto-fixes). The warn variant is

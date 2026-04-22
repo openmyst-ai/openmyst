@@ -147,20 +147,24 @@ async function runOnePanelist(
   } catch (err) {
     logError('deep-plan', 'panel.role.failed', err, { role });
     emitProgress({ kind: 'role-failed', role, error: (err as Error).message });
-    return { role, findings: [], needsResearch: [] };
+    return { role, anchorProposals: [], visionNotes: '', needsResearch: [] };
   }
 
   if (!reply || reply.trim().length === 0) {
     log('deep-plan', 'panel.role.emptyReply', { role });
     emitProgress({ kind: 'role-done', role, findings: 0, searchQueries: 0 });
-    return { role, findings: [], needsResearch: [] };
+    return { role, anchorProposals: [], visionNotes: '', needsResearch: [] };
   }
 
   const output = parsePanelOutput(reply, role);
   emitProgress({
     kind: 'role-done',
     role,
-    findings: output.findings.length,
+    // Renderer shows this as "N concerns raised" — the nearest equivalent
+    // post-overhaul is the anchor-proposal count (the panel's unit of work
+    // for the round). Keeping the progress-event shape the same avoids
+    // touching the renderer for a count label.
+    findings: output.anchorProposals.length,
     searchQueries: output.needsResearch.length,
   });
   return output;
@@ -264,7 +268,7 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
   log('deep-plan', 'panel.round.done', {
     phase,
     roles: roles.length,
-    totalFindings: panelOutputs.reduce((n, p) => n + p.findings.length, 0),
+    totalAnchorProposals: panelOutputs.reduce((n, p) => n + p.anchorProposals.length, 0),
     researchDispatched: researchRequests.length,
     newlyIngested: newlyIngestedSourceSlugs.length,
     remainingBudget,

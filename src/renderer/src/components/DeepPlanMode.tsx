@@ -8,7 +8,8 @@ import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
 import { StageBar } from './deepPlan/StageBar';
 import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
-import { PlanColumn } from './deepPlan/PlanColumn';
+import { VisionColumn } from './deepPlan/VisionColumn';
+import { AnchorLogColumn } from './deepPlan/AnchorLogColumn';
 import { ConversationColumn } from './deepPlan/ConversationColumn';
 import { DraftGenerationModal } from './deepPlan/DraftGenerationModal';
 import { SourcePreviewPopup } from './SourcePreview';
@@ -45,7 +46,7 @@ export function DeepPlanMode(): JSX.Element {
   } = useDeepPlan();
 
   const [intentDraft, setIntentDraft] = useState('');
-  const [rightTab, setRightTab] = useState<'plan' | 'graph'>('plan');
+  const [rightTab, setRightTab] = useState<'vision' | 'anchors' | 'graph'>('vision');
 
   const pushResearchEvent = useResearchEvents((s) => s.push);
 
@@ -139,11 +140,20 @@ export function DeepPlanMode(): JSX.Element {
             <button
               type="button"
               role="tab"
-              aria-selected={rightTab === 'plan'}
-              className={`dp-right-tab${rightTab === 'plan' ? ' dp-right-tab-active' : ''}`}
-              onClick={() => setRightTab('plan')}
+              aria-selected={rightTab === 'vision'}
+              className={`dp-right-tab${rightTab === 'vision' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('vision')}
             >
-              Plan
+              Vision
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'anchors'}
+              className={`dp-right-tab${rightTab === 'anchors' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('anchors')}
+            >
+              Anchors
             </button>
             <button
               type="button"
@@ -156,7 +166,9 @@ export function DeepPlanMode(): JSX.Element {
             </button>
           </div>
           <div className="dp-right-tabpanel">
-            {rightTab === 'plan' ? <PlanColumn /> : <WikiGraphColumn />}
+            {rightTab === 'vision' && <VisionColumn />}
+            {rightTab === 'anchors' && <AnchorLogColumn />}
+            {rightTab === 'graph' && <WikiGraphColumn />}
           </div>
         </aside>
       </div>

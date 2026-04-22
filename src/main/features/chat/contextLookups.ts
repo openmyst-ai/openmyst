@@ -149,8 +149,10 @@ export interface PlanLookupPayload {
   /** The user's original task string, verbatim. */
   task: string;
   requirements: DeepPlanSession['requirements'];
-  /** plan.md body — may be empty if Deep Plan was skipped early. */
-  plan: string;
+  /** vision.md body — dot-point intellectual spine (replaces the old plan.md). */
+  vision: string;
+  /** Count of anchors in the session's evidence log. */
+  anchorLogSize: number;
 }
 
 export function formatPlanReply(payload: PlanLookupPayload | null): string {
@@ -180,13 +182,16 @@ export function formatPlanReply(payload: PlanLookupPayload | null): string {
   lines.push(`- Audience: ${req.audience ?? '(not specified)'}`);
   if (req.styleNotes) lines.push(`- Style notes: ${req.styleNotes}`);
   lines.push('');
-  lines.push('plan.md:');
-  lines.push(payload.plan.trim() || '(plan.md is empty — Deep Plan was skipped or started but not completed)');
+  lines.push('vision.md:');
+  lines.push(payload.vision.trim() || '(vision.md is empty — Deep Plan was skipped or started but not completed)');
+  lines.push('');
+  lines.push(`Anchor log: ${payload.anchorLogSize} entries`);
   log('chat', 'contextLookup.plan.hit', {
-    planChars: payload.plan.length,
+    visionChars: payload.vision.length,
+    anchorLogSize: payload.anchorLogSize,
     hasWordCount: req.wordCountMin !== null || req.wordCountMax !== null,
   });
-  return `[plan_lookup — Deep Plan requirements + plan.md from .myst/deep-plan/session.json]\n\n${lines.join('\n')}`;
+  return `[plan_lookup — Deep Plan vision + rubric from .myst/deep-plan/session.json]\n\n${lines.join('\n')}`;
 }
 
 export function formatQueriesReply(queries: string[]): string {

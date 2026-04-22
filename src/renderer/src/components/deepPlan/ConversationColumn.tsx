@@ -266,29 +266,23 @@ function MessageBubble({
   }
 
   const klass = message.role === 'user' ? 'dp-msg dp-msg-user' : 'dp-msg dp-msg-assistant';
-  const hygiene = message.kind === 'chair-turn' ? message.chair?.anchorHygiene : undefined;
+  // Anchor-count chip — shows how many anchors this round's Chair pulled
+  // into the log. Replaces the old materialiser-hygiene chip (no more
+  // plan.md means no more hallucinated-anchor downgrades).
+  const anchorAddCount =
+    message.kind === 'chair-turn' ? message.chair?.anchorLogAdd.length ?? 0 : 0;
   return (
     <div className={klass}>
       <div className="dp-msg-body">
         <Markdown text={message.content} />
-        {hygiene && (hygiene.materialised > 0 || hygiene.downgraded > 0) && (
+        {anchorAddCount > 0 && (
           <div className="dp-anchor-hygiene">
-            {hygiene.materialised > 0 && (
-              <span
-                className="dp-anchor-chip dp-anchor-chip-ok"
-                title="Anchors whose verbatim source passages were injected beneath the claim"
-              >
-                {hygiene.materialised} anchored
-              </span>
-            )}
-            {hygiene.downgraded > 0 && (
-              <span
-                className="dp-anchor-chip dp-anchor-chip-warn"
-                title="The Chair referenced anchors that don't exist in the wiki. Downgraded to slug-only and flagged as needs-anchor for the next panel round."
-              >
-                {hygiene.downgraded} auto-fixed (bad anchor id)
-              </span>
-            )}
+            <span
+              className="dp-anchor-chip dp-anchor-chip-ok"
+              title="Anchors the Chair pulled into the evidence log this round"
+            >
+              +{anchorAddCount} anchor{anchorAddCount === 1 ? '' : 's'}
+            </span>
           </div>
         )}
       </div>

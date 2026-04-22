@@ -25,6 +25,7 @@ import { oneShotPrompt } from './prompts';
 import { runPanelRound } from './panel';
 import { runChair } from './chair';
 import { runChairChat } from './chat';
+import { resolveAndAppendAnchors } from './anchorLog';
 import {
   formatLookupReply,
   parseSourceLookups,
@@ -343,27 +344,36 @@ async function runPanelAndChair(): Promise<void> {
       chatNotes,
     });
 
+    // Resolve + append any anchors the Chair selected. The resolver reads
+    // each source's index to fill name/type/text/keywords, skips anchors
+    // already in the log, and silently drops invalid ids. Append-only —
+    // no drops from this round.
+    const freshAnchors = await resolveAndAppendAnchors({
+      proposals: chairOutput.anchorLogAdd,
+      existingLog: session.anchorLog,
+      currentPhase: session.phase,
+    });
+
     await updateSession((s) => {
       const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
       });
-      // Fold the Chair's requirements patch into session.requirements so
-      // the next round's prompt sees the user's answers to "what word
-      // count?" / "what form?" / "who's the audience?" as specified.
-      // Without this, the Chair would re-ask those same questions every
-      // round because missingRequirements() only looks at session state.
       const patch = chairOutput.requirementsPatch;
       const mergedRequirements = patch
         ? { ...next.requirements, ...patch }
         : next.requirements;
+      // Vision is replaced wholesale when the Chair emits a non-null
+      // `visionUpdate`; otherwise we keep the existing one verbatim. This
+      // is the whole savings of the overhaul: no full vision rewrite
+      // every round.
+      const mergedVision =
+        chairOutput.visionUpdate !== null ? chairOutput.visionUpdate : next.vision;
       return {
         ...next,
         requirements: mergedRequirements,
-        plan: chairOutput.plan || next.plan,
+        vision: mergedVision,
+        anchorLog: [...next.anchorLog, ...freshAnchors],
         pendingQuestions: chairOutput.questions,
-        // Drain the chat-notes queue — this round has consumed them as
-        // context. Any free-chat the user does AFTER this round starts
-        // accumulates fresh for the next panel round.
         pendingChatNotes: [],
         searchesUsed: next.searchesUsed + searchesDispatched,
         roundsPerPhase: {

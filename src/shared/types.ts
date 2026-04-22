@@ -267,21 +267,25 @@ export const PANEL_ROLES_BY_PHASE: Record<DeepPlanPhase, PanelRole[]> = {
   done: [],
 };
 
-export interface PanelFinding {
-  severity: 'low' | 'mid' | 'high';
-  claim: string;
-  rationale: string;
-  suggestedAction: string;
-}
-
 export interface PanelResearchRequest {
   query: string;
   rationale: string;
 }
 
+/**
+ * Panel output post-overhaul. The panel no longer critiques plan.md prose —
+ * there is no plan.md. Each panelist, given the rubric + vision + current
+ * anchor log, does two things:
+ *   - proposes anchors to add to the log (from the wiki, by id)
+ *   - suggests what the vision is missing or should sharpen
+ * Plus the unchanged research-request path when the wiki lacks evidence.
+ */
 export interface PanelOutput {
   role: PanelRole;
-  findings: PanelFinding[];
+  /** `slug#anchor-id` strings the panelist thinks belong in the log. */
+  anchorProposals: string[];
+  /** Short free-text: what's missing or off about the vision. ≤ 2 sentences. */
+  visionNotes: string;
   needsResearch: PanelResearchRequest[];
 }
 
@@ -332,47 +336,55 @@ export type ChairAnswerMap = Record<string, ChairAnswer>;
  * call needs the user). `phaseAdvance: true` means the Chair thinks
  * this phase is done — the UI nudges the user toward Continue.
  */
+/**
+ * Chair's structured output post-overhaul. No more plan.md rewrite: the
+ * Chair now maintains two small artefacts — `vision` (dot-point intellectual
+ * spine) and `anchorLog` (append-only evidence pile) — and its per-round
+ * output is tiny.
+ *
+ * - `summary`: the short chat reply the user sees.
+ * - `visionUpdate`: the FULL new vision.md when the Chair actually wants
+ *   to change it. `null` to keep the prior vision unchanged (most rounds).
+ * - `anchorLogAdd`: ids of anchors the Chair is pulling into the log this
+ *   round, each optionally with a note on why it matters. Append-only —
+ *   no drops. Invalid ids get silently filtered at append time.
+ * - `questions`: Chair's probes for the user.
+ * - `phaseAdvance`: convergence signal.
+ * - `requirementsPatch`: changes to the rubric (word count, form, etc.)
+ *   when the user just answered a question about a hard requirement.
+ */
 export interface ChairOutput {
   summary: string;
-  plan: string;
+  visionUpdate: string | null;
+  anchorLogAdd: { id: string; note?: string }[];
   questions: ChairQuestion[];
   phaseAdvance: boolean;
-  /**
-   * Chair's structured update to session.requirements for this round — the
-   * Chair fills this when the user just answered a question about a hard
-   * requirement (word count, form, audience, styleNotes). Only include
-   * fields that actually changed this round; omit the rest. The runner
-   * shallow-merges this into session.requirements. Without this, answers
-   * would live in the transcript but never mutate the requirements block,
-   * so the Chair would re-ask the same question every subsequent round.
-   */
   requirementsPatch?: Partial<PlanRequirements> | null;
-  /**
-   * OPT-IN: Chair can emit a narrow patch instead of a full `plan` rewrite
-   * when the round's changes are few. Applied on top of the existing
-   * plan.md by `applyPlanPatch`. Huge token savings on mature plans where
-   * rewriting the whole thing is wasteful. When both `plan` and
-   * `planPatch` are present the patch wins; when neither moves anything,
-   * the prior plan is preserved.
-   */
-  planPatch?: {
-    edits?: { claimId: string; newLine: string }[];
-    drops?: string[];
-    adds?: { afterClaimId: string | null; line: string }[];
-  } | null;
-  /**
-   * Post-materialiser hygiene stats — populated by the runner after the
-   * Chair's output has been validated and cleaned. `downgraded` counts
-   * citations the Chair emitted with `#anchor-id` fragments that don't
-   * exist in any source's index (we rewrote them to slug-only +
-   * `[needs-anchor]`). Shown as a small chip in the UI so the user can
-   * see when the Chair's anchor hygiene is off. `materialised` is the
-   * count of valid anchors that got verbatim blockquotes injected.
-   */
-  anchorHygiene?: {
-    materialised: number;
-    downgraded: number;
-  };
+}
+
+/**
+ * A single entry in the append-only anchor log. This is what the drafter
+ * consumes: a curated list of 20–50 verbatim source statements, keyed by
+ * `slug#anchor-id` for hover + reference. `text` is resolved from the
+ * source's index at append time, so the entry is self-contained — no
+ * disk reads needed at draft time.
+ */
+export interface AnchorLogEntry {
+  /** `slug#anchor-id` — the canonical key. Matches the citation href fragment. */
+  id: string;
+  slug: string;
+  sourceName: string;
+  sourceUrl?: string;
+  type: SourceAnchorType;
+  /** Verbatim passage from the source. 1–4 sentences. */
+  text: string;
+  keywords: string[];
+  /** ISO timestamp the anchor was added. */
+  addedAt: string;
+  /** Phase the anchor was added in — useful for later filtering / UI. */
+  addedInPhase: DeepPlanPhase;
+  /** Optional Chair annotation: "use this to ground the RLHF argument". */
+  note?: string;
 }
 
 /**
@@ -458,11 +470,20 @@ export interface DeepPlanSession {
   /** Hard constraints parsed from `task` on session creation. */
   requirements: PlanRequirements;
   /**
-   * Living plan.md — the artefact the panel is iteratively refining.
-   * Rewritten in full by the Chair every round. Fed to the final drafter
-   * as the distillation of the whole Deep Plan session.
+   * Dot-point intellectual spine of the piece: thesis, POV, section
+   * intents, novel insights surfaced in conversation. Small (400–1500
+   * words, usually closer to 400). Grown incrementally by the Chair as
+   * the panel + user conversation evolves. Fed verbatim to the drafter
+   * at handoff.
    */
-  plan: string;
+  vision: string;
+  /**
+   * Append-only curated evidence pile. Each entry is a verbatim passage
+   * from a credibility-gated source, keyed by `slug#anchor-id`. Target
+   * size is 20–50 entries by end of reviewing. This is what the drafter
+   * references in the final piece.
+   */
+  anchorLog: AnchorLogEntry[];
   messages: DeepPlanMessage[];
   /** Chair-authored questions awaiting user response, if any. */
   pendingQuestions: ChairQuestion[];

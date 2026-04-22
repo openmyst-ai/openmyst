@@ -64,7 +64,8 @@ export async function sendMessage(
       ? {
           task: deepPlanSession.task,
           requirements: deepPlanSession.requirements,
-          plan: deepPlanSession.plan,
+          vision: deepPlanSession.vision,
+          anchorLogSize: deepPlanSession.anchorLog.length,
         }
       : null;
 
