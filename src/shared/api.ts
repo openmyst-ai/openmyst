@@ -91,7 +91,13 @@ export interface MystApi {
     lookupAnchor: (
       slug: string,
       anchorId: string,
-    ) => Promise<{ slug: string; anchor: SourceAnchor; text: string } | null>;
+    ) => Promise<{
+      slug: string;
+      anchor: SourceAnchor;
+      text: string;
+      sourceName?: string;
+      sourceUrl?: string;
+    } | null>;
     delete: (slug: string) => Promise<void>;
     onChanged: (callback: () => void) => () => void;
   };

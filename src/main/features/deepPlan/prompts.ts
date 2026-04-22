@@ -417,18 +417,43 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
 
 plan.md rules:
 - Rewrite it IN FULL every round. The drafter only ever sees the latest version.
-- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and the anchored claims it will develop.
+- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and the claims it will develop.
 - Honour the task requirements at the top of the plan — echo the word-count range and form in the thesis paragraph so the drafter can't miss them.
-- Plan.md is the drafter's SOLE input. After Deep Plan completes, the drafter sees ONLY plan.md, the requirements, and the prose-style guide — no raw sources, no detailed summaries. If a piece of evidence isn't anchored in plan.md, it literally cannot make it into the draft.
+- Plan.md is the drafter's SOLE input. After Deep Plan completes, the drafter sees ONLY plan.md, the requirements, and the prose-style guide — no raw sources, no detailed summaries. Any evidence the draft needs has to be anchored inside plan.md by the end of the reviewing phase.
 
-CITATION FORMAT — this is load-bearing. Every non-trivial claim in plan.md body MUST be anchored:
-- Default: Harvard-style inline markdown link IN PARENTHESES, ending the sentence or clause: \`([Name](slug.md#anchor-id))\`. The \`#anchor-id\` fragment is required for every load-bearing citation — it's the deep reference the system uses to paste the verbatim passage into plan.md after your response.
-- Anchor ids come from the wiki list above — never invent a slug or anchor-id. If you can't find an anchor that grounds a claim, either drop the claim or emit a research question about it next round.
+CONTINUITY — this is the single most important rule:
+- Plan.md ACCUMULATES. It is not reset at phase transitions. Ideation's claims carry into planning; planning's carry into reviewing. A phase transition changes what you ADD this round — it never licenses dropping claims from prior rounds.
+- **Every anchored claim from a prior round is COMMITTED.** Preserve it. You may reword the surrounding prose, move a claim between sections, or attach it to a different argument, but you MUST keep the \`([Name](slug.md#anchor-id))\` citation exactly as it was. A citation attached to a claim is a contract — the previous Chair or panel did the work to find that anchor, and you do not get to undo it.
+- Before emitting your rewrite, count the \`([...](...))\` citations in the current plan.md shown above. Your new plan must contain AT LEAST that many citations. Fewer = you dropped committed work. More = you added new groundings. Same-or-more is the floor.
+- **NEVER drop an existing claim just because it isn't anchored yet.** Unanchored claims are WORK TO DO, not content to delete. Carry them forward, mark them with \`[needs-anchor]\` (see UNANCHORED CLAIM MARKER below), and use the panel's research budget to produce anchors for them next round.
+- Blockquotes beneath anchored claims (lines starting with \`>\`) are SYSTEM-INSERTED after your output by the materialiser. You do not need to preserve them in your rewrite — just emit the \`([Name](slug.md#anchor-id))\` citations and the system re-injects the quotes. Ignoring existing blockquotes while rewriting is fine; deleting the citations that produced them is not.
+- Phase transitions change the FOCUS, never the content floor:
+  - ideation → planning: keep every ideation claim; now add structure, sub-claims, and anchor-hunting for claims that still need grounding.
+  - planning → reviewing: keep every planning claim; now stress-test the argument and finalise the beat sheet. This is when unanchored claims that have survived the panel's research attempts can be considered for dropping — but only with a panelist's explicit recommendation.
+
+CITATION FORMAT — this is load-bearing. DIFFERENT rules at different phases:
+
+- **ideation**: plan.md is still a rough skeleton. Most claims will be unanchored and that's FINE. Only emit a citation when you can literally match a claim to an anchor you can see in the wiki list above. Do NOT hallucinate anchor ids. Unanchored claims carry the UNANCHORED CLAIM MARKER (below) so the panel and user can see what still needs grounding.
+- **planning**: the wiki should be filling up with real sources now. Prefer to anchor every factual claim, but keep unanchored claims that matter (marked) while the panel hunts for their grounding.
+- **reviewing**: every non-trivial claim MUST be anchored OR explicitly dropped. This is the only phase where "drop the claim" is the right move for persistent unanchored claims — and even then, only after the panel has had a full round to find an anchor for it.
+
+Anchor citation format (when you ARE citing):
+- Harvard-style inline markdown link IN PARENTHESES, ending the sentence or clause: \`([Name](slug.md#anchor-id))\`. The \`#anchor-id\` MUST be a literal anchor id from the wiki list above — copy it verbatim, do not paraphrase or invent.
+- Before writing ANY \`([Name](slug.md#anchor-id))\`: scan the wiki block. If the exact \`#anchor-id\` is not listed under that source's bullets, DO NOT WRITE IT. A hallucinated anchor id silently fails the materialiser pass and hover lookup; it's worse than no citation at all.
+- Slug-only citations are allowed: \`([Name](slug.md))\`. Use these when you want to credit a source but no specific anchor grounds the specific claim — better than a fake \`#anchor-id\`.
 - If a sentence draws on two anchors, emit two adjacent citations: \`([Smith](smith.md#x)) ([Jones](jones.md#y))\`.
-- Trivial connective prose ("This matters because…", "In the next section…") does NOT need a citation. Anything that carries factual content — a number, a definition, an argument, an attribution, a historical fact, a position — does.
-- The verbatim passage for each anchor is AUTOMATICALLY inserted as a blockquote beneath the claim by the system after you respond. You do NOT need to write the blockquote yourself — just emit the \`([Name](slug.md#anchor-id))\` citation and the materialiser handles the rest.
+- Trivial connective prose ("This matters because…", "In the next section…") does NOT need a citation.
+- The verbatim passage for each resolved \`([Name](slug.md#anchor-id))\` is AUTOMATICALLY inserted as a blockquote beneath the claim by the system after you respond. You do NOT write the blockquote yourself.
+
+UNANCHORED CLAIM MARKER:
+- For any non-trivial claim that doesn't yet have an anchor from the wiki above, end the sentence with the literal token \`[needs-anchor]\` (lowercase, in square brackets, no slug). Example: "Pareto efficiency depends on initial endowments [needs-anchor]."
+- This is NOT a failure mode — early ideation plans should have LOTS of \`[needs-anchor]\` markers. They're the panel's to-do list: each one is a hint at a research query that will produce the anchor next round.
+- Do NOT delete a \`[needs-anchor]\` claim just to shrink the plan. Only drop it when (a) a panelist explicitly says the claim isn't load-bearing, or (b) we're in the reviewing phase and the panel has tried and failed to anchor it.
+
+Other forbidden forms:
 - NEVER emit bare backticked slug tokens like \`\`\`slug\`\`\` or \`\`\`slug#anchor-id\`\`\`. Those render as code blocks and break the reader flow.
 - NEVER emit footnote markers, numeric refs like "[1]", or "Smith et al. (2022)" prose — use the markdown-link form above.
+- NEVER invent a slug or an anchor id. If the wiki doesn't have it, use \`[needs-anchor]\` instead.
 
 Question rules:
 - **FIRST PRIORITY — missing hard requirements.** If the requirements block above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Word count is the tightest constraint on a draft and the panel literally cannot judge scope/depth without it. Use \`choice\` with 3–4 reasonable defaults and mark the panel's preferred option \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom write-in with \`allowCustom: true\`}.

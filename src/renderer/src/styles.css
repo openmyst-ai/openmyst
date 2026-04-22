@@ -5185,44 +5185,72 @@ img.login-logo {
 .dp-citation-hover {
   position: fixed;
   z-index: 1100;
-  max-width: 420px;
-  min-width: 240px;
+  max-width: 360px;
+  min-width: 220px;
   padding: 10px 12px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   font-size: 12.5px;
-  line-height: 1.55;
+  line-height: 1.5;
   color: var(--fg);
   transform: translateX(-50%);
   pointer-events: auto;
-}
-.dp-citation-hover-head {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dp-citation-hover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.35;
+}
+.dp-citation-hover-url {
+  font-size: 11.5px;
+  color: var(--accent);
+  word-break: break-all;
+  text-decoration: none;
+}
+.dp-citation-hover-url:hover {
+  text-decoration: underline;
+}
+.dp-citation-hover-meta {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: baseline;
   font-size: 11px;
+}
+.dp-citation-hover-label {
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--muted);
-  margin-bottom: 6px;
-}
-.dp-citation-hover-slug {
-  font-weight: 600;
 }
 .dp-citation-hover-anchor {
   font-family: var(--font-mono, ui-monospace, monospace);
-  color: var(--muted);
+  color: var(--fg);
 }
-.dp-citation-hover-label {
-  font-size: 11.5px;
+.dp-citation-hover-type {
   color: var(--muted);
-  margin-bottom: 6px;
+  font-style: italic;
+}
+.dp-citation-hover-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.dp-citation-hover-kw {
+  font-size: 11px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--accent-bg, transparent);
 }
 .dp-citation-hover-body {
-  white-space: pre-wrap;
-  max-height: 260px;
+  max-height: 200px;
   overflow-y: auto;
 }
 .dp-citation-hover-loading,

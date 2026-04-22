@@ -132,44 +132,69 @@ function injectBlockquotes(plan: string, resolved: Map<string, string | null>): 
   return out.join('\n');
 }
 
+const NEEDS_ANCHOR_RE = /\[needs-anchor\]/gi;
+
 /**
- * Debug lint. Split plan.md into sentence-ish chunks (blockquotes and
- * headings excluded), and count ones that don't have at least one citation.
- * This isn't a hard gate — the panel loop is the thing that converges plan
- * toward full anchoring — but the count + a sample is invaluable for
- * eyeballing whether the new pipeline is working.
+ * Count every Harvard-style citation in plan text — both \`#anchor-id\`
+ * anchored and slug-only. Used for continuity monitoring: if the Chair's
+ * rewritten plan has fewer citations than the prior plan, it dropped
+ * committed evidence and we log loud.
  */
-function unanchoredLint(plan: string): { unanchored: number; sample: string[] } {
+export function countCitations(plan: string): number {
+  CITATION_RE.lastIndex = 0;
+  SLUG_ONLY_CITATION_RE.lastIndex = 0;
+  const anchored = plan.match(CITATION_RE)?.length ?? 0;
+  // SLUG_ONLY also matches `([Name](slug.md))` substrings inside the fuller
+  // anchored form, because `slug.md` is a prefix of `slug.md#id`. Subtract
+  // the anchored count to avoid double-counting.
+  const slugOnlyRaw = plan.match(SLUG_ONLY_CITATION_RE)?.length ?? 0;
+  return anchored + Math.max(0, slugOnlyRaw - anchored);
+}
+
+/**
+ * Debug lint. Walk plan.md sentence-ish and bucket each non-trivial
+ * sentence into: anchored (has a valid Harvard-link citation), explicitly
+ * marked as needing an anchor (Chair emitted the \`[needs-anchor]\` token),
+ * or silently unanchored (neither). The third bucket is the interesting
+ * one — it means the Chair dropped evidence without admitting it.
+ */
+function unanchoredLint(plan: string): {
+  silentlyUnanchored: number;
+  needsAnchor: number;
+  sample: string[];
+} {
   const sample: string[] = [];
-  let unanchored = 0;
+  let silentlyUnanchored = 0;
+  let needsAnchor = 0;
   for (const rawLine of plan.split('\n')) {
     const line = rawLine.trim();
     if (!line) continue;
-    if (line.startsWith('#')) continue; // Headings.
-    if (line.startsWith('>')) continue; // Materialised blockquotes.
+    if (line.startsWith('#')) continue;
+    if (line.startsWith('>')) continue;
     if (line.startsWith('-') || line.startsWith('*') || /^\d+\./.test(line)) {
-      // List items can be trivial section names — skip unless they look
-      // substantive (> 40 chars) AND contain no citation.
       if (line.length < 40) continue;
     }
-    // Split the line into sentences via period/question/exclamation.
     const sentences = line
       .split(/(?<=[.!?])\s+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     for (const s of sentences) {
-      // Trivially-short fragments skip the lint (fewer than ~6 words).
       const wordCount = s.split(/\s+/).length;
       if (wordCount < 6) continue;
       CITATION_RE.lastIndex = 0;
       SLUG_ONLY_CITATION_RE.lastIndex = 0;
-      const hasAnchor = CITATION_RE.test(s) || SLUG_ONLY_CITATION_RE.test(s);
-      if (hasAnchor) continue;
-      unanchored++;
+      NEEDS_ANCHOR_RE.lastIndex = 0;
+      if (CITATION_RE.test(s) || SLUG_ONLY_CITATION_RE.test(s)) continue;
+      NEEDS_ANCHOR_RE.lastIndex = 0;
+      if (NEEDS_ANCHOR_RE.test(s)) {
+        needsAnchor++;
+        continue;
+      }
+      silentlyUnanchored++;
       if (sample.length < 3) sample.push(s.slice(0, 140));
     }
   }
-  return { unanchored, sample };
+  return { silentlyUnanchored, needsAnchor, sample };
 }
 
 /**
@@ -180,19 +205,46 @@ function unanchoredLint(plan: string): { unanchored: number; sample: string[] } 
 export async function materialiseAnchors(
   plan: string,
   sources: SourceMeta[],
-): Promise<{ plan: string; unanchored: number; materialised: number }> {
-  if (!plan.trim()) return { plan, unanchored: 0, materialised: 0 };
+): Promise<{
+  plan: string;
+  silentlyUnanchored: number;
+  needsAnchor: number;
+  materialised: number;
+  hallucinatedAnchors: number;
+}> {
+  if (!plan.trim()) {
+    return {
+      plan,
+      silentlyUnanchored: 0,
+      needsAnchor: 0,
+      materialised: 0,
+      hallucinatedAnchors: 0,
+    };
+  }
   const resolved = await resolveAllAnchors(plan, sources);
   const materialised = Array.from(resolved.values()).filter(
     (v) => v !== null && v.trim().length > 0,
   ).length;
+  // Citations the Chair emitted with a #anchor-id that doesn't exist in any
+  // source's index — these are the hover-breaking hallucinations. Logged
+  // loud so we can tell prompt regressions apart from panel progress.
+  const hallucinatedAnchors = Array.from(resolved.values()).filter(
+    (v) => v === null,
+  ).length;
   const rewritten = injectBlockquotes(plan, resolved);
-  const { unanchored, sample } = unanchoredLint(rewritten);
+  const { silentlyUnanchored, needsAnchor, sample } = unanchoredLint(rewritten);
   log('deep-plan', 'chair.anchorLint', {
     materialised,
-    unresolved: resolved.size - materialised,
-    unanchoredSentences: unanchored,
+    hallucinatedAnchors,
+    needsAnchorMarkers: needsAnchor,
+    silentlyUnanchored,
     sample,
   });
-  return { plan: rewritten, unanchored, materialised };
+  return {
+    plan: rewritten,
+    silentlyUnanchored,
+    needsAnchor,
+    materialised,
+    hallucinatedAnchors,
+  };
 }

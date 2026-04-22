@@ -30,12 +30,18 @@ interface PopoverState {
   anchorId: string | null;
   status: 'loading' | 'loaded' | 'missing' | 'error';
   anchor?: SourceAnchor;
-  text?: string;
+  sourceName?: string;
+  sourceUrl?: string;
   error?: string;
 }
 
 type CacheValue =
-  | { status: 'loaded'; anchor?: SourceAnchor; text?: string }
+  | {
+      status: 'loaded';
+      anchor?: SourceAnchor;
+      sourceName?: string;
+      sourceUrl?: string;
+    }
   | { status: 'missing' }
   | { status: 'error'; error: string };
 
@@ -136,7 +142,8 @@ export const CitationHoverScope = forwardRef<HTMLDivElement, CitationHoverScopeP
         const value: CacheValue = {
           status: 'loaded',
           anchor: hit.anchor,
-          text: hit.text,
+          sourceName: hit.sourceName,
+          sourceUrl: hit.sourceUrl,
         };
         cache.set(key, value);
         setPopover((prev) =>
@@ -214,7 +221,8 @@ function CitationPopover({
   onMouseEnter,
   onMouseLeave,
 }: CitationPopoverProps): JSX.Element {
-  const { x, y, slug, anchorId, status, anchor, text, error } = state;
+  const { x, y, slug, anchorId, status, anchor, sourceName, sourceUrl, error } = state;
+  const title = sourceName ?? slug;
   return (
     <div
       className="dp-citation-hover"
@@ -223,28 +231,41 @@ function CitationPopover({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <div className="dp-citation-hover-head">
-        <span className="dp-citation-hover-slug">{slug}</span>
-        {anchorId && <span className="dp-citation-hover-anchor">#{anchorId}</span>}
-      </div>
+      <div className="dp-citation-hover-title">{title}</div>
+      {sourceUrl && (
+        <a
+          className="dp-citation-hover-url"
+          href={sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {sourceUrl}
+        </a>
+      )}
+      {anchorId && (
+        <div className="dp-citation-hover-meta">
+          <span className="dp-citation-hover-label">anchor</span>
+          <span className="dp-citation-hover-anchor">#{anchorId}</span>
+          {anchor?.type && (
+            <span className="dp-citation-hover-type">[{anchor.type}]</span>
+          )}
+        </div>
+      )}
       {status === 'loading' && (
         <div className="dp-citation-hover-body dp-citation-hover-loading">
           Reading source…
         </div>
       )}
-      {status === 'loaded' && text && (
-        <>
-          {anchor && (
-            <div className="dp-citation-hover-label">
-              [{anchor.type}] {anchor.label}
-            </div>
-          )}
-          <div className="dp-citation-hover-body">{text}</div>
-        </>
+      {status === 'loaded' && anchor?.keywords && anchor.keywords.length > 0 && (
+        <div className="dp-citation-hover-keywords">
+          {anchor.keywords.map((kw) => (
+            <span key={kw} className="dp-citation-hover-kw">{kw}</span>
+          ))}
+        </div>
       )}
-      {status === 'loaded' && !text && !anchorId && (
+      {status === 'loaded' && !anchorId && (
         <div className="dp-citation-hover-body dp-citation-hover-muted">
-          Cited source (hover a specific anchor to see the exact passage).
+          Slug-only citation — no specific anchor.
         </div>
       )}
       {status === 'missing' && (

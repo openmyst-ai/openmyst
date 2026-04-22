@@ -11,7 +11,7 @@ import { completeText, type LlmMessage } from '../../llm';
 import { getDeepPlanModel } from '../settings';
 import { chairPrompt } from './prompts';
 import { parseChairOutput } from './parse';
-import { materialiseAnchors } from './materialise';
+import { countCitations, materialiseAnchors } from './materialise';
 
 /**
  * Strong-model Chair call. Consumes the panel's structured findings and
@@ -95,17 +95,32 @@ export async function runChair(args: {
   // emits markers — we inject the evidence deterministically so plan.md
   // becomes a self-contained handoff artefact for the drafter. The lint
   // count is just logged; no hard gate yet.
-  const { plan: planOut, unanchored, materialised } = await materialiseAnchors(
-    rawPlan,
-    args.sources,
-  );
+  const {
+    plan: planOut,
+    silentlyUnanchored,
+    needsAnchor,
+    materialised,
+    hallucinatedAnchors,
+  } = await materialiseAnchors(rawPlan, args.sources);
+
+  // Continuity check — if the new plan has FEWER citations than the prior
+  // one, the Chair dropped committed groundings. Logged loud so prompt
+  // regressions show up as a visible signal, not silent data loss.
+  const priorCitations = countCitations(args.session.plan);
+  const newCitations = countCitations(planOut);
+  const droppedCitations = Math.max(0, priorCitations - newCitations);
 
   log('deep-plan', 'chair.done', {
     questions: parsed.questions.length,
     phaseAdvance: parsed.phaseAdvance,
     planChars: planOut.length,
     anchorsMaterialised: materialised,
-    unanchoredSentences: unanchored,
+    hallucinatedAnchors,
+    needsAnchorMarkers: needsAnchor,
+    silentlyUnanchored,
+    priorCitations,
+    newCitations,
+    droppedCitations,
   });
 
   return { ...parsed, plan: planOut };
