@@ -17,12 +17,16 @@ export function SettingsModal(): JSX.Element {
   const [localError, setLocalError] = useState<string | null>(null);
   const [showBugReport, setShowBugReport] = useState(false);
 
-  // One model drives both chat and Deep Plan/Search for launch — keeps the
-  // UI simple and cost predictable. We use `defaultModel` as the source of
-  // truth in the UI and mirror it to `deepPlanModel` on save. The summary
-  // model (digest calls inside research) is a separate knob because it's a
-  // bounded JSON-shaped task where a fast cheap model gives a 2-3× speedup.
+  // Deep Plan has three independent model slots:
+  //   - defaultModel: chat + Deep Search planner
+  //   - chairModel: Chair (panel synthesiser) + Chair free-chat
+  //   - draftModel: the final one-shot drafter
+  //   - summaryModel: cheap per-source digest pass (runs during ingest)
+  // Keeping them separate lets the user run gpt-oss-120b on Chair while
+  // leaving the drafter on a different voice, without touching chat.
   const currentModel = settings?.defaultModel ?? '';
+  const currentChairModel = settings?.chairModel ?? '';
+  const currentDraftModel = settings?.draftModel ?? '';
   const currentSummaryModel = settings?.summaryModel ?? '';
 
   const saveKey = async (): Promise<void> => {
@@ -55,7 +59,34 @@ export function SettingsModal(): JSX.Element {
     setSaving(true);
     try {
       await bridge.settings.setDefaultModel(next);
-      await bridge.settings.setDeepPlanModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeChairModel = async (next: string): Promise<void> => {
+    if (!next || next === currentChairModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setChairModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeDraftModel = async (next: string): Promise<void> => {
+    if (!next || next === currentDraftModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setDraftModel(next);
       await refreshSettings();
     } catch (err) {
       setLocalError((err as Error).message);
@@ -109,6 +140,20 @@ export function SettingsModal(): JSX.Element {
     ? MODEL_OPTIONS
     : [{ id: currentModel, label: `${currentModel} (custom)` }, ...MODEL_OPTIONS];
 
+  const chairOptionsWithCurrent = MODEL_OPTIONS.some((o) => o.id === currentChairModel)
+    ? MODEL_OPTIONS
+    : [
+        { id: currentChairModel, label: `${currentChairModel} (custom)` },
+        ...MODEL_OPTIONS,
+      ];
+
+  const draftOptionsWithCurrent = MODEL_OPTIONS.some((o) => o.id === currentDraftModel)
+    ? MODEL_OPTIONS
+    : [
+        { id: currentDraftModel, label: `${currentDraftModel} (custom)` },
+        ...MODEL_OPTIONS,
+      ];
+
   const summaryOptionsWithCurrent = SUMMARY_MODEL_OPTIONS.some(
     (o) => o.id === currentSummaryModel,
   )
@@ -122,7 +167,8 @@ export function SettingsModal(): JSX.Element {
     <section className="modal-section">
       <h3>Model</h3>
       <p className="muted">
-        Used for chat, Deep Plan, and Deep Search planning.
+        Used for chat and Deep Search planning. Deep Plan's Chair + drafter
+        have their own settings below.
       </p>
       <div className="row">
         <select
@@ -143,6 +189,68 @@ export function SettingsModal(): JSX.Element {
         onApply={changeModel}
         disabled={saving}
         placeholder="e.g. anthropic/claude-sonnet-4"
+      />
+    </section>
+  );
+
+  const chairModelDropdown = (
+    <section className="modal-section">
+      <h3>Deep Plan: Chair model</h3>
+      <p className="muted">
+        The strong model that synthesises the panel each round, rewrites
+        plan.md, and handles free-chat. Default: GPT-OSS 120B — it has the
+        headroom for the anchor-first self-check.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentChairModel}
+          onChange={(e) => void changeChairModel(e.target.value)}
+          disabled={saving}
+        >
+          {chairOptionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CustomModelInput
+        currentModel={currentChairModel}
+        onApply={changeChairModel}
+        disabled={saving}
+        placeholder="e.g. openai/gpt-oss-120b"
+      />
+    </section>
+  );
+
+  const draftModelDropdown = (
+    <section className="modal-section">
+      <h3>Deep Plan: Draft model</h3>
+      <p className="muted">
+        The model that writes the final essay from the completed plan.md.
+        Separate from the Chair so you can run a rigorous planner and a
+        different-voice drafter.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentDraftModel}
+          onChange={(e) => void changeDraftModel(e.target.value)}
+          disabled={saving}
+        >
+          {draftOptionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CustomModelInput
+        currentModel={currentDraftModel}
+        onApply={changeDraftModel}
+        disabled={saving}
+        placeholder="e.g. z-ai/glm-4.6"
       />
     </section>
   );
@@ -191,6 +299,8 @@ export function SettingsModal(): JSX.Element {
           <>
             <AccountSection />
             {modelDropdown}
+            {chairModelDropdown}
+            {draftModelDropdown}
             {summaryModelDropdown}
           </>
         ) : (
@@ -228,6 +338,8 @@ export function SettingsModal(): JSX.Element {
             </section>
 
             {modelDropdown}
+            {chairModelDropdown}
+            {draftModelDropdown}
             {summaryModelDropdown}
 
             <section className="modal-section">

@@ -8,7 +8,7 @@ import type {
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { completeText, type LlmMessage } from '../../llm';
-import { getDeepPlanModel } from '../settings';
+import { getChairModel } from '../settings';
 import { chairPrompt } from './prompts';
 import { parseChairOutput } from './parse';
 import { applyPlanPatch, countCitations, materialiseAnchors } from './materialise';
@@ -33,7 +33,7 @@ export async function runChair(args: {
 }): Promise<ChairOutput> {
   broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-start' });
 
-  const model = await getDeepPlanModel();
+  const model = await getChairModel();
   const systemPrompt = chairPrompt({
     session: args.session,
     panelOutputs: args.panelOutputs,
@@ -143,5 +143,9 @@ export async function runChair(args: {
     patchSkipped: patchStats?.skipped ?? 0,
   });
 
-  return { ...parsed, plan: planOut };
+  return {
+    ...parsed,
+    plan: planOut,
+    anchorHygiene: { materialised, downgraded: hallucinatedAnchors },
+  };
 }

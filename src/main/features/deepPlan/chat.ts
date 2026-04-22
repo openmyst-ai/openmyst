@@ -1,7 +1,7 @@
 import type { DeepPlanSession, SourceMeta } from '@shared/types';
 import { log, logError } from '../../platform';
 import { completeText, type LlmMessage } from '../../llm';
-import { getDeepPlanModel } from '../settings';
+import { getChairModel } from '../settings';
 import { chairChatPrompt } from './prompts';
 
 /**
@@ -21,7 +21,7 @@ export async function runChairChat(args: {
   userMessage: string;
 }): Promise<string | null> {
   const { session, sources, userMessage } = args;
-  const model = await getDeepPlanModel();
+  const model = await getChairModel();
 
   // Pull the last ~6 chat turns (user + chair) for context. Anything older
   // is covered by plan.md and the transcript the panel has already seen.

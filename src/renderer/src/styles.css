@@ -5147,6 +5147,33 @@ img.login-logo {
 /* Phase-advance CTA — shown in the chat scroll when the Chair signals
  * phaseAdvance and there are no pending questions. Hugging the copy to the
  * left (subtle, not a modal) keeps the discussion path equally prominent. */
+/* Anchor-hygiene chips — shown under a chair-turn summary so the user
+ * sees at a glance how many anchors got properly resolved and how many
+ * the Chair fumbled (downgraded auto-fixes). The warn variant is
+ * deliberately muted orange rather than red: it's informational, not
+ * an error — the downgrade kept the plan shippable. */
+.dp-anchor-hygiene {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.dp-anchor-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.dp-anchor-chip-ok {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.dp-anchor-chip-warn {
+  border-color: #d89a2b;
+  color: #d89a2b;
+}
+
 /* Free-chat bubbles — same markdown treatment as normal messages but
  * visually lighter so the user can distinguish "just talking to the
  * Chair" from "weighty panel-round summary". */

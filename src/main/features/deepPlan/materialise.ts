@@ -69,6 +69,43 @@ async function resolveAllAnchors(
 }
 
 /**
+ * Phase-1.2 guarantee: NO broken citation ever ships to the user. We
+ * scan every `([Name](slug.md#anchor-id))` citation and, for any whose
+ * anchor-id isn't in the source's index (Chair hallucinated it), we
+ * rewrite the citation to slug-only + a trailing `[needs-anchor]` marker.
+ *
+ * Effect downstream:
+ *   - hover UI: stops saying "Anchor not found" because the broken
+ *     `#anchor-id` is gone from rendered markdown.
+ *   - panel loop: `[needs-anchor]` is the panel's to-do list, so the
+ *     downgrade automatically becomes a research target next round.
+ *
+ * This is the deterministic safety net behind the prompt-side rules —
+ * the Chair may still try to hallucinate; we just never let it land.
+ */
+function downgradeHallucinatedAnchors(
+  plan: string,
+  resolved: Map<string, string | null>,
+): { plan: string; downgraded: number } {
+  let downgraded = 0;
+  const rewritten = plan.replace(CITATION_RE, (match, name: string, slugPath: string, anchorId: string) => {
+    const slug = slugPath.split('/').filter(Boolean).pop() ?? slugPath;
+    const key = keyOf(slug, anchorId);
+    const resolution = resolved.get(key);
+    // `resolved` only has entries for citations whose slug is in the wiki.
+    // `undefined` = slug unknown, `null` = slug known but anchor missing,
+    // string = resolved. We only downgrade the second case — unknown-slug
+    // citations are a separate failure mode and get logged elsewhere.
+    if (resolution === null) {
+      downgraded++;
+      return `([${name}](${slug}.md)) [needs-anchor]`;
+    }
+    return match;
+  });
+  return { plan: rewritten, downgraded };
+}
+
+/**
  * Materialise blockquotes. For each citation, append a blockquote containing
  * the anchor's verbatim text immediately after the sentence it sits in. If
  * the sentence already has a blockquote following it (i.e. the Chair wrote
@@ -380,13 +417,13 @@ export async function materialiseAnchors(
   const materialised = Array.from(resolved.values()).filter(
     (v) => v !== null && v.trim().length > 0,
   ).length;
-  // Citations the Chair emitted with a #anchor-id that doesn't exist in any
-  // source's index — these are the hover-breaking hallucinations. Logged
-  // loud so we can tell prompt regressions apart from panel progress.
-  const hallucinatedAnchors = Array.from(resolved.values()).filter(
-    (v) => v === null,
-  ).length;
-  const withQuotes = injectBlockquotes(plan, resolved);
+  // Phase 1.2: deterministically rewrite any hallucinated citation to
+  // slug-only + `[needs-anchor]`. After this pass, no `#anchor-id` that
+  // fails to resolve can survive into the rendered plan — hover can't
+  // report "anchor not found" because the broken form isn't there anymore.
+  const { plan: downgradedPlan, downgraded: hallucinatedAnchors } =
+    downgradeHallucinatedAnchors(plan, resolved);
+  const withQuotes = injectBlockquotes(downgradedPlan, resolved);
   // Lever 2: annotate each cited/marked claim line with a stable claim id
   // so the Chair can reference it in a `planPatch` next round instead of
   // rewriting the whole plan. Comments are invisible in rendered markdown.

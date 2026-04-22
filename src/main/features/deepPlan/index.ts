@@ -9,7 +9,7 @@ import type {
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { ensureLlmReady, streamChat, type LlmMessage } from '../../llm';
-import { getDeepPlanModel } from '../settings';
+import { getDraftModel } from '../settings';
 import { listSources } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
 import {
@@ -431,7 +431,7 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   if (!session) throw new Error('No Deep Plan session is active.');
 
   await requireLlm();
-  const model = await getDeepPlanModel();
+  const model = await getDraftModel();
 
   const docs = await listDocuments();
   if (docs.length === 0) {

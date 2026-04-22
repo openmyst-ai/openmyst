@@ -266,10 +266,31 @@ function MessageBubble({
   }
 
   const klass = message.role === 'user' ? 'dp-msg dp-msg-user' : 'dp-msg dp-msg-assistant';
+  const hygiene = message.kind === 'chair-turn' ? message.chair?.anchorHygiene : undefined;
   return (
     <div className={klass}>
       <div className="dp-msg-body">
         <Markdown text={message.content} />
+        {hygiene && (hygiene.materialised > 0 || hygiene.downgraded > 0) && (
+          <div className="dp-anchor-hygiene">
+            {hygiene.materialised > 0 && (
+              <span
+                className="dp-anchor-chip dp-anchor-chip-ok"
+                title="Anchors whose verbatim source passages were injected beneath the claim"
+              >
+                {hygiene.materialised} anchored
+              </span>
+            )}
+            {hygiene.downgraded > 0 && (
+              <span
+                className="dp-anchor-chip dp-anchor-chip-warn"
+                title="The Chair referenced anchors that don't exist in the wiki. Downgraded to slug-only and flagged as needs-anchor for the next panel round."
+              >
+                {hygiene.downgraded} auto-fixed (bad anchor id)
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

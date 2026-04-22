@@ -449,7 +449,26 @@ ${planBlock(session.plan)}
 Panel findings this round:
 ${findingsBlock(panelOutputs)}${researchNote}
 
-${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move the plan FORWARD):\n${priorSummaries}\n\n` : ''}Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
+${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move the plan FORWARD):\n${priorSummaries}\n\n` : ''}SELF-CHECK — run these mentally before you emit your JSON. These are non-negotiable; catching a miss here saves a round:
+
+1. **Citation count floor.** Count the \`([Name](...](...))\` citations in the CURRENT plan.md shown above. Your new plan (or the plan after your patch applies) must carry AT LEAST that many citations. If you're about to emit fewer, stop — you're dropping committed groundings. Carry them forward, even if you reword the surrounding prose.
+
+2. **Every \`#anchor-id\` you write MUST appear in the wiki block above.** Before finalising any \`([Name](slug.md#anchor-id))\`, locate that exact \`#anchor-id\` in the wiki's per-source bullet list. If it's not there, you have three options and only three:
+   a. Find a different, real anchor in the same or a different source.
+   b. Downgrade to slug-only: \`([Name](slug.md)) [needs-anchor]\` — honest about the gap.
+   c. Drop the citation and mark the claim \`[needs-anchor]\`.
+   Do NOT invent plausible-sounding anchor ids. The system auto-validates and downgrades invented ids, so you're just wasting the panel's next round and shipping a weaker plan.
+
+3. **[needs-anchor] carry-forward.** Every \`[needs-anchor]\` marker already in the current plan must either:
+   a. Be resolved this round (you found an anchor for it — replace the marker with the real citation), or
+   b. Survive verbatim (same sentence, same \`[needs-anchor]\` token) so the panel keeps hunting.
+   Silently dropping a \`[needs-anchor]\` claim without anchoring it loses work and breaks continuity.
+
+4. **Patch vs full rewrite decision.** If today's changes are narrow (1–5 edits + drops + adds combined), emit \`planPatch\` and leave \`plan\` as "". If they're broad, emit the full \`plan\`. Don't emit both.
+
+5. **Question-card necessity.** If you have no judgment call for the user AND hard requirements are filled, emit \`"questions": []\`. Questions that just narrate the panel's work are noise.
+
+Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
 
 {
   "summary": "≤ 2 sentences, ≤ 60 words. What changed in plan.md this round and (if you're asking) what you need from the user.",

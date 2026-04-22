@@ -2,7 +2,16 @@ export interface AppSettings {
   defaultModel: string;
   hasOpenRouterKey: boolean;
   hasJinaKey: boolean;
+  /**
+   * Deprecated — Deep Plan now splits this into `chairModel` + `draftModel`.
+   * Kept for backward compatibility: callers reading this get `chairModel`
+   * so older UI still works while we migrate it.
+   */
   deepPlanModel: string;
+  /** Strong model used by the Chair and the Chair-chat path. */
+  chairModel: string;
+  /** Model used by the one-shot drafter at Deep Plan → draft handoff. */
+  draftModel: string;
   summaryModel: string;
   recentProjects: string[];
   /**
@@ -61,6 +70,18 @@ export const SUMMARY_MODEL_OPTIONS: Array<{ id: string; label: string }> = [
 
 export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v3.2';
 export const DEFAULT_SUMMARY_MODEL = 'google/gemini-2.5-flash-lite';
+/**
+ * Chair + Chair-chat default. gpt-oss-120b is the right fit: it's got the
+ * headroom to think through the anchor-first plan rewrite rigorously, run
+ * the self-check pass, and emit richer summaries. Panel stays on the
+ * cheap summary model.
+ */
+export const DEFAULT_CHAIR_MODEL = 'openai/gpt-oss-120b';
+/**
+ * Final-draft default. Independent of Chair so the user can run a strong
+ * planner with a cheaper / different-voice drafter, or vice versa.
+ */
+export const DEFAULT_DRAFT_MODEL = 'deepseek/deepseek-v3.2';
 
 export interface ProjectMeta {
   name: string;
@@ -339,6 +360,19 @@ export interface ChairOutput {
     drops?: string[];
     adds?: { afterClaimId: string | null; line: string }[];
   } | null;
+  /**
+   * Post-materialiser hygiene stats — populated by the runner after the
+   * Chair's output has been validated and cleaned. `downgraded` counts
+   * citations the Chair emitted with `#anchor-id` fragments that don't
+   * exist in any source's index (we rewrote them to slug-only +
+   * `[needs-anchor]`). Shown as a small chip in the UI so the user can
+   * see when the Chair's anchor hygiene is off. `materialised` is the
+   * count of valid anchors that got verbatim blockquotes injected.
+   */
+  anchorHygiene?: {
+    materialised: number;
+    downgraded: number;
+  };
 }
 
 /**
