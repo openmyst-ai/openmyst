@@ -37,11 +37,15 @@ export async function readAnchor(
   if (!index) return null;
   const anchor = index.anchors.find((a) => a.id === anchorId);
   if (!anchor) return null;
+  // Prefer the verbatim text stored on the anchor itself — this is the
+  // post-phase-1 path where extraction persists the passage at index time.
+  // Fall back to a byte-range read for older indexes that were written
+  // before `text` existed.
+  if (typeof anchor.text === 'string' && anchor.text.length > 0) {
+    return { slug, anchor, text: anchor.text };
+  }
   const rawPath = projectPath('sources', `${slug}.raw.txt`);
   if (!(await pathExists(rawPath))) return null;
-  // Offsets are JS string indices — matches how locateAnchors computed them
-  // via indexOf on the same capped prefix. Raw is capped at ~6KB so a full
-  // read + slice is cheap and correct for non-ASCII.
   const raw = await fs.readFile(rawPath, 'utf-8');
   const text = raw.slice(anchor.charStart, anchor.charEnd);
   return { slug, anchor, text };

@@ -14,12 +14,17 @@ import { log } from '../../platform';
  */
 
 const ANCHOR_TYPES: readonly SourceAnchorType[] = [
+  // Canonical (phase 2+).
   'definition',
+  'claim',
+  'statistic',
+  'quote',
+  'finding',
+  // Legacy — still accepted on read so old indexes stay valid.
   'rule',
   'argument',
   'idea',
   'equation',
-  'finding',
   'section',
 ];
 
@@ -94,6 +99,7 @@ export function locateAnchors(raw: string, llmAnchors: RawLlmAnchor[]): SourceAn
       keywords: coerceKeywords(item.keywords),
       charStart,
       charEnd: charStart + excerpt.length,
+      text: excerpt,
     });
   }
 

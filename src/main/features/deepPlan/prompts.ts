@@ -15,6 +15,7 @@ import {
   DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE,
 } from '@shared/types';
 import { PROSE_STYLE } from '../../writing';
+import { PREFERRED_SOURCE_HINT } from '../research/credibility';
 
 /**
  * Prompt templates for the plan.md-centric Deep Plan pipeline.
@@ -84,39 +85,28 @@ function planBlock(plan: string): string {
 
 function sourcesBlock(sources: SourceMeta[]): string {
   if (sources.length === 0) return '_No sources yet._';
+  // Per-anchor lines are formatted as the exact citation form we want panel
+  // + Chair to emit. Anchor labels are one-sentence paraphrases (phase 2) so
+  // the reader can tell at a glance which anchor grounds which claim without
+  // re-reading the source. Deliberately plain markdown — no backticks — so
+  // when a model copies a line into plan.md it already looks right.
   return sources
     .map((s) => {
-      const head = `- **${s.name}** (${s.slug}): ${s.indexSummary}`;
+      const head = `- **${s.name}** (${s.slug}.md) — ${s.indexSummary}`;
       if (!s.anchors || s.anchors.length === 0) return head;
       const anchorLines = s.anchors
-        .map((a) => `    - \`${s.slug}#${a.id}\` [${a.type}] ${a.label}`)
+        .map((a) => `    - ([${s.name}](${s.slug}.md#${a.id})) [${a.type}] ${a.label}`)
         .join('\n');
       return `${head}\n${anchorLines}`;
     })
     .join('\n');
 }
 
-function richSourcesBlock(
-  sources: SourceMeta[],
-  detailedSummaries: Map<string, string>,
-): string {
-  if (sources.length === 0) return '_No sources yet._';
-  return sources
-    .map((s) => {
-      const detail = detailedSummaries.get(s.slug)?.trim() || s.indexSummary;
-      const anchorsBlock =
-        s.anchors && s.anchors.length > 0
-          ? `\n\nKey anchors in this source (specific claims/arguments/findings to weave in where they're relevant):\n` +
-            s.anchors.map((a) => `- [${a.type}] ${a.label}`).join('\n')
-          : '';
-      return `### ${s.name} (\`${s.slug}\`)\n\n${detail}${anchorsBlock}`;
-    })
-    .join('\n\n---\n\n');
-}
-
 function searchBudgetBlock(session: DeepPlanSession): string {
   const remaining = Math.max(0, DEEP_PLAN_MAX_TOTAL_SEARCHES - session.searchesUsed);
-  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. Per-round panel cap: ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND}. Searches are welcome — especially early, when the plan is sparse and one grounding source can sharpen a whole section. Don't burn every round on searches, but don't go silent either: when a specific plan claim would land harder with a primary source the wiki doesn't have yet, propose the query.`;
+  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. Per-round panel cap: ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND}. Searches are welcome — especially early, when the plan is sparse and one grounding source can sharpen a whole section. Don't burn every round on searches, but don't go silent either: when a specific plan claim would land harder with a primary source the wiki doesn't have yet, propose the query.
+
+${PREFERRED_SOURCE_HINT}`;
 }
 
 export const DEEP_REFERENCE_RIDER = `[Deep reference] Each source above may list anchor ids (format \`slug#anchor-id\`) beneath it. To pull the EXACT verbatim passage for an anchor, emit a fenced \`source_lookup\` block. The system will resolve it deterministically and inject the verbatim text into the conversation before your next turn. Never paraphrase quotes from memory — use the lookup.
@@ -241,11 +231,21 @@ ${persona}
 Context:
 ${panelContextBlock(ctx)}
 
+The anchor-first rule (this is the core of how the panel works now):
+Plan.md is a DOCUMENT OF ANCHORED CLAIMS. Every non-trivial claim in it must point to a specific anchor in the wiki above — the exact sentence from a source that grounds the claim. If there's no anchor for a claim, the claim doesn't go in the plan. The panel's whole job, across every role, is to drive plan.md toward "every claim anchored". That means:
+- Unanchored claims already in plan.md are bugs. Either find the anchor that supports them (from the wiki above) or propose a research query that would produce such an anchor.
+- Findings that just restructure prose without touching evidence are low-value. Findings that surface a missing anchor, or propose swapping a weak anchor for a stronger one, are high-value.
+- Searches exist to hunt anchors — not to "explore the space". A good \`needsResearch\` query is shaped to return a source containing a specific missing statistic, definition, or finding.
+
 Your job this round:
-1. Read the current plan.md carefully. It is not empty in most rounds — it is the result of prior panel feedback.
-2. Through your role's lens, identify the 2–3 things that most need to change in the plan. Be specific: name the section, the claim, the framing, or the beat.
-3. For each finding, your \`suggestedAction\` should read as a concrete plan edit the Chair could apply verbatim ("rewrite §2 to open with the counter-example from smith-2022", "drop the intro paragraph — it restates the thesis before earning it", "add a §3.5 that names the opposing view and responds to it").
-4. Searching is allowed and encouraged when the wiki lacks a source a specific plan claim would lean on. The goal is reasoning *plus* grounding: reasoning alone produces a plan that sounds confident but isn't anchored. In early ideation rounds especially, propose one or two seed queries on the core concept when the wiki is bare.
+1. Read the current plan.md and the wiki anchor list carefully. Anchor labels are one-sentence paraphrases — they tell you what each anchor actually says. Use them to judge whether the plan's claims are properly grounded.
+2. Through your role's lens, identify the 2–3 most important anchor gaps or mis-groundings. Be specific: name the claim, the anchor missing, and the anchor that should replace or ground it.
+3. For each finding, \`suggestedAction\` must be a concrete plan edit tied to an anchor. One of:
+   - "Ground the claim in §X by citing ([Name](slug.md#anchor-id)) — the anchor states <paraphrase>."
+   - "Swap the ([Old](old.md#x)) citation in §Y for ([New](new.md#y)) — stronger evidence because <reason>."
+   - "Drop the unsupported sentence in §Z — no anchor in the wiki backs it and the claim isn't load-bearing."
+   - "Add a §N grounded in ([Name](slug.md#anchor-id))."
+4. When no anchor in the wiki supports a load-bearing claim, emit a \`needsResearch\` query. Frame it as "I need a [statistic|definition|claim|finding|quote] about X" — that tells the Chair what anchor type to hunt for. Reasoning alone produces a plan that sounds confident but isn't anchored.
 
 Output ONLY a JSON object of this exact shape — no prose, no markdown fences, no commentary:
 
@@ -253,22 +253,22 @@ Output ONLY a JSON object of this exact shape — no prose, no markdown fences, 
   "findings": [
     {
       "severity": "high" | "mid" | "low",
-      "claim": "one sentence naming what you observed in the plan",
+      "claim": "one sentence naming the anchor gap or mis-grounding in the plan",
       "rationale": "one sentence saying why it matters",
-      "suggestedAction": "one sentence naming the concrete plan edit the Chair should make"
+      "suggestedAction": "one sentence naming the concrete plan edit tied to an anchor (use Harvard markdown links)"
     }
   ],
   "needsResearch": [
-    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "which specific plan claim this query unblocks"}
+    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "what anchor type (statistic/definition/claim/finding/quote) this query should yield, and which specific plan claim it unblocks"}
   ]
 }
 
 Rules:
-- At most 3 findings. Quality over quantity. Vague findings are worthless.
+- At most 3 findings. Quality over quantity. Findings that don't name an anchor or propose one are worthless.
 ${searchClause}
 - When a \`suggestedAction\` references a source, write it as a Harvard-style markdown link: \`([Name](slug.md))\` or \`([Name](slug.md#anchor-id))\`. NEVER use backticked slug tokens (\`\`\`slug\`\`\`, \`\`\`slug#anchor\`\`\`) — the Chair copies your phrasing into plan.md body, and backticks render as code blocks there.
 - Do NOT duplicate findings already raised in prior rounds (see digest above).
-- If you genuinely have nothing to add this round, output {"findings": [], "needsResearch": []}. This is the right answer more often than you think — the plan converges when the panel goes quiet.`;
+- If the plan is already cleanly anchored and no new tensions have surfaced, output {"findings": [], "needsResearch": []}. This is the right answer when the plan has converged.`;
 }
 
 /* ────────────────────────── Chair (strong-model) ────────────────────────── */
@@ -417,17 +417,18 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
 
 plan.md rules:
 - Rewrite it IN FULL every round. The drafter only ever sees the latest version.
-- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and (from planning phase onward) source attributions.
+- Structure: start with a title (H1), then a short thesis paragraph, then sections (H2) in reading order. Each section has a one-line intent and the anchored claims it will develop.
 - Honour the task requirements at the top of the plan — echo the word-count range and form in the thesis paragraph so the drafter can't miss them.
-- Plan.md is the drafter's sole planning input. If it's not in the plan, it won't make it into the draft.
+- Plan.md is the drafter's SOLE input. After Deep Plan completes, the drafter sees ONLY plan.md, the requirements, and the prose-style guide — no raw sources, no detailed summaries. If a piece of evidence isn't anchored in plan.md, it literally cannot make it into the draft.
 
-CITATION FORMAT — read carefully, this is enforced:
-- Default: Harvard-style inline markdown links, always in parentheses: \`([Name](slug.md))\`. Name is a short label (first-author surname for papers, sensible short name otherwise). Slug must exist in the wiki above.
-- When a specific anchor grounds the claim, include the anchor fragment in the href: \`([Name](slug.md#anchor-id))\`. The hover UI resolves \`#anchor-id\` against the source's indexed anchors and shows the verbatim passage, so be precise.
-- If a sentence draws on two sources, emit two adjacent citations: \`([Smith](smith.md)) ([Jones](jones.md))\`.
-- NEVER emit bare backticked slug tokens like \`\`\`slug\`\`\` or \`\`\`slug#anchor-id\`\`\`. Those render as code blocks and break the reader flow. Citations are always parenthesised markdown links, never backticks.
+CITATION FORMAT — this is load-bearing. Every non-trivial claim in plan.md body MUST be anchored:
+- Default: Harvard-style inline markdown link IN PARENTHESES, ending the sentence or clause: \`([Name](slug.md#anchor-id))\`. The \`#anchor-id\` fragment is required for every load-bearing citation — it's the deep reference the system uses to paste the verbatim passage into plan.md after your response.
+- Anchor ids come from the wiki list above — never invent a slug or anchor-id. If you can't find an anchor that grounds a claim, either drop the claim or emit a research question about it next round.
+- If a sentence draws on two anchors, emit two adjacent citations: \`([Smith](smith.md#x)) ([Jones](jones.md#y))\`.
+- Trivial connective prose ("This matters because…", "In the next section…") does NOT need a citation. Anything that carries factual content — a number, a definition, an argument, an attribution, a historical fact, a position — does.
+- The verbatim passage for each anchor is AUTOMATICALLY inserted as a blockquote beneath the claim by the system after you respond. You do NOT need to write the blockquote yourself — just emit the \`([Name](slug.md#anchor-id))\` citation and the materialiser handles the rest.
+- NEVER emit bare backticked slug tokens like \`\`\`slug\`\`\` or \`\`\`slug#anchor-id\`\`\`. Those render as code blocks and break the reader flow.
 - NEVER emit footnote markers, numeric refs like "[1]", or "Smith et al. (2022)" prose — use the markdown-link form above.
-- Never invent a slug. Only cite slugs that appear in the wiki list above.
 
 Question rules:
 - **FIRST PRIORITY — missing hard requirements.** If the requirements block above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Word count is the tightest constraint on a draft and the panel literally cannot judge scope/depth without it. Use \`choice\` with 3–4 reasonable defaults and mark the panel's preferred option \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom write-in with \`allowCustom: true\`}.
@@ -509,6 +510,8 @@ ${priorBlock}${hintsBlock}
 
 Propose the next 3–4 web searches. Prefer primary sources (papers, official docs, firsthand accounts) over secondary commentary. Do NOT repeat queries already run.
 
+${PREFERRED_SOURCE_HINT}
+
 ${QUERY_STYLE}
 
 Output ONLY a fenced \`research_plan\` block. No text before or after.
@@ -524,126 +527,60 @@ If the wiki already covers the task, emit an empty array \`[]\`.`;
 
 /* ────────────────────── Pre-draft lookup + one-shot ────────────────────── */
 
+
 /**
- * Pre-draft lookup pass. The model reads requirements + plan.md + wiki
- * summaries, and emits `source_lookup` fences for any anchors / source
- * pages / raw files it wants verbatim before committing to the draft.
+ * Phase-6 drafter prompt. Deliberately minimal: plan.md has already been
+ * built by the Deep Plan panel + Chair, with every non-trivial claim
+ * followed by a verbatim blockquote from the source it's anchored to (the
+ * materialiser injects those after the Chair finishes each round). By the
+ * time we reach this prompt, plan.md IS the evidence base — the drafter
+ * does not need the wiki, the detailed summaries, or a pre-draft lookup
+ * pass.
+ *
+ * Inputs the drafter gets: requirements, plan.md, prose-style guide.
+ * That's it. The drafter's job is to turn anchored-claims-with-quotes into
+ * finished prose while preserving every citation.
  */
-export function preDraftLookupPrompt(
-  session: DeepPlanSession,
-  sources: SourceMeta[],
-  detailedSummaries: Map<string, string>,
-  docLabel: string,
-): string {
-  return `You are Myst's pre-draft researcher. The next step is a one-shot draft of "${docLabel}" from a completed Deep Plan session — but BEFORE that draft runs, you get one pass to pull any verbatim source passages you think will make the draft sharper. The draft model will see everything you pull, pre-fetched, with no further chance to look anything up.
-
-Your ONLY job right now is to decide which anchors (and optionally which full source pages) to pull. You are NOT writing the draft in this turn.
-
-User's task: "${session.task}"
-
-Task requirements (the draft will be judged against these):
-${requirementsBlock(session.requirements)}
-
-plan.md (what the drafter will write from — read it and ask yourself which sources it leans on hardest):
-
-${planBlock(session.plan)}
-
-Wiki — sources with full detailed summaries and anchor labels:
-
-${richSourcesBlock(sources, detailedSummaries)}
-
-${DEEP_REFERENCE_RIDER}
-
-Think about the draft the plan above implies, then ask yourself:
-- Which specific claims, numbers, definitions, or arguments will the draft lean on hardest? Pull those anchors.
-- Are there quotes that would carry a point better verbatim than paraphrased? Pull those.
-- Are there sources whose one-paragraph summary feels thin for what the plan demands? Pull the full source page.
-- Are there anchors whose labels look important but whose exact wording you can't reconstruct? Pull them.
-
-Budget guidance:
-- Pulling 5-15 anchors is typical and cheap. Don't be shy — lookups are free and the draft model will thank you.
-- Don't pull anchors you won't use. Don't pull every anchor reflexively.
-- Prefer specific anchors over whole source pages unless the summary is genuinely insufficient.
-
-Output ONLY source_lookup fences (one block per lookup), and nothing else. No prose, no explanation, no draft. Example:
-
-\`\`\`source_lookup
-{"slug": "smith-attention", "anchor": "law-1-2"}
-\`\`\`
-
-\`\`\`source_lookup
-{"slug": "vaswani-2017", "anchor": "main-finding"}
-\`\`\`
-
-If the detailed summaries are genuinely sufficient and no verbatim text would help, output nothing at all — an empty response is valid.
-
----
-
-[Prose-style / commands guide, applies to the draft that will run after this pass. You don't need to act on it now; it's here so your anchor selections match what the drafter will actually want to quote. The drafter will re-receive this guide.]
-
-${DEEP_PLAN_COMMANDS}`;
-}
-
-export function oneShotPrompt(
-  session: DeepPlanSession,
-  sources: SourceMeta[],
-  detailedSummaries: Map<string, string>,
-  prefetchedPassages: string,
-  docLabel: string,
-): string {
-  const passagesBlock = prefetchedPassages.trim()
-    ? `\nPre-fetched verbatim passages (pulled from the wiki off-disk for this draft — these are EXACT text, safe to quote directly):\n\n${prefetchedPassages.trim()}\n`
-    : '';
-
+export function oneShotPrompt(session: DeepPlanSession, docLabel: string): string {
   return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
 - ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
 - Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
-- EVERY non-trivial claim cites a source, inline, at the point the claim is made. A non-trivial claim is any factual statement, attribution, historical fact, date, statistic, definition, critique, named position, or interpretive argument. The only uncited sentences permitted are: (a) your own reasoning and framing, (b) logical connectives and transitions, (c) restatements of the user's own prompt. If you cannot cite it from the wiki below, omit it — never assert an un-sourced fact. A sparsely-cited draft is a failed draft.
-- HONOUR THE WORD-COUNT RANGE in the requirements below. This is a contract. Going over or under by more than 10% is a failure — use the plan's section breakdown to budget your words before you start writing.
+- EVERY non-trivial claim in the draft must preserve the anchored citation from plan.md. Plan.md below is the entire evidence base — every factual claim there already carries a Harvard-style link and a verbatim blockquote. Keep the citations intact when you turn claims into prose. Do not invent new sources, do not drop citations, do not paraphrase a quote that plan.md shows you verbatim.
+- HONOUR THE WORD-COUNT RANGE in the requirements below. This is a contract. Going over or under by more than 10% is a failure — use plan.md's section breakdown to budget your words before you start writing.
 
-You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an informed essayist, not a summariser of summaries. The wiki below is your knowledge base; treat it the way a good researcher would treat a pile of open books at their elbow: read it, wander it, quote from it, find the tensions between sources.
+You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. The Deep Plan process already did the research, chose the thesis, structured the sections, and grounded every claim in a specific anchor from a credible source. Your job is to turn that anchored plan into finished prose.
 
 User's task: "${session.task}"
 
 Task requirements (HARD constraints — the draft is judged against these):
 ${requirementsBlock(session.requirements)}
 
-plan.md — the distilled output of the whole Deep Plan session. Treat this as your marching orders: follow its structure, cite the sources it names, honour its thesis:
+plan.md — the complete output of the Deep Plan session. This is your ENTIRE evidence base. Every non-trivial claim already has a Harvard-style citation \`([Name](slug.md#anchor-id))\` followed by a blockquote with the verbatim source passage. You do NOT need any other sources; you should not reference anything that isn't in this plan.
 
 ${planBlock(session.plan)}
 
-Wiki (sources with full detailed summaries and key anchor labels):
+How to approach this draft:
 
-${richSourcesBlock(sources, detailedSummaries)}
-${passagesBlock}
-How to approach this draft (read carefully):
+1. **Follow plan.md's structure and thesis.** The plan is the distillation of an entire adversarial-panel session — its structure, thesis, and source attributions were chosen deliberately. If the plan names a section, write that section. If the plan anchors a claim, keep the anchor.
+2. **Preserve every citation.** When plan.md says "X is true ([Smith](smith.md#claim-3))", your draft should make the same claim and keep the same citation. You can reshape the sentence around the claim, but the citation moves with it.
+3. **Use the blockquotes as primary evidence.** When plan.md shows a verbatim passage beneath a citation, that passage is yours to quote directly (wrap it in quote marks inline, or re-emit it as a blockquote if the prose calls for it). Do NOT paraphrase a verbatim passage unless the prose genuinely reads better that way.
+4. **Do not introduce unanchored claims.** If you want to say something that plan.md doesn't ground, either frame it as your own reasoning/interpretation (which needs no citation) or omit it. Do not smuggle in facts, names, dates, or numbers that plan.md doesn't carry.
+5. **Remove the blockquotes from the final prose.** The blockquotes exist so you have the verbatim evidence at hand while drafting. In the final draft, integrate the quote inline (as a short inline quotation) or summarise the claim and keep just the citation — a long trailing blockquote after every claim makes the draft unreadable. Use blockquotes sparingly and only when a full-sentence direct quote genuinely serves the draft.
 
-1. **Follow plan.md.** The plan is the distillation of an entire adversarial-panel session. Its structure, thesis, and source attributions were chosen deliberately — don't reinvent them. If the plan names a section, write that section. If the plan names a source for a claim, use that source.
-2. **Read the wiki first.** The detailed summaries above are not one-liners; they're multi-paragraph reads of each source. Hold them in mind before committing to a paragraph.
-3. **Follow ideas across sources.** A concept raised in one source is usually echoed, refined, or contested in another. Name those connections.
-4. **Find tensions.** If two sources pull in different directions on the same question, say so, frame the disagreement, and take a position (guided by the plan's thesis).
-5. **Quote sparingly but precisely.** When you do quote a source directly, prefer the pre-fetched verbatim passages above when present. Otherwise only quote text that actually appears in the detailed summaries. Do not fabricate quotes.
-6. **Counter-argument pass.** Briefly address the strongest objection to the thesis before rebutting or conceding.
+Citation format in the draft (strict):
+- Every non-trivial claim keeps its parenthesised Harvard-style link, exactly as it appears in plan.md: \`([Name](slug.md#anchor-id))\` or \`([Name](slug.md))\` when the plan cited the source without an anchor.
+- If a sentence draws on two anchors, emit two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
+- Never wrap citations in backticks, never emit numeric footnote markers, never write "Smith et al. (2022)" style prose.
 
-Citation format (strict):
-Any claim carrying facts, numbers, arguments, or positions must be inline-cited as a parenthesised markdown link to the slug. The citation is just the source name inside round brackets, nothing else:
-   ([Name](slug.md))
-where **Name** is the source's short label (first-author surname if a paper, or a short sensible label otherwise). Example: \`([Michael](michaelpaper.md))\`. The surrounding parentheses are required; never emit a bare \`[Name](slug.md)\` without them. Do NOT include a year; we'd rather have no year than a wrong one. Do NOT wrap citations in backticks. Do NOT append \`#anchor\` fragments or any other suffix to the slug; just the plain \`slug.md\` link. Descriptive or connective prose can go uncited; err on the side of citing.
-
-Referencing discipline (strict):
-- Cite ANY time you mention something that traces to a source: a claim, a number, a definition, a framing, an argument, an example, a historical fact, a quoted term of art, a named person's position. Paraphrasing does not remove the obligation to cite; if you learned it from a source in the wiki above, cite that source. Uncited prose should be limited to your own reasoning, transitions, and connective tissue.
-- If a single sentence draws on more than one source, emit more than one inline citation, adjacent: \`([Smith](smith.md)) ([Jones](jones.md))\`.
-- End the draft with a \`## References\` section (sentence case, no other heading variations). List only sources that were actually cited in the body. Format each entry **Harvard style** on its own line as a markdown bullet:
-    - \`Author(s) (Year) *Title*. Publisher or outlet. Available at: URL.\`
-  Use whatever bibliographic detail is visible in the detailed summary for that source (author names, publication year, title, outlet, URL). Do NOT invent missing fields: if year is unknown, omit it; if author is unknown, lead with the title; if there is no URL, omit "Available at:". Every entry MUST end with a markdown link to the slug itself, written as a trailing parenthesised \`([slug.md](slug.md))\` so the reference remains clickable inside Myst even when bibliographic fields are thin.
-- Alphabetise the references section by the leading author surname (or title, when author-less). One bullet per source. Do not repeat the same source twice.
-- Sources that you did not actually cite in the body must NOT appear in References.
+References section (required, end of draft):
+- Add a \`## References\` heading (sentence case, no variations).
+- List every unique slug cited in the body, once each. Format each entry as a markdown bullet: \`- [Name](slug.md)\`. One line per source. Alphabetise by Name.
+- Do NOT list sources you didn't cite in the body. Do NOT duplicate. Keep it tight.
 
 Form + output rules:
 - Hit the requirements above — length, form, audience. The word-count range is the single most important constraint.
 - No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write the full piece straight through.
 - Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
-- Do NOT make up sources, slugs, or quotes. If a source isn't in the wiki above, it doesn't exist for this draft.
 
 Output: the complete markdown draft, nothing else.
 

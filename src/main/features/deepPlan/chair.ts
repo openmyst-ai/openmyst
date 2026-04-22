@@ -11,6 +11,7 @@ import { completeText, type LlmMessage } from '../../llm';
 import { getDeepPlanModel } from '../settings';
 import { chairPrompt } from './prompts';
 import { parseChairOutput } from './parse';
+import { materialiseAnchors } from './materialise';
 
 /**
  * Strong-model Chair call. Consumes the panel's structured findings and
@@ -87,12 +88,24 @@ export async function runChair(args: {
 
   // If the model omitted the plan field, preserve the prior one rather than
   // blanking the artefact the drafter depends on.
-  const planOut = parsed.plan.trim() ? parsed.plan : args.session.plan;
+  const rawPlan = parsed.plan.trim() ? parsed.plan : args.session.plan;
+
+  // Phase 5: materialise every `([Name](slug.md#anchor-id))` citation into
+  // a verbatim blockquote pulled from the source index. The Chair only
+  // emits markers — we inject the evidence deterministically so plan.md
+  // becomes a self-contained handoff artefact for the drafter. The lint
+  // count is just logged; no hard gate yet.
+  const { plan: planOut, unanchored, materialised } = await materialiseAnchors(
+    rawPlan,
+    args.sources,
+  );
 
   log('deep-plan', 'chair.done', {
     questions: parsed.questions.length,
     phaseAdvance: parsed.phaseAdvance,
     planChars: planOut.length,
+    anchorsMaterialised: materialised,
+    unanchoredSentences: unanchored,
   });
 
   return { ...parsed, plan: planOut };

@@ -59,10 +59,10 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
   "indexSummary": "One sentence (under 20 words) describing what this source covers, for quick scanning.",
   "anchors": [
     {
-      "type": "definition | rule | argument | idea | equation | finding | section",
-      "label": "Short human label for this anchor, e.g. 'Law 1.2: principle of least action' or 'definition of activation function' or 'main argument: free will is compatible with determinism'",
+      "type": "definition | claim | statistic | quote | finding",
+      "label": "A tight one-sentence paraphrase of what this anchor says. This is what the planner will see when deciding whether to cite it, so the label must carry the actual meaning — not just the topic. Bad: 'neural nets'. Good: 'dropout prevents co-adaptation by randomly zeroing activations during training'.",
       "keywords": ["3-6 terms a future reader might match against"],
-      "excerpt": "A VERBATIM substring of the raw source, copy-pasted exactly. Aim for a couple of sentences — longer or shorter is fine, but it must be long enough to be unique in the source and short enough to be citable. The excerpt MUST appear word-for-word in the raw text."
+      "excerpt": "A VERBATIM substring of the raw source, copy-pasted exactly. Aim for 1-4 sentences — long enough to carry the claim in context, short enough to be citable. The excerpt MUST appear word-for-word in the raw text."
     }
   ],
   "relatedSlugs": ["other_slug", "another_slug"],
@@ -78,12 +78,29 @@ Direct links vs related slugs:
 - When in doubt, leave it out. Fewer, tighter pointers make the graph useful; a long list of loosely-related entries makes it noise.
 - Pick slugs (without \`.md\`) ONLY from the existing-sources list provided. Never invent slugs. Do not include this source's own slug.
 
-Anchor rules (load-bearing):
+Anchor rules (load-bearing — anchors are the ONLY evidence a planner can cite, so extraction quality dominates downstream quality):
+
+Target **15–25 anchors** for a substantive source (paper, long article, wiki page). Fewer is fine for short notes; more is fine for dense long-form, up to a hard cap of 40. A thin extraction starves the planner.
+
+Use exactly these five types:
+- **definition** — a named concept's precise definition. One anchor per defined term. Excerpt: the sentence(s) that actually define it.
+- **claim** — a stated position, argument, or interpretive assertion the source makes. Excerpt: the sentence that states it most directly.
+- **statistic** — a specific number, rate, percentage, dollar figure, measurement, or dated quantitative finding. These are gold for planners — over-index here when numbers appear. Excerpt: the sentence containing the number and its context.
+- **quote** — a memorable or load-bearing turn of phrase worth citing verbatim (named attribution, striking formulation, primary-source quote). Use sparingly; most claims go in 'claim' not 'quote'.
+- **finding** — an empirical result or experimental outcome. Overlaps with statistic when a number is involved — pick finding if the emphasis is the result, statistic if the emphasis is the quantity.
+
+Excerpt rules:
 - Every excerpt MUST be a verbatim substring of the raw source. Do not paraphrase, do not fix typos, do not add ellipses.
 - Pick excerpts that are unique in the source — if the same sentence appears twice, choose a longer span that disambiguates.
-- Extract anchors for: defined terms, laws/theorems/axioms, key arguments, notable ideas or claims, important equations, empirical findings with numbers, and major section landmarks.
-- It's fine to return few anchors, or zero, if the source has nothing citeable. Don't invent anchors.
-- Cap at ~40 anchors even for long sources.
+- 1–4 sentences is the sweet spot. Shorter excerpts lose context; longer ones drag.
+
+Coverage checklist — before finalising, ask:
+- Did I capture EVERY numeric claim / statistic in this source? (These are the most valuable anchors.)
+- Did I capture the source's core thesis as a 'claim'?
+- Did I define every non-trivial term introduced?
+- If I returned under 12 anchors from a non-trivial source, am I sure there isn't more?
+
+Don't invent anchors — but do NOT under-extract out of caution. A planner with too few anchors can't build a referenced plan.
 
 Output ONLY the JSON object. No markdown fences, no commentary.`;
 

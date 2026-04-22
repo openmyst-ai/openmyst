@@ -117,13 +117,24 @@ export interface SourceMeta {
   sizeBytes?: number;
 }
 
+/**
+ * Typed buckets the anchor extractor emits. The first five are the
+ * phase-2+ canonical set: every claim in plan.md has to land in one of
+ * these. The rest are legacy labels carried by older ingests — we still
+ * accept them on read so existing wikis keep working, but new extractions
+ * should only use the canonical five.
+ */
 export type SourceAnchorType =
   | 'definition'
+  | 'claim'
+  | 'statistic'
+  | 'quote'
+  | 'finding'
+  // Legacy — still readable, no longer emitted by the extractor.
   | 'rule'
   | 'argument'
   | 'idea'
   | 'equation'
-  | 'finding'
   | 'section';
 
 export interface SourceAnchorSummary {
@@ -136,6 +147,13 @@ export interface SourceAnchor extends SourceAnchorSummary {
   keywords: string[];
   charStart: number;
   charEnd: number;
+  /**
+   * The verbatim passage this anchor points to, stored at index time so
+   * callers never need to re-read <slug>.raw.txt. Older indexes (pre-v2)
+   * may not have this field; `readAnchor` falls back to slicing the raw
+   * file by charStart/charEnd when it's missing.
+   */
+  text?: string;
 }
 
 export interface SourceIndex {
@@ -453,7 +471,7 @@ export type DeepPlanResearchEvent =
       runId: string;
       queryId: string;
       resultId: string;
-      reason: 'duplicate' | 'too-short' | 'bot-block' | 'ingest-failed';
+      reason: 'duplicate' | 'too-short' | 'bot-block' | 'ingest-failed' | 'blocked-host';
     }
   | {
       kind: 'query-done';

@@ -5,6 +5,7 @@ import { log, logError } from '../../platform';
 import { getAuthTokenSync, invalidateToken } from '../auth';
 import { refreshAfterRequest } from '../me';
 import { getJinaKey } from '../settings';
+import { checkSourceAllowed } from './credibility';
 
 /**
  * Single-URL fetch → markdown. Same provider split as `searchWeb`: BYOK hits
@@ -30,12 +31,10 @@ export interface FetchedPage {
 
 export async function fetchUrlAsMarkdown(url: string): Promise<FetchedPage> {
   const trimmed = url.trim();
-  if (!trimmed) throw new Error('URL cannot be empty.');
-  // Quick sanity check so we surface bad input here rather than as a Jina 400.
-  try {
-    new URL(trimmed);
-  } catch {
-    throw new Error(`"${trimmed}" is not a valid URL.`);
+  const verdict = checkSourceAllowed(trimmed);
+  if (!verdict.allowed) {
+    log('sources', 'fetchUrl.blocked', { host: verdict.host ?? null });
+    throw new Error(verdict.reason ?? 'Source is not permitted.');
   }
   if (USE_OPENMYST) return openmystFetch(trimmed);
   return jinaReaderFetch(trimmed);

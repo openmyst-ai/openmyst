@@ -6,12 +6,11 @@ import type {
   DeepPlanMessage,
   DeepPlanSession,
   DeepPlanStatus,
-  SourceMeta,
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
-import { ensureLlmReady, streamChat, completeText, type LlmMessage } from '../../llm';
+import { ensureLlmReady, streamChat, type LlmMessage } from '../../llm';
 import { getDeepPlanModel } from '../settings';
-import { listSources, readSource } from '../sources';
+import { listSources } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
 import {
   buildStatus as buildStatusBase,
@@ -22,7 +21,7 @@ import {
   readSession,
   updateSession,
 } from './state';
-import { oneShotPrompt, preDraftLookupPrompt } from './prompts';
+import { oneShotPrompt } from './prompts';
 import { runPanelRound } from './panel';
 import { runChair } from './chair';
 import {
@@ -345,83 +344,12 @@ async function streamWithLookupResolution(args: {
   return parseSourceLookups(content).stripped || content;
 }
 
-async function loadDetailedSummaries(
-  sources: SourceMeta[],
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  await Promise.all(
-    sources.map(async (s) => {
-      try {
-        const body = await readSource(s.slug);
-        if (body.trim().length > 0) out.set(s.slug, body);
-      } catch {
-        // missing .md — fall back to indexSummary via richSourcesBlock.
-      }
-    }),
-  );
-  return out;
-}
-
-async function runPreDraftLookups(args: {
-  model: string;
-  session: DeepPlanSession;
-  sources: SourceMeta[];
-  detailedSummaries: Map<string, string>;
-  docLabel: string;
-}): Promise<string> {
-  const prompt = preDraftLookupPrompt(
-    args.session,
-    args.sources,
-    args.detailedSummaries,
-    args.docLabel,
-  );
-  const messages: LlmMessage[] = [
-    { role: 'system', content: prompt },
-    {
-      role: 'user',
-      content:
-        'Emit source_lookup fences only — no prose. If nothing worth pulling, emit nothing.',
-    },
-  ];
-
-  let reply: string | null = null;
-  try {
-    reply = await completeText({ model: args.model, messages, logScope: 'deep-plan' });
-  } catch (err) {
-    logError('deep-plan', 'oneshot.preDraft.failed', err);
-    return '';
-  }
-  if (!reply || reply.trim().length === 0) {
-    log('deep-plan', 'oneshot.preDraft.empty', {});
-    return '';
-  }
-
-  const { requests } = parseSourceLookups(reply);
-  if (requests.length === 0) {
-    log('deep-plan', 'oneshot.preDraft.noLookups', { replyChars: reply.length });
-    return '';
-  }
-  log('deep-plan', 'oneshot.preDraft.requests', {
-    count: requests.length,
-    slugs: requests.map((r) => r.slug),
-  });
-
-  const resolved = await resolveSourceLookups(requests);
-  const formatted = formatLookupReply(resolved);
-  log('deep-plan', 'oneshot.preDraft.resolved', {
-    count: resolved.length,
-    chars: formatted.length,
-  });
-  return formatted;
-}
-
 export async function runOneShot(): Promise<DeepPlanStatus> {
   const session = await readSession();
   if (!session) throw new Error('No Deep Plan session is active.');
 
   await requireLlm();
   const model = await getDeepPlanModel();
-  const sources = await listSources();
 
   const docs = await listDocuments();
   if (docs.length === 0) {
@@ -429,23 +357,10 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   }
   const target = docs[0]!;
 
-  const detailedSummaries = await loadDetailedSummaries(sources);
-
-  const prefetchedPassages = await runPreDraftLookups({
-    model,
-    session,
-    sources,
-    detailedSummaries,
-    docLabel: target.label,
-  });
-
-  const prompt = oneShotPrompt(
-    session,
-    sources,
-    detailedSummaries,
-    prefetchedPassages,
-    target.label,
-  );
+  // Phase 6: drafter sees only requirements + plan.md + prose-style guide.
+  // Every anchored claim already has a verbatim blockquote materialised
+  // beneath it from the Chair pass, so the wiki is not re-introduced here.
+  const prompt = oneShotPrompt(session, target.label);
   const messages: LlmMessage[] = [
     { role: 'system', content: prompt },
     {
@@ -458,8 +373,6 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   log('deep-plan', 'oneshot.start', {
     doc: target.filename,
     model,
-    sources: sources.length,
-    detailed: detailedSummaries.size,
     promptChars: prompt.length,
   });
 
