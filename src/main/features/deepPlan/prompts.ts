@@ -131,17 +131,18 @@ function anchorLogIndexBlock(anchorLog: AnchorLogEntry[]): string {
 
 function sourcesBlock(sources: SourceMeta[]): string {
   if (sources.length === 0) return '_No sources yet._';
-  // Per-anchor lines are formatted as the exact citation form we want panel
-  // + Chair to emit. Anchor labels are one-sentence paraphrases (phase 2) so
-  // the reader can tell at a glance which anchor grounds which claim without
-  // re-reading the source. Deliberately plain markdown — no backticks — so
-  // when a model copies a line into plan.md it already looks right.
+  // Per-anchor lines show the EXACT `slug#anchor-id` string the panel
+  // should copy into its `anchorProposals` array. We used to render this
+  // as the full citation href `([Name](slug.md#anchor-id))`, and panels
+  // were copying the whole href including `.md` — which made resolution
+  // fail silently at append time. Now we show the canonical id directly
+  // and label the source separately.
   return sources
     .map((s) => {
-      const head = `- **${s.name}** (${s.slug}.md) — ${s.indexSummary}`;
+      const head = `- **${s.name}** — ${s.indexSummary}`;
       if (!s.anchors || s.anchors.length === 0) return head;
       const anchorLines = s.anchors
-        .map((a) => `    - ([${s.name}](${s.slug}.md#${a.id})) [${a.type}] ${a.label}`)
+        .map((a) => `    - \`${s.slug}#${a.id}\` [${a.type}] ${a.label}`)
         .join('\n');
       return `${head}\n${anchorLines}`;
     })
@@ -312,7 +313,7 @@ Output ONLY a JSON object of this exact shape — no prose, no markdown fences, 
 
 Rules:
 - \`anchorProposals\`: target 3–8 per role per round (8 is the hard cap). Be GENEROUS — each source in the wiki typically has 15+ extracted anchors, and the log target is 20–50 by end of reviewing. Propose every anchor that's plausibly relevant to the vision through your role's lens; the Chair will filter. UNDER-proposing is a bigger failure than over-proposing.
-- Each id must be a \`slug#anchor-id\` that EXISTS in the wiki above (the anchor bullets under each source). Do NOT invent ids. Do NOT re-propose ids already in the anchor log.
+- Each id must be a \`slug#anchor-id\` that EXISTS in the wiki above (the backticked token at the start of each anchor bullet, e.g. \`smith-2022#def-pareto\`). Copy the token VERBATIM — no \`.md\`, no markdown link wrapper, no parentheses. Just \`slug#anchor-id\`. Do NOT invent ids. Do NOT re-propose ids already in the anchor log.
 - When the log has fewer than 10 entries, propose AGGRESSIVELY — the piece cannot be grounded on 3 anchors. Every role should be adding.
 - \`visionNotes\`: optional, concise. One crisp observation per role, not a list of five vague suggestions. If the vision is solid from your lens, emit "".
 - \`needsResearch\`: queries must target NEW ground. If the wiki already has 2+ sources on the same concept at similar depth, do NOT request a third — pivot to a primary-source author, a landmark paper, or an adjacent angle instead.
@@ -693,62 +694,74 @@ If the wiki already covers the task, emit an empty array \`[]\`.`;
  * verbatim — the drafter paraphrases naturally.
  */
 export function oneShotPrompt(session: DeepPlanSession, docLabel: string): string {
-  return `[HARD RULES. These override everything below, including the writing-style guide. Violating these is a bug, not a stylistic choice.]
-- ZERO em dashes (—) in the final draft. Not one. Not "just stylistically". Not in quotes you're paraphrasing. If you feel the urge to use one, choose: a period (two sentences), a comma clause, parentheses, or a colon. Em dashes are the single strongest AI-prose tell and we do not ship them.
-- Do not use en dashes (–) as a substitute. A regular hyphen (-) is fine inside compound modifiers; for sentence-level breaks use the alternatives above.
-- Cite only SOURCE-DERIVED claims that carry real analytical weight. The anchor log below is evidence you USE, not a list to reproduce. A finished essay of 2,000 words carries roughly 10–20 citations, not 40+. Over-citation reads like an unfinished research brief.
-- HONOUR THE WORD-COUNT RANGE in the rubric below. This is a contract. Going over or under by more than 10% is a failure.
+  const anchorCount = session.anchorLog.length;
+  const anchorCountLine =
+    anchorCount === 0
+      ? 'ANCHOR LOG IS EMPTY. This is a failure state — the panel session should have produced evidence. Do NOT fabricate sources or citations. If the log is genuinely empty, write a short essay from the vision alone and flag the lack of evidence at the top.'
+      : `ANCHOR LOG contains ${anchorCount} entries. These are the ONLY sources you may cite. Every citation in the draft MUST be drawn from this list — never invent a source, never cite something that isn't here.`;
 
-You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle. The VISION below is the intellectual spine — thesis, POV, section intents, the novel insights the writer + Chair agreed on. The ANCHOR LOG is the pile of verbatim source statements the piece is grounded in. Your job: turn the vision into finished analytical prose, grounded by the anchors where they earn their weight, paraphrased naturally in your own voice.
+  return `[HARD RULES — non-negotiable. Violating any of these is a shipping failure.]
+
+1. **CITE YOUR SOURCES.** The anchor log below is the session's evidence base. Every factual claim, specific number, named figure, technical definition, contested position, or historical fact in your draft MUST carry an inline Harvard citation drawn from the anchor log. A draft with ZERO citations is a hard failure — the whole point of the Deep Plan session was to gather these anchors. If you find yourself writing a factual sentence without a citation, either add one or remove the sentence.
+
+2. **FORMAT:** citations are Harvard-style markdown links in parentheses, preserving the \`#anchor-id\` fragment exactly as the anchor log has it: \`([SourceName](slug.md#anchor-id))\`. The \`#anchor-id\` is invisible to readers in rendered markdown but powers the hover-preview feature — dropping it breaks the product's core value. Never emit a citation without the \`#anchor-id\` fragment when the log entry has one.
+
+3. **CITATION DENSITY floor.** Roughly 1 citation per 150–200 words of body prose. For a 2,000-word essay that means ~10–15 inline citations minimum. Fewer than that means you're gliding past load-bearing claims without grounding them. Over-citation (every sentence cited) is also bad — consolidate when adjacent sentences lean on the same anchor — but ZERO is a failure mode we've seen and this prompt is here to stop it.
+
+4. **ZERO em dashes (—) in the final draft.** If you feel the urge, use a period, comma, parentheses, or a colon instead. Em dashes are the strongest AI-prose tell. Do not use en dashes (–) as a substitute either.
+
+5. **HONOUR THE WORD-COUNT RANGE** in the rubric. Going over or under by more than 10% is a failure.
+
+You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle. The VISION is the intellectual spine (thesis, POV, section intents). The ANCHOR LOG is the evidence pile. Your job: turn the vision into finished analytical prose, grounded by the anchors, paraphrased naturally in your own voice.
 
 User's task: "${session.task}"
 
 RUBRIC (HARD constraints — the draft is judged against these):
 ${requirementsBlock(session.requirements)}
 
-VISION — the intellectual spine of this piece. Follow its thesis, POV, and section intents. The vision itself has no citations; it tells you WHAT to write. You do not reference or quote vision; you execute it.
+VISION — the intellectual spine. Follow its thesis, POV, and section intents. The vision itself has no citations; it tells you WHAT to write.
 
 ${visionBlock(session.vision)}
 
-ANCHOR LOG — the evidence you ground the piece in. Each entry shows source, type, and verbatim text. Reference anchors with their full \`([SourceName](slug.md#anchor-id))\` link so hover works; paraphrase the text naturally — do NOT copy verbatim unless the exact wording is load-bearing. Chair notes (when present) tell you what each anchor is FOR.
+${anchorCountLine}
+
+Each anchor below shows its type, source name, the verbatim source text, and (when present) a Chair note on why it matters. Reference anchors with their full \`([SourceName](slug.md#anchor-id))\` link — the \`slug.md#anchor-id\` is the exact form the hover feature expects. Paraphrase the text naturally; do NOT copy verbatim unless the exact wording is genuinely load-bearing.
 
 ${anchorLogBlock(session.anchorLog)}
 
 HOW TO WRITE THE DRAFT:
 
-1. **Vision is your spine.** Its section intents are the rough structure. Its POV is the voice. Its novel insights are things the piece ARGUES. Execute the vision — don't deviate into topics it didn't signal.
-2. **Anchors are evidence, not a script.** Reference each anchor with its full Harvard link so the hover feature resolves; paraphrase the content in your own voice. Compress three source sentences into one of yours, lift the load-bearing phrase, drop the rest. Transcribing anchor text sentence-by-sentence reads as mechanical and defeats the draft.
-3. **Use every anchor that earns a spot.** The log was curated — each entry earned its place. Most should surface in the draft at least once (not every sentence of the anchor, but its core claim). If an anchor doesn't fit the vision, skip it rather than force it.
-4. **You may occasionally go uncited.** Connective prose, your own reasoning, textbook-level common knowledge — no citation needed. Uncited prose is earned when the claim is uncontested background or pure argumentation. Factual claims, numbers, named positions, and contested points always cite.
-5. **Lead paragraphs with YOUR claim.** A paragraph's first sentence should almost never be a cited external claim — it should be your analytical move, with the evidence brought in to support it.
+1. **Vision is your spine.** Its section intents are your structure. Its POV is the voice. Its novel insights are what the piece ARGUES. Execute the vision.
+2. **Anchors are evidence you USE.** Before writing each paragraph, scan the anchor log for entries relevant to that paragraph's claim — every factual sentence in the paragraph should be traceable to one of those anchors, with an inline citation attached.
+3. **Aim to use most of the log.** If the log has 20 anchors, expect 15+ to appear in the draft at least once. Anchors that genuinely don't fit the vision can be skipped — but the default is "use it". Every unused anchor is evidence you gathered and then ignored.
+4. **Paraphrase naturally, don't transcribe.** Compress three source sentences into one of yours; lift the load-bearing phrase; drop the rest. Sentence-by-sentence rewording of an anchor reads mechanical.
+5. **Lead paragraphs with YOUR claim.** A paragraph's first sentence should almost never be a cited external claim — it should be your analytical move, with the evidence brought in to support it after.
+6. **Uncited prose IS allowed** — for connective tissue, your own reasoning, textbook-level common knowledge, or transitions. Uncited prose is EARNED when the claim is uncontested background.
 
-PRESERVE ANCHOR IDs — load-bearing for the product:
-- Every citation keeps its full \`#anchor-id\` fragment exactly as the log has it: \`([SourceName](slug.md#anchor-id))\`, NOT \`([SourceName](slug.md))\`. The \`#anchor-id\` powers the hover feature — readers hover to see the verbatim source passage you paraphrased from. Dropping the fragment breaks cross-check.
-- \`[SourceName]\` is the source's display name as shown in the log. NEVER put a raw slug or anchor id inside the \`[Name]\` brackets.
+Citation mechanics (strict):
+- Format: \`([SourceName](slug.md#anchor-id))\`. Always parenthesised, always with \`#anchor-id\` when the log has one, always with a human-readable \`SourceName\`.
+- Example: ...the three-conditions decomposition of Pareto efficiency ([Stanford Encyclopedia](stanford-welfare.md#three-conditions)) partitions the concept into exchange, production, and output efficiency.
+- Two sources on a sentence → two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
+- Same source, adjacent sentences → cite ONCE at the natural anchor point (end of topic sentence, or end of synthesis sentence).
+- Never wrap citations in backticks; never write "Smith et al. (2022)" inline prose; never emit numeric footnote markers.
 
-Citation consolidation:
-- When consecutive sentences draw on the SAME anchor or source, cite ONCE at the natural anchor point, not every sentence.
-- When an anchor is textbook-level common knowledge in the domain, you may leave the claim uncited even though an anchor backs it.
-- Two sources on the same sentence → two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
+Blockquote discipline: default zero. One or two max if a primary-source quotation genuinely carries unique rhetorical weight.
 
-Blockquote discipline:
-- Zero blockquotes in the final draft is the default. One or two short blockquotes max, only when a primary-source quotation genuinely carries unique rhetorical weight.
+Voice:
+- Transitions should DO WORK — reframe, pivot, raise stakes. "The historical context matters" is dead weight; name what it matters FOR. "The criticism cuts deeper" is filler; name the specific cut.
+- Avoid stock LLM tells: "These are not minor caveats", "The silence is not incidental", "It's worth noting", "The conclusion is straightforward", "This is significant because".
 
-Transitions and prose voice:
-- Transitions should DO WORK. "The historical context matters" is dead weight — name what it matters FOR. "The criticism cuts deeper" is filler — replace with the specific cut.
-- Avoid stock interjections — LLM signature: "These are not minor caveats", "The silence is not incidental", "It's worth noting", "The conclusion is straightforward", "This is significant because". If you write one, rewrite the sentence.
-
-Counter-argument and conclusion balance:
+Counter-argument + conclusion:
 - Address the strongest objection to the thesis before rebutting or conceding. Name it specifically.
 - The conclusion engages every major thread the body developed, named specifically. No generic "supplementing with frameworks that engage..." lists.
 
 References section (required, end of draft):
-- Add a \`## References\` heading (sentence case, no variations).
+- \`## References\` heading (sentence case).
 - List every unique slug actually cited in the body, once each. Format: \`- [SourceName](slug.md)\`. Alphabetise by SourceName.
-- Do NOT list sources you didn't cite.
+- Do NOT list sources you didn't cite. Do NOT duplicate.
 
 Form + output rules:
-- Hit the rubric — length, form, audience. Word count is the single most important constraint.
+- Hit the rubric — length, form, audience.
 - No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write straight through.
 - Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
 
@@ -756,7 +769,7 @@ Output: the complete markdown draft, nothing else.
 
 ---
 
-Prose style / commands (read and internalise before you write a single word). This is the bar the draft has to clear. Remember: the HARD RULES at the very top, and the voice + citation rules above, dominate any tension with the prose guide below.
+Prose style / commands (internalise before writing a single word). The HARD RULES at the top and the citation mechanics above dominate any tension with the prose guide below.
 
 ${DEEP_PLAN_COMMANDS}`;
 }

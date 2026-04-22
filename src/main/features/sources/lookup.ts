@@ -51,6 +51,18 @@ export async function readAnchor(
   slug: string,
   anchorId: string,
 ): Promise<AnchorLookupHit | null> {
+  // Defend against callers that pass a slug with a trailing `.md` or a
+  // leading path (e.g. `foo/bar.md`). Panel prompts sometimes produce
+  // exactly that because the wiki block renders anchors as markdown hrefs
+  // (`slug.md#id`) and models copy the href wholesale.
+  const cleaned = slug
+    .trim()
+    .replace(/\.md$/i, '')
+    .split('/')
+    .filter(Boolean)
+    .pop() ?? '';
+  if (!cleaned) return null;
+  slug = cleaned;
   const index = await readIndex(slug);
   if (!index) return null;
   const anchor = index.anchors.find((a) => a.id === anchorId);
