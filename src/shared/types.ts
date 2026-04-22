@@ -337,17 +337,15 @@ export type ChairAnswerMap = Record<string, ChairAnswer>;
  * this phase is done — the UI nudges the user toward Continue.
  */
 /**
- * Chair's structured output post-overhaul. No more plan.md rewrite: the
- * Chair now maintains two small artefacts — `vision` (dot-point intellectual
- * spine) and `anchorLog` (append-only evidence pile) — and its per-round
- * output is tiny.
+ * Chair's structured output. The Chair no longer curates the anchor log
+ * — panel proposals are auto-resolved + appended before the Chair runs,
+ * and the Chair just sees the resulting new entries as context for its
+ * summary + vision update. This keeps the Chair's output tight and
+ * removes the "is the Chair under-picking?" failure mode entirely.
  *
  * - `summary`: the short chat reply the user sees.
  * - `visionUpdate`: the FULL new vision.md when the Chair actually wants
  *   to change it. `null` to keep the prior vision unchanged (most rounds).
- * - `anchorLogAdd`: ids of anchors the Chair is pulling into the log this
- *   round, each optionally with a note on why it matters. Append-only —
- *   no drops. Invalid ids get silently filtered at append time.
  * - `questions`: Chair's probes for the user.
  * - `phaseAdvance`: convergence signal.
  * - `requirementsPatch`: changes to the rubric (word count, form, etc.)
@@ -356,7 +354,6 @@ export type ChairAnswerMap = Record<string, ChairAnswer>;
 export interface ChairOutput {
   summary: string;
   visionUpdate: string | null;
-  anchorLogAdd: { id: string; note?: string }[];
   questions: ChairQuestion[];
   phaseAdvance: boolean;
   requirementsPatch?: Partial<PlanRequirements> | null;
@@ -459,6 +456,12 @@ export interface DeepPlanMessage {
   chair?: ChairOutput;
   /** Populated when `kind === 'user-answers'`. */
   answers?: ChairAnswerMap;
+  /**
+   * Number of anchors appended to the log during the round this message
+   * represents. Populated only on `chair-turn` messages. Used by the UI
+   * to show a small "+N anchors" chip under the Chair's summary.
+   */
+  anchorsAddedThisRound?: number;
 }
 
 export interface DeepPlanSession {

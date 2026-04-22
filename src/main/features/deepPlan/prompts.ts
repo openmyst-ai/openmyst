@@ -311,7 +311,9 @@ Output ONLY a JSON object of this exact shape — no prose, no markdown fences, 
 }
 
 Rules:
-- \`anchorProposals\`: at most 3 per role per round. Each must be a \`slug#anchor-id\` that EXISTS in the wiki above (the anchor bullets under each source). Do NOT invent ids. Do NOT re-propose ids already in the anchor log.
+- \`anchorProposals\`: target 3–8 per role per round (8 is the hard cap). Be GENEROUS — each source in the wiki typically has 15+ extracted anchors, and the log target is 20–50 by end of reviewing. Propose every anchor that's plausibly relevant to the vision through your role's lens; the Chair will filter. UNDER-proposing is a bigger failure than over-proposing.
+- Each id must be a \`slug#anchor-id\` that EXISTS in the wiki above (the anchor bullets under each source). Do NOT invent ids. Do NOT re-propose ids already in the anchor log.
+- When the log has fewer than 10 entries, propose AGGRESSIVELY — the piece cannot be grounded on 3 anchors. Every role should be adding.
 - \`visionNotes\`: optional, concise. One crisp observation per role, not a list of five vague suggestions. If the vision is solid from your lens, emit "".
 - \`needsResearch\`: queries must target NEW ground. If the wiki already has 2+ sources on the same concept at similar depth, do NOT request a third — pivot to a primary-source author, a landmark paper, or an adjacent angle instead.
 ${searchClause}
@@ -378,14 +380,26 @@ export interface ChairPromptArgs {
   lastAnswers: ChairAnswerMap | null;
   /**
    * Free-chat notes the user typed since the last panel round. The Chair
-   * should reflect these in its summary + plan rewrite this round so the
-   * conversation-layer of Deep Plan actually affects the plan.
+   * should reflect these in its summary + vision update this round so the
+   * conversation-layer of Deep Plan actually affects the piece.
    */
   chatNotes: string[];
+  /**
+   * Anchors that were auto-appended to the log during THIS round (panel
+   * proposed, resolver validated + appended). The Chair reads these to
+   * decide if the vision should update — it does NOT see or curate the
+   * full log. This is the token-saving crux of the architecture.
+   */
+  newAnchorsThisRound: AnchorLogEntry[];
 }
 
 export function chairPrompt(args: ChairPromptArgs): string {
-  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources, lastAnswers, chatNotes } = args;
+  // `sources` is no longer destructured — the Chair doesn't scan the wiki
+  // any more. Panel selects anchors, resolver appends, Chair reads just
+  // the delta. `sources` stays on the args shape because the runner
+  // already plumbs it for future use (e.g. showing source names in the
+  // chair-chat prompt), but this function ignores it.
+  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, lastAnswers, chatNotes, newAnchorsThisRound } = args;
   const phase = session.phase;
   const priorSummaries = priorChairDigest(session);
   const missing = missingRequirements(session.requirements);
@@ -421,14 +435,28 @@ export function chairPrompt(args: ChairPromptArgs): string {
     ? `\n\nUser's free-chat notes since the last panel round (the writer typed these between rounds — factor them into your summary AND into the plan rewrite where relevant):\n${chatNotes.map((n, i) => `${i + 1}. ${n}`).join('\n')}`
     : '';
 
-  return `You are the CHAIR of an evidence-hunting panel helping a writer build a piece. The session has TWO small artefacts you maintain, plus an append-only anchor log. Plan.md does not exist any more; you do NOT rewrite anything long.
+  const newAnchorsBlock =
+    newAnchorsThisRound.length === 0
+      ? '(no new anchors appended this round — panel proposed none, or all proposals duplicated existing log entries)'
+      : newAnchorsThisRound
+          .map((a, i) => {
+            const preview = a.text
+              .replace(/\n+/g, ' ')
+              .trim()
+              .slice(0, 220);
+            return `${i + 1}. [${a.type}] ([${a.sourceName}](${a.slug}.md#${a.id.split('#')[1] ?? ''}))\n   "${preview}${preview.length < a.text.length ? '…' : ''}"`;
+          })
+          .join('\n');
+
+  return `You are the CHAIR of an evidence-hunting panel helping a writer build a piece. The session has THREE artefacts: a tiny rubric (hard constraints), a small vision.md (intellectual spine), and an auto-growing anchor log (evidence). You do NOT maintain the anchor log — panel proposals are auto-appended before you run. You ONLY read the NEW anchors that arrived this round, and react to them.
 
 Your job each round is narrow:
-1. **Steer** — reply to the user in a short \`summary\` (≤60 words). Reference what the panel surfaced, or what you're nudging the user toward.
-2. **Sharpen the VISION** — only when the round's findings genuinely move the thesis, POV, or section intents. If vision doesn't need to change this round, emit \`visionUpdate: null\`.
-3. **Curate the ANCHOR LOG** — pick the subset of panel anchor proposals worth pulling in. Append-only; the system resolves each id and drops invalid ones automatically, so you don't need to double-check the wiki yourself.
-4. **Probe the user** — ask 0–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions only when a genuine judgment call needs them.
-5. **Update the rubric** — \`requirementsPatch\` when the user just answered a hard-requirement question.
+1. **Steer** — reply to the user in a short \`summary\`. Conversational, first-person, specific to what actually moved.
+2. **Sharpen the VISION** — only when this round's new anchors + panel vision-notes + chat-notes genuinely move the thesis, POV, or section intents. Most rounds, emit \`visionUpdate: null\`.
+3. **Probe the user** — ask 0–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions only when a genuine judgment call needs them.
+4. **Update the rubric** — \`requirementsPatch\` when the user just answered a hard-requirement question.
+
+You do NOT see the full anchor log. You do NOT decide which anchors to keep. The panel proposed, the resolver validated and appended — that's done. Your job is to read the delta (new anchors this round) and decide if it shifts the vision.
 
 Phase intent:
 ${PHASE_INTENT[phase]}
@@ -441,26 +469,22 @@ ${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection
 
 ${searchBudgetBlock(session)}
 
-Wiki — sources ingested so far (anchors listed under each source are the ONLY valid anchor-ids to pull into the log):
-${sourcesBlock(sources)}
-
-CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the panel's output genuinely moves the thesis/POV/section intents):
+CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the new anchors + panel notes + chat notes genuinely move thesis/POV/section intents):
 ${visionBlock(session.vision)}
 
-CURRENT ANCHOR LOG (${session.anchorLog.length} entries — append-only; you cannot drop or reorder):
-${anchorLogIndexBlock(session.anchorLog)}
+NEW ANCHORS APPENDED THIS ROUND (${newAnchorsThisRound.length} — the panel found and the resolver validated; these now live in the log permanently):
+${newAnchorsBlock}
 
-Panel output this round:
+Anchor log total size: ${session.anchorLog.length + newAnchorsThisRound.length} entries (you don't need to see the rest — the drafter will get everything at handoff).
+
+Panel vision-notes + research this round:
 ${findingsBlock(panelOutputs)}${researchNote}
 
 ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move the session FORWARD):\n${priorSummaries}\n\n` : ''}Output ONLY a JSON object of this exact shape — no prose, no markdown fences:
 
 {
-  "summary": "≤ 2 sentences, ≤ 60 words. What moved this round and (if you're asking) what you need from the user.",
+  "summary": "≤ 2 sentences, ≤ 60 words. What moved this round and (if you're asking) what you need from the user. Conversational, first person.",
   "visionUpdate": "the FULL new vision.md as a markdown string" OR null (to keep the current vision),
-  "anchorLogAdd": [
-    {"id": "smith-2022#def-pareto", "note": "optional: why this anchor earns a spot in the log"}
-  ],
   "questions": [
     {
       "id": "q1",
@@ -481,17 +505,11 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
 }
 
 VISION.md rules:
-- Vision is SMALL. Target 200–800 words. Dot-points, not prose. The upper cap is 1500 words — past that you're drifting into plan.md territory.
+- Vision is SMALL. Target 200–800 words. Dot-points, not prose. The upper cap is 1500 words — past that you're drifting into plan-rewrite territory.
 - Vision carries IDEAS, not citations. No \`([Name](slug.md#...))\` references inside vision. No blockquotes. No long paragraphs. Citations live in the anchor log; vision tells the drafter WHAT to do with them.
-- Good vision sections: "Thesis", "POV / angle", "Section intents" (bullet per section with a one-line intent + maybe the 1–3 key anchors it leans on — but referenced by short label like "the Sen's theorem claim", not by \`#id\`), "Novel insights surfaced in conversation", "Counter-argument to engage", "What this piece is NOT".
+- Good vision sections: "Thesis", "POV / angle", "Section intents" (bullet per section with a one-line intent + short labels for the 1–3 key anchors it leans on — e.g. "the Sen's theorem claim", not by \`#id\`), "Novel insights surfaced in conversation", "Counter-argument to engage", "What this piece is NOT".
 - \`visionUpdate: null\` is the right call on rounds where nothing substantive shifted. Don't rewrite vision just to rewrite it — small churn is noise.
 - When you DO rewrite vision, you're rewriting the WHOLE thing in full (no patches). Preserve what still holds; sharpen what just moved.
-
-ANCHOR LOG rules:
-- Append-only. Pick from the panel's \`anchorProposals\` (shown above). You can also add anchors the panel missed that you notice in the wiki — do NOT invent ids, only reference ids that exist in the wiki block.
-- Quality over quantity. 0–5 anchor adds per round is typical; 10+ means you're hoarding. The target end-state by end of reviewing is 20–50 active anchors total.
-- Optional \`note\` per anchor: a one-liner on why this anchor matters for the vision ("grounds the three-conditions decomposition", "Feldstein's strongest counter-argument"). The drafter reads these notes.
-- Do NOT add an anchor that's already in the log (shown above). Duplicate ids are silently ignored but it wastes output tokens.
 
 Question rules:
 - **FIRST PRIORITY — missing hard requirements.** If the rubric above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Use \`choice\` with 3–4 reasonable defaults and mark one \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom with \`allowCustom: true\`}.

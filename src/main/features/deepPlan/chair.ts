@@ -1,5 +1,6 @@
 import { IpcChannels } from '@shared/ipc-channels';
 import type {
+  AnchorLogEntry,
   ChairAnswerMap,
   ChairOutput,
   DeepPlanSession,
@@ -56,6 +57,8 @@ export async function runChair(args: {
   lastAnswers: ChairAnswerMap | null;
   /** User's free-chat notes since the last panel round — steering, not overriding. */
   chatNotes: string[];
+  /** Anchors appended to the log this round (panel proposed, auto-resolved). */
+  newAnchorsThisRound: AnchorLogEntry[];
 }): Promise<ChairOutput> {
   broadcast(IpcChannels.DeepPlan.PanelProgress, { kind: 'chair-start' });
 
@@ -68,6 +71,7 @@ export async function runChair(args: {
     sources: args.sources,
     lastAnswers: args.lastAnswers,
     chatNotes: args.chatNotes,
+    newAnchorsThisRound: args.newAnchorsThisRound,
   });
 
   const messages: LlmMessage[] = [
@@ -81,7 +85,6 @@ export async function runChair(args: {
   const fallback = (summary: string, phaseAdvance = false): ChairOutput => ({
     summary,
     visionUpdate: null,
-    anchorLogAdd: [],
     questions: [],
     phaseAdvance,
   });
@@ -139,7 +142,7 @@ export async function runChair(args: {
     phaseAdvance: parsed.phaseAdvance,
     visionUpdated: parsed.visionUpdate !== null,
     visionChars: parsed.visionUpdate?.length ?? 0,
-    anchorLogAddProposed: parsed.anchorLogAdd.length,
+    newAnchorsThisRound: args.newAnchorsThisRound.length,
   });
 
   return parsed;

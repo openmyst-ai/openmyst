@@ -78,7 +78,7 @@ function appendMessage(
   role: DeepPlanMessage['role'],
   content: string,
   kind: DeepPlanMessage['kind'] = 'chat',
-  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers'>> = {},
+  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers' | 'anchorsAddedThisRound'>> = {},
 ): DeepPlanSession {
   const msg: DeepPlanMessage = {
     id: randomUUID(),
@@ -329,11 +329,27 @@ async function runPanelAndChair(): Promise<void> {
       chatNotes,
     });
 
-    // If the panel pulled in new sources, re-read the wiki so the Chair
-    // sees them when rewriting the plan.
+    // If the panel pulled in new sources, re-read the wiki so downstream
+    // resolvers + the Chair see them.
     const sourcesForChair =
       newlyIngestedSourceSlugs.length > 0 ? await listSources() : sources;
 
+    // AUTO-APPEND: every anchor the panel proposed gets resolved + pushed
+    // onto the log. The Chair does NOT curate — we trust the panel. The
+    // resolver dedupes against the existing log and silently drops invalid
+    // ids, so dupes and hallucinations are harmless.
+    const allProposedIds = new Set<string>();
+    for (const p of panelOutputs) {
+      for (const id of p.anchorProposals) allProposedIds.add(id);
+    }
+    const freshAnchors = await resolveAndAppendAnchors({
+      proposals: Array.from(allProposedIds).map((id) => ({ id })),
+      existingLog: session.anchorLog,
+      currentPhase: session.phase,
+    });
+
+    // Chair sees only the NEW anchors this round (plus the round's panel
+    // vision notes). No full log re-read — that's the whole token win.
     const chairOutput = await runChair({
       session,
       panelOutputs,
@@ -342,30 +358,18 @@ async function runPanelAndChair(): Promise<void> {
       sources: sourcesForChair,
       lastAnswers,
       chatNotes,
-    });
-
-    // Resolve + append any anchors the Chair selected. The resolver reads
-    // each source's index to fill name/type/text/keywords, skips anchors
-    // already in the log, and silently drops invalid ids. Append-only —
-    // no drops from this round.
-    const freshAnchors = await resolveAndAppendAnchors({
-      proposals: chairOutput.anchorLogAdd,
-      existingLog: session.anchorLog,
-      currentPhase: session.phase,
+      newAnchorsThisRound: freshAnchors,
     });
 
     await updateSession((s) => {
       const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
+        anchorsAddedThisRound: freshAnchors.length,
       });
       const patch = chairOutput.requirementsPatch;
       const mergedRequirements = patch
         ? { ...next.requirements, ...patch }
         : next.requirements;
-      // Vision is replaced wholesale when the Chair emits a non-null
-      // `visionUpdate`; otherwise we keep the existing one verbatim. This
-      // is the whole savings of the overhaul: no full vision rewrite
-      // every round.
       const mergedVision =
         chairOutput.visionUpdate !== null ? chairOutput.visionUpdate : next.vision;
       return {

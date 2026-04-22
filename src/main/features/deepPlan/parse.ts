@@ -181,12 +181,15 @@ export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
     }
   }
 
-  // Caps: 3 anchors per role per round keeps the log growing at a
-  // manageable pace (panel has 3–4 roles per phase × multiple rounds).
-  // Research is expensive, so 2 queries per role is a hard ceiling.
+  // Caps: 8 anchors per role per round gives the Chair a healthy pool
+  // to pick from (panel has 3–4 roles per phase × multiple rounds).
+  // Earlier ceiling was 3, which starved the log — with 5+ ingested
+  // sources × ~15 anchors each the upstream pool is ~75+, so we want
+  // panel to surface generously and let the Chair curate.
+  // Research is expensive, so 2 queries per role stays a hard ceiling.
   return {
     role,
-    anchorProposals: anchorProposals.slice(0, 3),
+    anchorProposals: anchorProposals.slice(0, 8),
     visionNotes: visionNotes.slice(0, 500),
     needsResearch: needsResearch.slice(0, 2),
   };
@@ -255,38 +258,6 @@ function sanitizeChairQuestion(item: unknown, index: number): ChairQuestion | nu
  * null when nothing usable was present (so the caller doesn't overwrite
  * existing requirements with empty data).
  */
-/**
- * Tolerantly pull the Chair's anchor-log additions. Each element can be a
- * plain `slug#anchor-id` string or a `{id, note}` object. Returns an
- * empty array rather than null — downstream code always treats it as a
- * list to append.
- */
-function sanitizeAnchorLogAdd(raw: unknown): { id: string; note?: string }[] {
-  if (!Array.isArray(raw)) return [];
-  const out: { id: string; note?: string }[] = [];
-  const seen = new Set<string>();
-  for (const item of raw) {
-    if (typeof item === 'string') {
-      const id = item.trim();
-      if (id.includes('#') && !seen.has(id)) {
-        seen.add(id);
-        out.push({ id });
-      }
-      continue;
-    }
-    if (!item || typeof item !== 'object') continue;
-    const rec = item as Record<string, unknown>;
-    const rawId = rec.id ?? rec.anchor ?? rec.anchorId ?? rec.anchor_id;
-    const id = typeof rawId === 'string' ? rawId.trim() : '';
-    if (!id.includes('#') || seen.has(id)) continue;
-    seen.add(id);
-    const noteRaw = rec.note;
-    const note = typeof noteRaw === 'string' ? noteRaw.trim() : '';
-    out.push(note ? { id, note } : { id });
-  }
-  return out;
-}
-
 function sanitizeRequirementsPatch(item: unknown): Partial<PlanRequirements> | null {
   if (!item || typeof item !== 'object') return null;
   const rec = item as Record<string, unknown>;
@@ -324,10 +295,6 @@ export function parseChairOutput(raw: string): ChairOutput | null {
     visionUpdate = rawVision;
   }
 
-  const anchorLogAdd = sanitizeAnchorLogAdd(
-    rec.anchorLogAdd ?? rec.anchor_log_add ?? rec.anchorAdditions ?? rec.anchors,
-  );
-
   const rawQuestions = Array.isArray(rec.questions) ? rec.questions : [];
   const questions: ChairQuestion[] = [];
   for (let i = 0; i < rawQuestions.length; i++) {
@@ -345,7 +312,6 @@ export function parseChairOutput(raw: string): ChairOutput | null {
   return {
     summary,
     visionUpdate,
-    anchorLogAdd,
     questions: questions.slice(0, 3),
     phaseAdvance,
     requirementsPatch,
