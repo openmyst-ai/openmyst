@@ -309,12 +309,19 @@ function PhaseAdvanceCta({ phase, onAdvance, disabled }: PhaseAdvanceCtaProps): 
     if (phase === 'reviewing') return 'Write the draft';
     return 'Continue';
   })();
+  const nextName: string = (() => {
+    if (phase === 'ideation') return 'planning';
+    if (phase === 'planning') return 'reviewing';
+    if (phase === 'reviewing') return 'drafting';
+    return 'next phase';
+  })();
   return (
     <div className="dp-advance-cta" role="status">
       <div className="dp-advance-cta-body">
-        <div className="dp-advance-cta-title">This phase feels ready to close.</div>
+        <div className="dp-advance-cta-title">Ready when you are.</div>
         <div className="dp-advance-cta-sub">
-          Keep discussing below to push further — or lock it in and move on.
+          Keep chatting below to shape the vision — anything you say will
+          steer the next round. Or lock it in and move to {nextName}.
         </div>
       </div>
       <button

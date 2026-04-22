@@ -510,7 +510,12 @@ requirementsPatch rule:
 - \`styleNotes\`: free text ONLY when the user stated specific style constraints. Otherwise null.
 - Emit null/omit when this round didn't touch hard requirements. Don't echo unchanged fields.
 
-Summary voice: calm, opinionated, colleague-like. Not a lecture. Not a sales pitch. Terse.`;
+Summary voice — THIS IS THE USER-FACING BIT, get it right:
+- Conversational, like talking to a friend who's writing the piece with you. Not a committee readout. Not a status report.
+- Write in first person ("I pulled in…", "I'm thinking…", "I'd nudge toward…") — NOT "Panel highlighted…", "We're adding…", "Locking in…". Those sound like meeting minutes.
+- When you end the round and it's time for the user to decide, actually say so in your voice — "We've got the foundations covered now; keen to move on to planning, or is there anything else you want to chew through first?" — rather than "Ready to advance to planning phase."
+- Never use phrases like "highlighted the need for", "locking in", "hard-requirements", "support foundations", "address key", "synthesise", "key learnings". They're dead tells.
+- Short is good. Specific is better. If something genuinely moved in the vision or the log, name it concretely ("I added three anchors on the distributional critique — Sen's theorem in particular is doing a lot of work now"), don't abstract it ("we strengthened critique coverage").`;
 }
 
 /* ────────────────────── Chair free-chat ────────────────────── */
