@@ -348,6 +348,19 @@ async function runPanelAndChair(): Promise<void> {
       currentPhase: session.phase,
     });
 
+    // Push the fresh anchors to session state IMMEDIATELY — before the
+    // Chair call starts. Chair can take a while (gpt-oss-120b + JSON
+    // output), and users shouldn't wait for the synthesis to see the
+    // evidence the panel already secured. Source ingest already
+    // broadcasts mid-round; this makes anchors do the same.
+    if (freshAnchors.length > 0) {
+      await updateSession((s) => ({
+        ...s,
+        anchorLog: [...s.anchorLog, ...freshAnchors],
+      }));
+      notifyChanged();
+    }
+
     // Chair sees only the NEW anchors this round (plus the round's panel
     // vision notes). No full log re-read — that's the whole token win.
     const chairOutput = await runChair({
@@ -372,11 +385,13 @@ async function runPanelAndChair(): Promise<void> {
         : next.requirements;
       const mergedVision =
         chairOutput.visionUpdate !== null ? chairOutput.visionUpdate : next.vision;
+      // `anchorLog` was already appended to in the early-broadcast block
+      // above, so we just carry `next.anchorLog` through — no re-append
+      // here (that would duplicate).
       return {
         ...next,
         requirements: mergedRequirements,
         vision: mergedVision,
-        anchorLog: [...next.anchorLog, ...freshAnchors],
         pendingQuestions: chairOutput.questions,
         pendingChatNotes: [],
         searchesUsed: next.searchesUsed + searchesDispatched,
