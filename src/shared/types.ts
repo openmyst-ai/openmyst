@@ -273,17 +273,13 @@ export interface PanelResearchRequest {
 }
 
 /**
- * Panel output post-overhaul. The panel no longer critiques plan.md prose —
- * there is no plan.md. Each panelist, given the rubric + vision + current
- * anchor log, does two things:
- *   - proposes anchors to add to the log (from the wiki, by id)
- *   - suggests what the vision is missing or should sharpen
- * Plus the unchanged research-request path when the wiki lacks evidence.
+ * Panel output in the simplified architecture: the panel is a vision-
+ * steering + research-proposing layer, nothing more. Anchor curation is
+ * GONE — every anchor extracted during source digest flows directly to
+ * the drafter and the Anchors UI tab, deterministically, no middleman.
  */
 export interface PanelOutput {
   role: PanelRole;
-  /** `slug#anchor-id` strings the panelist thinks belong in the log. */
-  anchorProposals: string[];
   /** Short free-text: what's missing or off about the vision. ≤ 2 sentences. */
   visionNotes: string;
   needsResearch: PanelResearchRequest[];
@@ -360,11 +356,9 @@ export interface ChairOutput {
 }
 
 /**
- * A single entry in the append-only anchor log. This is what the drafter
- * consumes: a curated list of 20–50 verbatim source statements, keyed by
- * `slug#anchor-id` for hover + reference. `text` is resolved from the
- * source's index at append time, so the entry is self-contained — no
- * disk reads needed at draft time.
+ * One anchor, enriched with its source metadata. Populated deterministically
+ * from the union of every ingested source's `<slug>.index.json` — no
+ * curation, no session-side log. UI renders these, drafter consumes them.
  */
 export interface AnchorLogEntry {
   /** `slug#anchor-id` — the canonical key. Matches the citation href fragment. */
@@ -376,12 +370,6 @@ export interface AnchorLogEntry {
   /** Verbatim passage from the source. 1–4 sentences. */
   text: string;
   keywords: string[];
-  /** ISO timestamp the anchor was added. */
-  addedAt: string;
-  /** Phase the anchor was added in — useful for later filtering / UI. */
-  addedInPhase: DeepPlanPhase;
-  /** Optional Chair annotation: "use this to ground the RLHF argument". */
-  note?: string;
 }
 
 /**
@@ -456,12 +444,6 @@ export interface DeepPlanMessage {
   chair?: ChairOutput;
   /** Populated when `kind === 'user-answers'`. */
   answers?: ChairAnswerMap;
-  /**
-   * Number of anchors appended to the log during the round this message
-   * represents. Populated only on `chair-turn` messages. Used by the UI
-   * to show a small "+N anchors" chip under the Chair's summary.
-   */
-  anchorsAddedThisRound?: number;
 }
 
 export interface DeepPlanSession {
@@ -480,13 +462,6 @@ export interface DeepPlanSession {
    * at handoff.
    */
   vision: string;
-  /**
-   * Append-only curated evidence pile. Each entry is a verbatim passage
-   * from a credibility-gated source, keyed by `slug#anchor-id`. Target
-   * size is 20–50 entries by end of reviewing. This is what the drafter
-   * references in the final piece.
-   */
-  anchorLog: AnchorLogEntry[];
   messages: DeepPlanMessage[];
   /** Chair-authored questions awaiting user response, if any. */
   pendingQuestions: ChairQuestion[];

@@ -125,49 +125,13 @@ function sanitizePanelResearch(item: unknown): PanelResearchRequest | null {
   return { query, rationale: strOr(rec.rationale) };
 }
 
-/**
- * A panelist's anchor proposal is a plain `slug#anchor-id` string. Models
- * sometimes dress it up ({id: "slug#x"}, {anchor: "..."}, etc.); we
- * accept any of those shapes and extract the string.
- */
-function sanitizeAnchorProposal(item: unknown): string | null {
-  if (typeof item === 'string') {
-    const s = item.trim();
-    return s && s.includes('#') ? s : null;
-  }
-  if (item && typeof item === 'object') {
-    const rec = item as Record<string, unknown>;
-    for (const k of ['id', 'anchor', 'anchorId', 'anchor_id']) {
-      const v = rec[k];
-      if (typeof v === 'string' && v.trim().includes('#')) return v.trim();
-    }
-  }
-  return null;
-}
-
 export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
   const parsed = extractJsonBlob(raw);
-  const anchorProposals: string[] = [];
   const needsResearch: PanelResearchRequest[] = [];
   let visionNotes = '';
 
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const rec = parsed as Record<string, unknown>;
-    const proposalSource =
-      (Array.isArray(rec.anchorProposals) && rec.anchorProposals) ||
-      (Array.isArray(rec.anchor_proposals) && rec.anchor_proposals) ||
-      (Array.isArray(rec.anchors) && rec.anchors) ||
-      null;
-    if (proposalSource) {
-      const seen = new Set<string>();
-      for (const item of proposalSource) {
-        const p = sanitizeAnchorProposal(item);
-        if (p && !seen.has(p)) {
-          seen.add(p);
-          anchorProposals.push(p);
-        }
-      }
-    }
     visionNotes = strOr(rec.visionNotes ?? rec.vision_notes);
     const researchSource =
       (Array.isArray(rec.needsResearch) && rec.needsResearch) ||
@@ -181,15 +145,8 @@ export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
     }
   }
 
-  // Caps: 8 anchors per role per round gives the Chair a healthy pool
-  // to pick from (panel has 3–4 roles per phase × multiple rounds).
-  // Earlier ceiling was 3, which starved the log — with 5+ ingested
-  // sources × ~15 anchors each the upstream pool is ~75+, so we want
-  // panel to surface generously and let the Chair curate.
-  // Research is expensive, so 2 queries per role stays a hard ceiling.
   return {
     role,
-    anchorProposals: anchorProposals.slice(0, 8),
     visionNotes: visionNotes.slice(0, 500),
     needsResearch: needsResearch.slice(0, 2),
   };

@@ -58,7 +58,6 @@ function planIsEmpty(p: PlanLookupPayload): boolean {
   const r = p.requirements;
   return (
     p.vision.trim().length === 0 &&
-    p.anchorLogSize === 0 &&
     r.wordCountMin === null &&
     r.wordCountMax === null &&
     !r.form &&

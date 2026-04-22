@@ -90,63 +90,31 @@ function visionBlock(vision: string): string {
 }
 
 /**
- * Render the anchor log as a compact enumerated block. Each entry shows
- * id, type, source name, and the verbatim text. The drafter gets this
- * near-verbatim; the panel gets a shorter version that just shows what's
- * already in the log (so they don't re-propose duplicates).
+ * Render the anchor log — the full flat list of every anchor across
+ * every ingested source. Consumed by the drafter at handoff so the draft
+ * grounds in the evidence.
  */
-function anchorLogBlock(
-  anchorLog: AnchorLogEntry[],
-  opts: { includeText?: boolean; includeNote?: boolean } = {},
-): string {
-  if (anchorLog.length === 0) return '_(anchor log is empty)_';
-  const { includeText = true, includeNote = true } = opts;
-  return anchorLog
+function anchorLogBlock(anchors: AnchorLogEntry[]): string {
+  if (anchors.length === 0) return '_(no anchors extracted yet — ingest or research some sources first)_';
+  return anchors
     .map((e, i) => {
-      const head = `${i + 1}. [${e.type}] ([${e.sourceName}](${e.slug}.md#${e.id.split('#')[1] ?? ''}))`;
-      const body = includeText ? `\n   "${e.text.replace(/\n+/g, ' ').trim()}"` : '';
-      const note = includeNote && e.note ? `\n   Chair note: ${e.note}` : '';
-      return `${head}${body}${note}`;
+      const anchorFrag = e.id.split('#')[1] ?? '';
+      const head = `${i + 1}. [${e.type}] ([${e.sourceName}](${e.slug}.md#${anchorFrag}))`;
+      const body = `\n   "${e.text.replace(/\n+/g, ' ').trim()}"`;
+      return `${head}${body}`;
     })
     .join('\n');
 }
 
 /**
- * Compact anchor-log view for panelists: shows ids + one-line labels
- * (derived from the first sentence of text) so panel can see what's
- * covered without spending tokens on full excerpt text.
+ * Source list for the panel. Anchors are NOT included here anymore —
+ * panel doesn't curate anchors in the simplified architecture; it just
+ * needs to know what sources exist to steer the vision and propose
+ * research. Each bullet is "name — one-line summary".
  */
-function anchorLogIndexBlock(anchorLog: AnchorLogEntry[]): string {
-  if (anchorLog.length === 0) return '_(anchor log is empty — you are proposing from scratch)_';
-  return anchorLog
-    .map((e) => {
-      const preview = e.text
-        .replace(/\n+/g, ' ')
-        .trim()
-        .slice(0, 110);
-      return `- \`${e.id}\` [${e.type}] ${preview}${preview.length < e.text.length ? '…' : ''}`;
-    })
-    .join('\n');
-}
-
 function sourcesBlock(sources: SourceMeta[]): string {
   if (sources.length === 0) return '_No sources yet._';
-  // Per-anchor lines show the EXACT `slug#anchor-id` string the panel
-  // should copy into its `anchorProposals` array. We used to render this
-  // as the full citation href `([Name](slug.md#anchor-id))`, and panels
-  // were copying the whole href including `.md` — which made resolution
-  // fail silently at append time. Now we show the canonical id directly
-  // and label the source separately.
-  return sources
-    .map((s) => {
-      const head = `- **${s.name}** — ${s.indexSummary}`;
-      if (!s.anchors || s.anchors.length === 0) return head;
-      const anchorLines = s.anchors
-        .map((a) => `    - \`${s.slug}#${a.id}\` [${a.type}] ${a.label}`)
-        .join('\n');
-      return `${head}\n${anchorLines}`;
-    })
-    .join('\n');
+  return sources.map((s) => `- **${s.name}** — ${s.indexSummary}`).join('\n');
 }
 
 function searchBudgetBlock(session: DeepPlanSession): string {
@@ -251,13 +219,10 @@ function panelContextBlock(ctx: PanelContext): string {
     'RUBRIC (hard constraints — the draft must honour these):',
     requirementsBlock(session.requirements),
     '',
-    'VISION (the writer + Chair\'s intellectual spine for this piece — dot-points, not prose. Your anchor proposals should sharpen or extend this vision):',
+    'VISION (the writer + Chair\'s intellectual spine for this piece — dot-points, not prose. Your job is to sharpen or extend this vision):',
     visionBlock(session.vision),
     '',
-    'ANCHOR LOG — anchors already pulled into the session (do NOT re-propose these; look for NEW anchors the log is missing):',
-    anchorLogIndexBlock(session.anchorLog),
-    '',
-    'Wiki — sources the panel can draw anchors from (each anchor id + one-line label shown; pick from these when proposing):',
+    'Wiki — sources already ingested (anchor extraction from these is deterministic and runs at ingest time; you do NOT curate anchors — just steer the vision and propose research when coverage is thin):',
     sourcesBlock(sources),
     '',
     searchBudgetBlock(session),
@@ -282,7 +247,7 @@ export function panelistPrompt(role: PanelRole, ctx: PanelContext): string {
     ? `- \`needsResearch\`: up to ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND} queries when a specific plan claim would land harder with a source the wiki lacks. Any role may request — not just Evidence. Early ideation rounds benefit most: one or two seed queries on the core concept can reshape the whole plan.`
     : `- \`needsResearch\`: emit []. The session search budget is exhausted — work with the plan and wiki you already have.`;
 
-  return `You are ONE voice on an evidence-hunting panel. You do NOT talk to the writer. You do NOT critique prose. You do NOT rewrite anything. Your job is narrow and concrete: given the vision + rubric + current anchor log, propose new anchors from the wiki that make the vision stronger, and when the wiki is missing coverage, request research to fill it.
+  return `You are ONE voice on a vision-steering panel. You do NOT talk to the writer. You do NOT curate anchors — anchor extraction happens deterministically at source-ingest time, and every extracted anchor flows to the drafter automatically. Your job is narrow: read the vision, flag what it's missing, and propose research queries when the wiki's coverage is thin.
 
 Your role:
 ${persona}
@@ -291,20 +256,15 @@ Context:
 ${panelContextBlock(ctx)}
 
 How to think about your job:
-The vision above is what the writer + Chair have decided this piece is ABOUT — the thesis, POV, section intents, novel angles. The anchor log is the evidence the drafter will use. Your role, through your persona's lens, is to spot:
-1. Claims implied by the vision that the anchor log doesn't yet support.
-2. Anchors already in the wiki (see sources block) that would sharpen the vision but aren't in the log yet.
-3. Counter-evidence, stress-tests, or adjacent angles the log is missing.
-4. When the wiki genuinely lacks coverage for something load-bearing → emit a \`needsResearch\` query shaped to yield a SPECIFIC anchor (a statistic, a definition, a primary claim).
+The vision above is what the writer + Chair have decided this piece is ABOUT — the thesis, POV, section intents, novel angles. Through your persona's lens, look for:
+1. Gaps in the vision itself — thesis weaknesses, missing counter-arguments, section intents that don't yet have a clear POV.
+2. Coverage gaps in the wiki — claims the piece will need to make that the current sources can't ground. These become \`needsResearch\` queries.
 
-You are NOT trying to cover the topic comprehensively. You're trying to surface the best 1–3 new anchors or research directions your role is positioned to spot. Small and sharp beats broad and shallow.
+You are NOT trying to cover the topic comprehensively. One crisp vision observation + one or two research queries (when needed) is a strong round from one role. Small and sharp beats broad and shallow.
 
 Output ONLY a JSON object of this exact shape — no prose, no markdown fences, no commentary:
 
 {
-  "anchorProposals": [
-    "slug#anchor-id"
-  ],
   "visionNotes": "≤ 2 sentences. What's missing or off about the vision, through your role's lens. Empty string when you have nothing to add.",
   "needsResearch": [
     {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "what anchor type (statistic/definition/claim/finding/quote) this query should yield, and what claim in the vision it unblocks"}
@@ -312,13 +272,10 @@ Output ONLY a JSON object of this exact shape — no prose, no markdown fences, 
 }
 
 Rules:
-- \`anchorProposals\`: target 3–8 per role per round (8 is the hard cap). Be GENEROUS — each source in the wiki typically has 15+ extracted anchors, and the log target is 20–50 by end of reviewing. Propose every anchor that's plausibly relevant to the vision through your role's lens; the Chair will filter. UNDER-proposing is a bigger failure than over-proposing.
-- Each id must be a \`slug#anchor-id\` that EXISTS in the wiki above (the backticked token at the start of each anchor bullet, e.g. \`smith-2022#def-pareto\`). Copy the token VERBATIM — no \`.md\`, no markdown link wrapper, no parentheses. Just \`slug#anchor-id\`. Do NOT invent ids. Do NOT re-propose ids already in the anchor log.
-- When the log has fewer than 10 entries, propose AGGRESSIVELY — the piece cannot be grounded on 3 anchors. Every role should be adding.
-- \`visionNotes\`: optional, concise. One crisp observation per role, not a list of five vague suggestions. If the vision is solid from your lens, emit "".
+- \`visionNotes\`: one crisp observation through your role's lens. Not a list of five vague suggestions. If the vision is solid from your lens, emit "".
 - \`needsResearch\`: queries must target NEW ground. If the wiki already has 2+ sources on the same concept at similar depth, do NOT request a third — pivot to a primary-source author, a landmark paper, or an adjacent angle instead.
 ${searchClause}
-- If you have nothing useful this round, output {"anchorProposals": [], "visionNotes": "", "needsResearch": []}. Going silent is the right move when your lens is already addressed.`;
+- If you have nothing useful this round, output {"visionNotes": "", "needsResearch": []}. Going silent is the right move when your lens is already addressed.`;
 }
 
 /* ────────────────────────── Chair (strong-model) ────────────────────────── */
@@ -335,23 +292,16 @@ function findingsBlock(panelOutputs: PanelOutput[]): string {
   return panelOutputs
     .map((p) => {
       const header = `### ${p.role.toUpperCase()}`;
-      const silent =
-        p.anchorProposals.length === 0 &&
-        !p.visionNotes.trim() &&
-        p.needsResearch.length === 0;
-      if (silent) return `${header}\n(no proposals this round)`;
-      const anchors =
-        p.anchorProposals.length > 0
-          ? `Anchor proposals:\n${p.anchorProposals.map((id) => `  - ${id}`).join('\n')}`
-          : '';
-      const vision = p.visionNotes.trim() ? `\nVision note: ${p.visionNotes.trim()}` : '';
+      const silent = !p.visionNotes.trim() && p.needsResearch.length === 0;
+      if (silent) return `${header}\n(no notes this round)`;
+      const vision = p.visionNotes.trim() ? `Vision note: ${p.visionNotes.trim()}` : '';
       const research =
         p.needsResearch.length > 0
-          ? `\nResearch requested:\n${p.needsResearch
+          ? `${vision ? '\n' : ''}Research requested:\n${p.needsResearch
               .map((r) => `  - "${r.query}" — ${r.rationale}`)
               .join('\n')}`
           : '';
-      return `${header}\n${anchors}${vision}${research}`.trim();
+      return `${header}\n${vision}${research}`.trim();
     })
     .join('\n\n');
 }
@@ -385,22 +335,14 @@ export interface ChairPromptArgs {
    * conversation-layer of Deep Plan actually affects the piece.
    */
   chatNotes: string[];
-  /**
-   * Anchors that were auto-appended to the log during THIS round (panel
-   * proposed, resolver validated + appended). The Chair reads these to
-   * decide if the vision should update — it does NOT see or curate the
-   * full log. This is the token-saving crux of the architecture.
-   */
-  newAnchorsThisRound: AnchorLogEntry[];
 }
 
 export function chairPrompt(args: ChairPromptArgs): string {
-  // `sources` is no longer destructured — the Chair doesn't scan the wiki
-  // any more. Panel selects anchors, resolver appends, Chair reads just
-  // the delta. `sources` stays on the args shape because the runner
-  // already plumbs it for future use (e.g. showing source names in the
-  // chair-chat prompt), but this function ignores it.
-  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, lastAnswers, chatNotes, newAnchorsThisRound } = args;
+  // The Chair reads the rubric, vision, panel notes, chat notes, recent
+  // history, and a simple source list. It no longer sees an anchor log
+  // or curates anchors — extraction happens at ingest time and anchors
+  // flow straight to the drafter.
+  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources, lastAnswers, chatNotes } = args;
   const phase = session.phase;
   const priorSummaries = priorChairDigest(session);
   const missing = missingRequirements(session.requirements);
@@ -436,28 +378,13 @@ export function chairPrompt(args: ChairPromptArgs): string {
     ? `\n\nUser's free-chat notes since the last panel round (the writer typed these between rounds — factor them into your summary AND into the plan rewrite where relevant):\n${chatNotes.map((n, i) => `${i + 1}. ${n}`).join('\n')}`
     : '';
 
-  const newAnchorsBlock =
-    newAnchorsThisRound.length === 0
-      ? '(no new anchors appended this round — panel proposed none, or all proposals duplicated existing log entries)'
-      : newAnchorsThisRound
-          .map((a, i) => {
-            const preview = a.text
-              .replace(/\n+/g, ' ')
-              .trim()
-              .slice(0, 220);
-            return `${i + 1}. [${a.type}] ([${a.sourceName}](${a.slug}.md#${a.id.split('#')[1] ?? ''}))\n   "${preview}${preview.length < a.text.length ? '…' : ''}"`;
-          })
-          .join('\n');
-
-  return `You are the CHAIR of an evidence-hunting panel helping a writer build a piece. The session has THREE artefacts: a tiny rubric (hard constraints), a small vision.md (intellectual spine), and an auto-growing anchor log (evidence). You do NOT maintain the anchor log — panel proposals are auto-appended before you run. You ONLY read the NEW anchors that arrived this round, and react to them.
+  return `You are the CHAIR of a writing panel. The session has two artefacts you touch: a tiny rubric (hard constraints) and a small vision.md (intellectual spine). You do NOT touch the anchor log — anchors are extracted deterministically from each source at ingest time and flow straight to the drafter. Your job is to steer the vision, probe the user when a judgment call needs them, and update the rubric when the user's answers change it.
 
 Your job each round is narrow:
 1. **Steer** — reply to the user in a short \`summary\`. Conversational, first-person, specific to what actually moved.
-2. **Sharpen the VISION** — only when this round's new anchors + panel vision-notes + chat-notes genuinely move the thesis, POV, or section intents. Most rounds, emit \`visionUpdate: null\`.
+2. **Sharpen the VISION** — only when this round's panel vision-notes + chat-notes + new sources genuinely move the thesis, POV, or section intents. Most rounds, emit \`visionUpdate: null\`.
 3. **Probe the user** — ask 0–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions only when a genuine judgment call needs them.
 4. **Update the rubric** — \`requirementsPatch\` when the user just answered a hard-requirement question.
-
-You do NOT see the full anchor log. You do NOT decide which anchors to keep. The panel proposed, the resolver validated and appended — that's done. Your job is to read the delta (new anchors this round) and decide if it shifts the vision.
 
 Phase intent:
 ${PHASE_INTENT[phase]}
@@ -470,13 +397,11 @@ ${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection
 
 ${searchBudgetBlock(session)}
 
-CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the new anchors + panel notes + chat notes genuinely move thesis/POV/section intents):
+Wiki — sources ingested so far (anchors extracted from these flow to the drafter automatically — you do not need to reference specific anchors):
+${sourcesBlock(sources)}
+
+CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the panel notes + chat notes + new sources genuinely move thesis/POV/section intents):
 ${visionBlock(session.vision)}
-
-NEW ANCHORS APPENDED THIS ROUND (${newAnchorsThisRound.length} — the panel found and the resolver validated; these now live in the log permanently):
-${newAnchorsBlock}
-
-Anchor log total size: ${session.anchorLog.length + newAnchorsThisRound.length} entries (you don't need to see the rest — the drafter will get everything at handoff).
 
 Panel vision-notes + research this round:
 ${findingsBlock(panelOutputs)}${researchNote}
@@ -592,10 +517,7 @@ ${requirementsBlock(session.requirements)}
 VISION.md (the writer + Chair's working thesis and POV):
 ${visionBlock(session.vision)}
 
-ANCHOR LOG (${session.anchorLog.length} entries — what the piece will be grounded in):
-${anchorLogIndexBlock(session.anchorLog)}
-
-Wiki — sources ingested so far:
+Wiki — sources ingested so far (anchors extracted from these will flow to the drafter automatically):
 ${sourcesBlock(sources)}
 
 Recent chat transcript (this round, context for your reply):
@@ -693,8 +615,12 @@ If the wiki already covers the task, emit an empty array \`[]\`.`;
  * `#anchor-id` for hover), but their text does not need to be copied
  * verbatim — the drafter paraphrases naturally.
  */
-export function oneShotPrompt(session: DeepPlanSession, docLabel: string): string {
-  const anchorCount = session.anchorLog.length;
+export function oneShotPrompt(
+  session: DeepPlanSession,
+  docLabel: string,
+  anchors: AnchorLogEntry[],
+): string {
+  const anchorCount = anchors.length;
   const anchorCountLine =
     anchorCount === 0
       ? 'ANCHOR LOG IS EMPTY. This is a failure state — the panel session should have produced evidence. Do NOT fabricate sources or citations. If the log is genuinely empty, write a short essay from the vision alone and flag the lack of evidence at the top.'
@@ -725,9 +651,9 @@ ${visionBlock(session.vision)}
 
 ${anchorCountLine}
 
-Each anchor below shows its type, source name, the verbatim source text, and (when present) a Chair note on why it matters. Reference anchors with their full \`([SourceName](slug.md#anchor-id))\` link — the \`slug.md#anchor-id\` is the exact form the hover feature expects. Paraphrase the text naturally; do NOT copy verbatim unless the exact wording is genuinely load-bearing.
+Each anchor below shows its type, source name, and the verbatim source text. Reference anchors with their full \`([SourceName](slug.md#anchor-id))\` link — the \`slug.md#anchor-id\` is the exact form the hover feature expects. Paraphrase the text naturally; do NOT copy verbatim unless the exact wording is genuinely load-bearing.
 
-${anchorLogBlock(session.anchorLog)}
+${anchorLogBlock(anchors)}
 
 HOW TO WRITE THE DRAFT:
 

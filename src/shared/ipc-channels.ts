@@ -78,6 +78,7 @@ export const IpcChannels = {
     IngestLink: 'sources:ingest-link',
     PickFiles: 'sources:pick-files',
     List: 'sources:list',
+    ListAllAnchors: 'sources:list-all-anchors',
     Read: 'sources:read',
     LookupAnchor: 'sources:lookup-anchor',
     Delete: 'sources:delete',

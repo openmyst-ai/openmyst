@@ -156,14 +156,16 @@ function backfillLegacy(parsed: Record<string, unknown>): void {
   if (!parsed.phase) parsed.phase = 'ideation';
   if (!Array.isArray(parsed.pendingQuestions)) parsed.pendingQuestions = [];
   if (!Array.isArray(parsed.pendingChatNotes)) parsed.pendingChatNotes = [];
-  // Migration: legacy sessions have `plan: string`; the overhaul replaces
-  // it with `vision` + `anchorLog`. We drop the plan silently — the anchors
-  // it cited will be re-pulled into the log by the Chair as the session
-  // continues. Users mid-session lose the inline plan artefact but keep
-  // their requirements, task, and transcript.
+  // Migration path: we've been through two anchor architectures. Legacy
+  // sessions may have `plan` (pre-vision architecture) or `anchorLog`
+  // (panel-curated era). Both are dropped silently — the new anchor
+  // architecture reads anchors straight from source indexes at draft
+  // time, no session-side storage. Users lose stale per-session anchor
+  // curation; everyone keeps their task, requirements, transcript, and
+  // vision.
   if (typeof parsed.vision !== 'string') parsed.vision = '';
-  if (!Array.isArray(parsed.anchorLog)) parsed.anchorLog = [];
   delete (parsed as { plan?: unknown }).plan;
+  delete (parsed as { anchorLog?: unknown }).anchorLog;
   if (
     !parsed.requirements ||
     typeof parsed.requirements !== 'object'
@@ -231,7 +233,6 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
     task: trimmed,
     requirements: extractRequirements(trimmed),
     vision: '',
-    anchorLog: [],
     messages: [],
     pendingQuestions: [],
     pendingChatNotes: [],

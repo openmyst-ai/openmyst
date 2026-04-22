@@ -65,7 +65,6 @@ export async function sendMessage(
           task: deepPlanSession.task,
           requirements: deepPlanSession.requirements,
           vision: deepPlanSession.vision,
-          anchorLogSize: deepPlanSession.anchorLog.length,
         }
       : null;
 

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { dialog } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
-import type { SourceAnchorSummary, SourceIndex, SourceMeta } from '@shared/types';
+import type { AnchorLogEntry, SourceAnchorSummary, SourceIndex, SourceMeta } from '@shared/types';
 import { projectPath, pathExists, broadcast } from '../../platform';
 import { updateWikiIndex, appendWikiLog } from '../wiki';
 import { extractText } from './extract';
@@ -427,6 +427,51 @@ export async function listSources(): Promise<SourceMeta[]> {
 
 export async function readSource(slug: string): Promise<string> {
   return fs.readFile(projectPath('sources', `${slug}.md`), 'utf-8');
+}
+
+/**
+ * Flatten every anchor from every ingested source into a single list
+ * ready for the UI + drafter to consume. Reads `<slug>.index.json` for
+ * each source and joins it with the source's display-name + URL from
+ * meta. Sources without an index (raw files, failed digest) contribute
+ * nothing — they just don't show up in the anchor list, which is correct.
+ *
+ * This is the deterministic replacement for the old session-side anchor
+ * log. No curation, no append path — the union of source indexes IS the
+ * anchor list.
+ */
+export async function listAllAnchors(): Promise<AnchorLogEntry[]> {
+  const sources = await listSources();
+  const out: AnchorLogEntry[] = [];
+  await Promise.all(
+    sources.map(async (s) => {
+      const indexPath = projectPath('sources', `${s.slug}.index.json`);
+      if (!(await pathExists(indexPath))) return;
+      let index: SourceIndex;
+      try {
+        index = JSON.parse(await fs.readFile(indexPath, 'utf-8')) as SourceIndex;
+      } catch {
+        return;
+      }
+      for (const a of index.anchors) {
+        // Every anchor stored in the index has the verbatim `text` field
+        // (Phase 1 of the anchoring work). Older sources without it are
+        // skipped — they'd render as empty cards otherwise.
+        if (typeof a.text !== 'string' || !a.text.trim()) continue;
+        const entry: AnchorLogEntry = {
+          id: `${s.slug}#${a.id}`,
+          slug: s.slug,
+          sourceName: s.name,
+          type: a.type,
+          text: a.text,
+          keywords: a.keywords ?? [],
+        };
+        if (s.sourcePath) entry.sourceUrl = s.sourcePath;
+        out.push(entry);
+      }
+    }),
+  );
+  return out;
 }
 
 export async function deleteSource(slug: string): Promise<void> {

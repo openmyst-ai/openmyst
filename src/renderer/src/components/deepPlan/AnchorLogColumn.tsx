@@ -1,25 +1,50 @@
-import { useDeepPlan } from '../../store/deepPlan';
+import { useEffect, useState } from 'react';
 import type { AnchorLogEntry } from '@shared/types';
+import { bridge } from '../../api/bridge';
+import { useDeepPlan } from '../../store/deepPlan';
 import { CitationHoverScope } from './CitationHoverScope';
 
 /**
- * Anchor-log view — the append-only evidence pile. Each entry shows
- * source chip, type badge, verbatim text, and (optionally) the Chair's
- * note on why the anchor matters. Wrapped in CitationHoverScope so
- * each entry's header link resolves via the same hover preview used in
- * the conversation column and the drafter output.
+ * Anchor-log view — deterministic flat list of every anchor extracted
+ * from every ingested source. Reads via `sources.listAllAnchors`, which
+ * is the union of every `<slug>.index.json` on disk. No panel curation,
+ * no session-side log — what you see is exactly what the drafter will
+ * receive at handoff.
+ *
+ * Refreshes whenever the session changes (new round finishes, new source
+ * lands) — that's the cheapest signal we have that the underlying source
+ * indexes may have grown.
  */
 export function AnchorLogColumn(): JSX.Element {
-  const log = useDeepPlan((s) => s.status?.session?.anchorLog ?? []);
+  const sessionChangeSignal = useDeepPlan((s) => s.status?.session);
+  const [anchors, setAnchors] = useState<AnchorLogEntry[] | null>(null);
 
-  if (log.length === 0) {
+  useEffect(() => {
+    let cancelled = false;
+    void bridge.sources.listAllAnchors().then((list) => {
+      if (!cancelled) setAnchors(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionChangeSignal]);
+
+  if (anchors === null) {
+    return (
+      <div className="dp-plan dp-plan-empty">
+        <p className="dp-muted">Loading anchors…</p>
+      </div>
+    );
+  }
+
+  if (anchors.length === 0) {
     return (
       <div className="dp-plan dp-plan-empty">
         <p className="dp-muted">
-          The evidence log fills as the panel proposes anchors and the
-          Chair curates them in. Each entry is a verbatim passage from a
-          credible source, keyed by <code>slug#anchor-id</code>. Target
-          end-state: 20–50 entries by the time you're ready to draft.
+          The evidence pile fills automatically as sources get ingested.
+          Every anchor the digest extracts from a source appears here —
+          no curation step in between. Ingest a source or run a research
+          round and anchors land.
         </p>
       </div>
     );
@@ -29,9 +54,9 @@ export function AnchorLogColumn(): JSX.Element {
     <CitationHoverScope className="dp-anchor-log-scope">
       <div className="dp-anchor-log">
         <div className="dp-anchor-log-count">
-          {log.length} {log.length === 1 ? 'anchor' : 'anchors'}
+          {anchors.length} {anchors.length === 1 ? 'anchor' : 'anchors'}
         </div>
-        {log.map((entry) => (
+        {anchors.map((entry) => (
           <AnchorLogItem key={entry.id} entry={entry} />
         ))}
       </div>
@@ -47,8 +72,8 @@ function AnchorLogItem({ entry }: { entry: AnchorLogEntry }): JSX.Element {
         <span className={`dp-anchor-entry-type dp-anchor-entry-type-${entry.type}`}>
           {entry.type}
         </span>
-        {/* Link uses the same (slug.md#anchor-id) shape as citations in plan + drafts so
-         *  the existing hover popover resolves it with zero special-casing. */}
+        {/* Link uses the same (slug.md#anchor-id) shape as citations in plan + drafts
+         *  so the existing hover popover resolves it with zero special-casing. */}
         <a
           className="dp-anchor-entry-source"
           href={`${entry.slug}.md#${anchorFragment}`}
@@ -59,7 +84,6 @@ function AnchorLogItem({ entry }: { entry: AnchorLogEntry }): JSX.Element {
         </a>
       </header>
       <p className="dp-anchor-entry-text">{entry.text}</p>
-      {entry.note && <p className="dp-anchor-entry-note">{entry.note}</p>}
     </article>
   );
 }

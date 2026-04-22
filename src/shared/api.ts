@@ -12,6 +12,7 @@ import type {
   PendingEdit,
   ProjectMeta,
   Result,
+  AnchorLogEntry,
   SourceAnchor,
   SourceMeta,
   UpdateStatus,
@@ -89,6 +90,8 @@ export interface MystApi {
     ingestLink: (url: string) => Promise<SourceMeta>;
     pickFiles: () => Promise<string[]>;
     list: () => Promise<SourceMeta[]>;
+    /** Flat list of every anchor across every ingested source. Powers the Anchors tab + drafter handoff. */
+    listAllAnchors: () => Promise<AnchorLogEntry[]>;
     read: (slug: string) => Promise<string>;
     lookupAnchor: (
       slug: string,

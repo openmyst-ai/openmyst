@@ -10,7 +10,7 @@ import type {
 import { broadcast, log, logError } from '../../platform';
 import { ensureLlmReady, streamChat, type LlmMessage } from '../../llm';
 import { getDraftModel } from '../settings';
-import { listSources } from '../sources';
+import { listAllAnchors, listSources } from '../sources';
 import { listDocuments, writeDocument } from '../documents';
 import {
   buildStatus as buildStatusBase,
@@ -23,9 +23,8 @@ import {
 } from './state';
 import { oneShotPrompt } from './prompts';
 import { runPanelRound } from './panel';
-import { runChair } from './chair';
+import { applyFallbackRequirementsPatch, runChair } from './chair';
 import { runChairChat } from './chat';
-import { resolveAndAppendAnchors } from './anchorLog';
 import {
   formatLookupReply,
   parseSourceLookups,
@@ -78,7 +77,7 @@ function appendMessage(
   role: DeepPlanMessage['role'],
   content: string,
   kind: DeepPlanMessage['kind'] = 'chat',
-  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers' | 'anchorsAddedThisRound'>> = {},
+  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers'>> = {},
 ): DeepPlanSession {
   const msg: DeepPlanMessage = {
     id: randomUUID(),
@@ -224,6 +223,14 @@ export async function submitAnswers(answers: ChairAnswerMap): Promise<DeepPlanSt
     return buildStatus();
   }
 
+  // Deterministic escape-hatch: if the user answered our hard-coded
+  // fallback requirements questions, translate those answers directly
+  // into session.requirements — don't wait for the Chair's
+  // `requirementsPatch` to do it. When the Chair LLM call keeps failing
+  // (empty reply, model unavailable), this is what keeps the session
+  // moving instead of re-asking the same questions every round.
+  const fallbackPatch = applyFallbackRequirementsPatch(answers);
+
   await updateSession((s) => {
     const withAnswers = appendMessage(
       s,
@@ -232,8 +239,18 @@ export async function submitAnswers(answers: ChairAnswerMap): Promise<DeepPlanSt
       'user-answers',
       { answers },
     );
-    return { ...withAnswers, pendingQuestions: [] };
+    const mergedRequirements = fallbackPatch
+      ? { ...withAnswers.requirements, ...fallbackPatch }
+      : withAnswers.requirements;
+    return {
+      ...withAnswers,
+      requirements: mergedRequirements,
+      pendingQuestions: [],
+    };
   });
+  if (fallbackPatch) {
+    log('deep-plan', 'submitAnswers.fallbackPatchApplied', { fields: Object.keys(fallbackPatch) });
+  }
   notifyChanged();
 
   void runPanelAndChair().catch((err) => {
@@ -334,35 +351,11 @@ async function runPanelAndChair(): Promise<void> {
     const sourcesForChair =
       newlyIngestedSourceSlugs.length > 0 ? await listSources() : sources;
 
-    // AUTO-APPEND: every anchor the panel proposed gets resolved + pushed
-    // onto the log. The Chair does NOT curate — we trust the panel. The
-    // resolver dedupes against the existing log and silently drops invalid
-    // ids, so dupes and hallucinations are harmless.
-    const allProposedIds = new Set<string>();
-    for (const p of panelOutputs) {
-      for (const id of p.anchorProposals) allProposedIds.add(id);
-    }
-    const freshAnchors = await resolveAndAppendAnchors({
-      proposals: Array.from(allProposedIds).map((id) => ({ id })),
-      existingLog: session.anchorLog,
-      currentPhase: session.phase,
-    });
+    // No more anchor-log resolve+append step — anchors live on disk in
+    // each source's index file, and the UI / drafter read them directly
+    // via `listAllAnchors`. The only thing the panel round owns now is
+    // vision notes + research dispatch.
 
-    // Push the fresh anchors to session state IMMEDIATELY — before the
-    // Chair call starts. Chair can take a while (gpt-oss-120b + JSON
-    // output), and users shouldn't wait for the synthesis to see the
-    // evidence the panel already secured. Source ingest already
-    // broadcasts mid-round; this makes anchors do the same.
-    if (freshAnchors.length > 0) {
-      await updateSession((s) => ({
-        ...s,
-        anchorLog: [...s.anchorLog, ...freshAnchors],
-      }));
-      notifyChanged();
-    }
-
-    // Chair sees only the NEW anchors this round (plus the round's panel
-    // vision notes). No full log re-read — that's the whole token win.
     const chairOutput = await runChair({
       session,
       panelOutputs,
@@ -371,13 +364,11 @@ async function runPanelAndChair(): Promise<void> {
       sources: sourcesForChair,
       lastAnswers,
       chatNotes,
-      newAnchorsThisRound: freshAnchors,
     });
 
     await updateSession((s) => {
       const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
-        anchorsAddedThisRound: freshAnchors.length,
       });
       const patch = chairOutput.requirementsPatch;
       const mergedRequirements = patch
@@ -385,9 +376,6 @@ async function runPanelAndChair(): Promise<void> {
         : next.requirements;
       const mergedVision =
         chairOutput.visionUpdate !== null ? chairOutput.visionUpdate : next.vision;
-      // `anchorLog` was already appended to in the early-broadcast block
-      // above, so we just carry `next.anchorLog` through — no re-append
-      // here (that would duplicate).
       return {
         ...next,
         requirements: mergedRequirements,
@@ -468,10 +456,12 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   }
   const target = docs[0]!;
 
-  // Phase 6: drafter sees only requirements + plan.md + prose-style guide.
-  // Every anchored claim already has a verbatim blockquote materialised
-  // beneath it from the Chair pass, so the wiki is not re-introduced here.
-  const prompt = oneShotPrompt(session, target.label);
+  // Drafter input: rubric + vision + flat anchor list + prose-style guide.
+  // Anchors are pulled deterministically from every ingested source's
+  // index file via `listAllAnchors` — no session-side curation, no panel
+  // proposals to sift through, just the union of extracted anchors.
+  const anchors = await listAllAnchors();
+  const prompt = oneShotPrompt(session, target.label, anchors);
   const messages: LlmMessage[] = [
     { role: 'system', content: prompt },
     {

@@ -266,26 +266,10 @@ function MessageBubble({
   }
 
   const klass = message.role === 'user' ? 'dp-msg dp-msg-user' : 'dp-msg dp-msg-assistant';
-  // Anchor-count chip — how many anchors got appended to the log this
-  // round (panel proposed → resolver validated + appended). Stamped onto
-  // the chair-turn message by the orchestrator so we don't need to diff
-  // the log per message on render.
-  const anchorAddCount =
-    message.kind === 'chair-turn' ? message.anchorsAddedThisRound ?? 0 : 0;
   return (
     <div className={klass}>
       <div className="dp-msg-body">
         <Markdown text={message.content} />
-        {anchorAddCount > 0 && (
-          <div className="dp-anchor-hygiene">
-            <span
-              className="dp-anchor-chip dp-anchor-chip-ok"
-              title="Anchors the Chair pulled into the evidence log this round"
-            >
-              +{anchorAddCount} anchor{anchorAddCount === 1 ? '' : 's'}
-            </span>
-          </div>
-        )}
       </div>
     </div>
   );

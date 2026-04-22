@@ -5,6 +5,7 @@ import {
   ingestLink,
   ingestSources,
   ingestText,
+  listAllAnchors,
   listSources,
   pickSourceFiles,
   readSource,
@@ -35,6 +36,7 @@ export function registerSourcesIpc(): void {
   });
   ipcMain.handle(IpcChannels.Sources.PickFiles, () => pickSourceFiles());
   ipcMain.handle(IpcChannels.Sources.List, () => listSources());
+  ipcMain.handle(IpcChannels.Sources.ListAllAnchors, () => listAllAnchors());
   ipcMain.handle(IpcChannels.Sources.Read, (_event, slug: unknown) => {
     if (typeof slug !== 'string' || slug.trim().length === 0) {
       throw new Error('Source slug must be a non-empty string.');
