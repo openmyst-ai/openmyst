@@ -1,66 +1,82 @@
 import { create } from 'zustand';
-import type { DeepPlanSession, DeepPlanStatus } from '@shared/types';
+import type {
+  ChairAnswerMap,
+  DeepPlanSession,
+  DeepPlanStatus,
+  PanelProgressEvent,
+  PanelRole,
+} from '@shared/types';
 import { bridge } from '../api/bridge';
 
 /**
  * Renderer-side state for Deep Plan mode. Mirrors `DeepPlanStatus` from the
  * main process and layers on top:
- *   - `visible` — whether the full-screen view should be on screen. Driven by
- *     `shouldAutoStart` the first time, then flipped off on skip/complete.
- *   - `streaming` — true while the planner's token stream is in flight, so
- *     the UI can show a placeholder bubble.
- *   - `streamingBuffer` — accumulates tokens from `onChunk` until `onChunkDone`.
+ *   - `visible` — whether the full-screen view should be on screen. Driven
+ *     by `shouldAutoStart` the first time, then flipped off on skip/complete.
+ *   - `drafting` / `draftBuffer` — one-shot draft modal state (unchanged).
+ *   - `panelProgress` — live per-role status for the in-flight round so the
+ *     UI can show "Explorer thinking… Skeptic done (2)" indicators.
  */
+
+export type PanelRoleStatus =
+  | { state: 'pending' }
+  | { state: 'running' }
+  | { state: 'done'; findings: number; searchQueries: number }
+  | { state: 'failed'; error: string };
+
+export interface PanelProgressState {
+  roles: PanelRole[];
+  byRole: Record<string, PanelRoleStatus>;
+  researchDispatched: number;
+  chair: 'idle' | 'running' | 'done';
+}
+
+function emptyPanelProgress(): PanelProgressState {
+  return { roles: [], byRole: {}, researchDispatched: 0, chair: 'idle' };
+}
 
 interface DeepPlanState {
   visible: boolean;
   status: DeepPlanStatus | null;
-  streaming: boolean;
-  streamingBuffer: string;
   busy: boolean;
   error: string | null;
-  // Draft-generation modal state. `drafting` flips to true the moment the
-  // user hits "Generate Draft" and stays true until the main process
-  // broadcasts ChunkDone (or oneShot resolves). `draftBuffer` accumulates
-  // the streamed tokens so we can derive a live word count without
-  // showing the text itself — the user wanted a quiet "generating…"
-  // screen, not a text-spawn display.
+  // One-shot draft modal state.
   drafting: boolean;
   draftBuffer: string;
+  panelProgress: PanelProgressState;
 
   refresh: () => Promise<void>;
   show: () => void;
   hide: () => void;
   start: (task: string) => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
+  chat: (message: string) => Promise<void>;
+  runPanel: () => Promise<void>;
+  submitAnswers: (answers: ChairAnswerMap) => Promise<void>;
   advance: () => Promise<void>;
-  runResearch: () => Promise<void>;
-  stopResearch: () => Promise<void>;
-  addResearchHint: (hint: string) => Promise<void>;
   skip: () => Promise<void>;
   oneShot: () => Promise<void>;
   reset: () => Promise<void>;
   ingestChunk: (chunk: string) => void;
   finishStream: () => void;
+  applyPanelEvent: (event: PanelProgressEvent) => void;
   clearError: () => void;
 }
 
 export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   visible: false,
   status: null,
-  streaming: false,
-  streamingBuffer: '',
   busy: false,
   error: null,
   drafting: false,
   draftBuffer: '',
+  panelProgress: emptyPanelProgress(),
 
   refresh: async () => {
     try {
       const status = await bridge.deepPlan.status();
       set((prev) => ({
         status,
-        // Auto-show on first load if the project is freshly created.
         visible: prev.visible || status.shouldAutoStart || status.active,
       }));
     } catch (err) {
@@ -73,7 +89,7 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   start: async (task) => {
-    set({ busy: true, error: null });
+    set({ busy: true, error: null, panelProgress: emptyPanelProgress() });
     try {
       const status = await bridge.deepPlan.start(task);
       set({ status, visible: true });
@@ -85,57 +101,62 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   sendMessage: async (message) => {
-    set({ busy: true, error: null, streaming: true, streamingBuffer: '' });
+    set({ busy: true, error: null });
     try {
       const status = await bridge.deepPlan.sendMessage(message);
       set({ status });
     } catch (err) {
       set({ error: (err as Error).message });
     } finally {
-      set({ busy: false, streaming: false, streamingBuffer: '' });
+      set({ busy: false });
+    }
+  },
+
+  chat: async (message) => {
+    set({ busy: true, error: null });
+    try {
+      const status = await bridge.deepPlan.chat(message);
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  runPanel: async () => {
+    set({ busy: true, error: null });
+    try {
+      const status = await bridge.deepPlan.runPanel();
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  submitAnswers: async (answers) => {
+    set({ busy: true, error: null });
+    try {
+      const status = await bridge.deepPlan.submitAnswers(answers);
+      set({ status });
+    } catch (err) {
+      set({ error: (err as Error).message });
+    } finally {
+      set({ busy: false });
     }
   },
 
   advance: async () => {
-    set({ busy: true, error: null, streaming: true, streamingBuffer: '' });
+    set({ busy: true, error: null });
     try {
       const status = await bridge.deepPlan.advance();
       set({ status });
     } catch (err) {
       set({ error: (err as Error).message });
     } finally {
-      set({ busy: false, streaming: false, streamingBuffer: '' });
-    }
-  },
-
-  runResearch: async () => {
-    // Don't block the UI on the long-running research call — research is
-    // cancellable now, so the user needs to keep interacting with the store
-    // (stop, addHint) while the engine is churning.
-    set({ error: null });
-    try {
-      const status = await bridge.deepPlan.runResearch();
-      set({ status });
-    } catch (err) {
-      set({ error: (err as Error).message });
-    }
-  },
-
-  stopResearch: async () => {
-    try {
-      const status = await bridge.deepPlan.stopResearch();
-      set({ status });
-    } catch (err) {
-      set({ error: (err as Error).message });
-    }
-  },
-
-  addResearchHint: async (hint) => {
-    try {
-      const status = await bridge.deepPlan.addResearchHint(hint);
-      set({ status });
-    } catch (err) {
-      set({ error: (err as Error).message });
+      set({ busy: false });
     }
   },
 
@@ -152,17 +173,11 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   oneShot: async () => {
-    // Stay visible so the DraftGenerationModal can overlay the Deep Plan
-    // view while the model drafts. We hide Deep Plan only after the draft
-    // lands, so the editor revealing the finished doc is the last thing
-    // the user sees.
     set({
       busy: true,
       error: null,
       drafting: true,
       draftBuffer: '',
-      streaming: false,
-      streamingBuffer: '',
     });
     try {
       const status = await bridge.deepPlan.oneShot();
@@ -175,7 +190,7 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   },
 
   reset: async () => {
-    set({ busy: true, error: null });
+    set({ busy: true, error: null, panelProgress: emptyPanelProgress() });
     try {
       const status = await bridge.deepPlan.reset();
       set({ status, visible: false });
@@ -188,24 +203,59 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
 
   ingestChunk: (chunk) => {
     // During a one-shot draft, chunks feed the word-counter in the
-    // DraftGenerationModal rather than the planner's streaming bubble.
-    // We still accumulate them into a buffer so the counter can derive a
-    // live word count; the text itself is never shown.
+    // DraftGenerationModal. The text itself is never shown in the plan UI.
     if (get().drafting) {
       set((prev) => ({ draftBuffer: prev.draftBuffer + chunk }));
-      return;
     }
-    if (!get().streaming) set({ streaming: true });
-    set((prev) => ({ streamingBuffer: prev.streamingBuffer + chunk }));
   },
 
   finishStream: () => {
-    // Draft completion is handled inside `oneShot` itself — the main
-    // process broadcasts ChunkDone just before the IPC call resolves, so
-    // we ignore it here to avoid racing the modal down before the doc
-    // write lands. Planner-chat streams still need the reset.
+    // Draft completion is handled inside `oneShot` itself.
     if (get().drafting) return;
-    set({ streaming: false, streamingBuffer: '' });
+  },
+
+  applyPanelEvent: (event) => {
+    set((prev) => {
+      const progress = { ...prev.panelProgress, byRole: { ...prev.panelProgress.byRole } };
+      switch (event.kind) {
+        case 'round-start': {
+          const byRole: Record<string, PanelRoleStatus> = {};
+          for (const r of event.roles) byRole[r] = { state: 'pending' };
+          return {
+            panelProgress: {
+              roles: event.roles,
+              byRole,
+              researchDispatched: 0,
+              chair: 'idle',
+            },
+          };
+        }
+        case 'role-start':
+          progress.byRole[event.role] = { state: 'running' };
+          return { panelProgress: progress };
+        case 'role-done':
+          progress.byRole[event.role] = {
+            state: 'done',
+            findings: event.findings,
+            searchQueries: event.searchQueries,
+          };
+          return { panelProgress: progress };
+        case 'role-failed':
+          progress.byRole[event.role] = { state: 'failed', error: event.error };
+          return { panelProgress: progress };
+        case 'research-dispatched':
+          progress.researchDispatched = event.queries;
+          return { panelProgress: progress };
+        case 'chair-start':
+          progress.chair = 'running';
+          return { panelProgress: progress };
+        case 'chair-done':
+          progress.chair = 'done';
+          return { panelProgress: progress };
+        case 'round-done':
+          return { panelProgress: progress };
+      }
+    });
   },
 }));
 

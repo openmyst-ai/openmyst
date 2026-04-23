@@ -21,6 +21,9 @@ export const IpcChannels = {
     HasJinaKey: 'settings:has-jina-key',
     ClearJinaKey: 'settings:clear-jina-key',
     SetDeepPlanModel: 'settings:set-deep-plan-model',
+    SetChairModel: 'settings:set-chair-model',
+    SetDraftModel: 'settings:set-draft-model',
+    SetPanelModel: 'settings:set-panel-model',
     SetSummaryModel: 'settings:set-summary-model',
   },
   Projects: {
@@ -76,7 +79,9 @@ export const IpcChannels = {
     IngestLink: 'sources:ingest-link',
     PickFiles: 'sources:pick-files',
     List: 'sources:list',
+    ListAllAnchors: 'sources:list-all-anchors',
     Read: 'sources:read',
+    LookupAnchor: 'sources:lookup-anchor',
     Delete: 'sources:delete',
     Changed: 'sources:changed',
   },
@@ -91,18 +96,28 @@ export const IpcChannels = {
   DeepPlan: {
     Status: 'deep-plan:status',
     Start: 'deep-plan:start',
+    /** Submit a free-text turn (e.g. a follow-up question during ideation). */
     SendMessage: 'deep-plan:send-message',
+    /** Cheap chat with the Chair — no panel, no plan rewrite. Accumulates into pendingChatNotes. */
+    Chat: 'deep-plan:chat',
+    /** Explicitly trigger a panel round, optionally consuming pendingChatNotes. */
+    RunPanel: 'deep-plan:run-panel',
+    /** Submit answers to the Chair's pending questions. */
+    SubmitAnswers: 'deep-plan:submit-answers',
+    /** Force-advance to the next phase even if the Chair hasn't signalled. */
     Advance: 'deep-plan:advance',
-    RunResearch: 'deep-plan:run-research',
-    StopResearch: 'deep-plan:stop-research',
-    AddResearchHint: 'deep-plan:add-research-hint',
     Skip: 'deep-plan:skip',
+    /** Final handoff from `reviewing` to the drafter. */
     OneShot: 'deep-plan:one-shot',
     Reset: 'deep-plan:reset',
     Changed: 'deep-plan:changed',
+    /** Streaming chunks from the drafter (one-shot only now). */
     Chunk: 'deep-plan:chunk',
     ChunkDone: 'deep-plan:chunk-done',
+    /** Live research-engine events (panelist-dispatched queries). */
     ResearchEvent: 'deep-plan:research-event',
+    /** Live panel-round progress (role-start / role-done / chair-start / …). */
+    PanelProgress: 'deep-plan:panel-progress',
   },
   DeepSearch: {
     Status: 'deep-search:status',

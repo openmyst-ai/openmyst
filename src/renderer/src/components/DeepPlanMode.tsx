@@ -8,6 +8,8 @@ import { useMystLinkHandler } from '../hooks/useMystLinkHandler';
 import { StageBar } from './deepPlan/StageBar';
 import { SourcesColumn } from './deepPlan/SourcesColumn';
 import { WikiGraphColumn } from './deepPlan/WikiGraphColumn';
+import { VisionColumn } from './deepPlan/VisionColumn';
+import { AnchorLogColumn } from './deepPlan/AnchorLogColumn';
 import { ConversationColumn } from './deepPlan/ConversationColumn';
 import { DraftGenerationModal } from './deepPlan/DraftGenerationModal';
 import { SourcePreviewPopup } from './SourcePreview';
@@ -33,18 +35,18 @@ export function DeepPlanMode(): JSX.Element {
   const { project, openSettings, settings } = useApp();
   const {
     status,
-    streaming,
-    streamingBuffer,
     busy,
     error,
     refresh,
     start,
     ingestChunk,
     finishStream,
+    applyPanelEvent,
     clearError,
   } = useDeepPlan();
 
   const [intentDraft, setIntentDraft] = useState('');
+  const [rightTab, setRightTab] = useState<'vision' | 'anchors' | 'graph'>('vision');
 
   const pushResearchEvent = useResearchEvents((s) => s.push);
 
@@ -63,13 +65,15 @@ export function DeepPlanMode(): JSX.Element {
     const offChunk = bridge.deepPlan.onChunk(ingestChunk);
     const offDone = bridge.deepPlan.onChunkDone(finishStream);
     const offEvent = bridge.deepPlan.onResearchEvent(pushResearchEvent);
+    const offPanel = bridge.deepPlan.onPanelProgress(applyPanelEvent);
     return () => {
       offChanged();
       offChunk();
       offDone();
       offEvent();
+      offPanel();
     };
-  }, [refresh, ingestChunk, finishStream, pushResearchEvent]);
+  }, [refresh, ingestChunk, finishStream, pushResearchEvent, applyPanelEvent]);
 
   const handleStart = useCallback(
     async (e: React.FormEvent) => {
@@ -81,21 +85,15 @@ export function DeepPlanMode(): JSX.Element {
   );
 
   const session = status?.session ?? null;
-  const needsIntent = !session || session.stage === 'intent';
-  // Managed-mode users don't bring their own OpenRouter key — the backend
-  // supplies one via the auth-gated proxy. Only the BYOK dev build needs
-  // to block Deep Plan on `hasOpenRouterKey`. Prior to this guard,
-  // managed users were seeing "Deep Plan needs an OpenRouter API key"
-  // and couldn't start a session because the warning disabled the input.
+  const needsIntent = !session;
   const hasOpenRouterKey = USE_OPENMYST ? true : (settings?.hasOpenRouterKey ?? false);
-  const isResearchStage = session?.stage === 'research';
 
   const tutorial = useTutorial('deepPlan');
 
   return (
     <div className="dp-root">
       <StageBar
-        stage={session?.stage ?? 'intent'}
+        phase={session?.phase ?? 'ideation'}
         onOpenSettings={openSettings}
       />
 
@@ -117,7 +115,7 @@ export function DeepPlanMode(): JSX.Element {
         </div>
       )}
 
-      <div className={`dp-body${isResearchStage ? ' dp-body-research' : ''}`}>
+      <div className="dp-body">
         <aside className="dp-col dp-col-left" data-tutorial="dp-sources">
           <SourcesColumn />
         </aside>
@@ -135,13 +133,43 @@ export function DeepPlanMode(): JSX.Element {
           ) : (
             <ConversationColumn session={session!} />
           )}
-          {streaming && needsIntent && (
-            <div className="dp-stream-pre">{streamingBuffer}</div>
-          )}
         </section>
 
         <aside className="dp-col dp-col-right" data-tutorial="dp-wiki">
-          <WikiGraphColumn />
+          <div className="dp-right-tabs" role="tablist" aria-label="Right panel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'vision'}
+              className={`dp-right-tab${rightTab === 'vision' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('vision')}
+            >
+              Vision
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'anchors'}
+              className={`dp-right-tab${rightTab === 'anchors' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('anchors')}
+            >
+              Anchors
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rightTab === 'graph'}
+              className={`dp-right-tab${rightTab === 'graph' ? ' dp-right-tab-active' : ''}`}
+              onClick={() => setRightTab('graph')}
+            >
+              Graph
+            </button>
+          </div>
+          <div className="dp-right-tabpanel">
+            {rightTab === 'vision' && <VisionColumn />}
+            {rightTab === 'anchors' && <AnchorLogColumn />}
+            {rightTab === 'graph' && <WikiGraphColumn />}
+          </div>
         </aside>
       </div>
 

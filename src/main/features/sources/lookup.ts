@@ -16,6 +16,11 @@ export interface AnchorLookupHit {
   slug: string;
   anchor: SourceAnchor;
   text: string;
+  /** Source display name + origin URL, pulled from `<slug>.meta.json`. Lets
+   *  the hover UI show provenance without a second IPC round-trip. Either
+   *  may be undefined for old sources missing the meta file. */
+  sourceName?: string;
+  sourceUrl?: string;
 }
 
 async function readIndex(slug: string): Promise<SourceIndex | null> {
@@ -29,22 +34,55 @@ async function readIndex(slug: string): Promise<SourceIndex | null> {
   }
 }
 
+async function readMetaLite(
+  slug: string,
+): Promise<{ name: string; sourcePath?: string } | null> {
+  const metaPath = projectPath('sources', `${slug}.meta.json`);
+  if (!(await pathExists(metaPath))) return null;
+  try {
+    const meta = JSON.parse(await fs.readFile(metaPath, 'utf-8')) as SourceMeta;
+    return { name: meta.name, sourcePath: meta.sourcePath };
+  } catch {
+    return null;
+  }
+}
+
 export async function readAnchor(
   slug: string,
   anchorId: string,
 ): Promise<AnchorLookupHit | null> {
+  // Defend against callers that pass a slug with a trailing `.md` or a
+  // leading path (e.g. `foo/bar.md`). Panel prompts sometimes produce
+  // exactly that because the wiki block renders anchors as markdown hrefs
+  // (`slug.md#id`) and models copy the href wholesale.
+  const cleaned = slug
+    .trim()
+    .replace(/\.md$/i, '')
+    .split('/')
+    .filter(Boolean)
+    .pop() ?? '';
+  if (!cleaned) return null;
+  slug = cleaned;
   const index = await readIndex(slug);
   if (!index) return null;
   const anchor = index.anchors.find((a) => a.id === anchorId);
   if (!anchor) return null;
+  const meta = await readMetaLite(slug);
+  const metaFields = meta
+    ? { sourceName: meta.name, sourceUrl: meta.sourcePath }
+    : {};
+  // Prefer the verbatim text stored on the anchor itself — this is the
+  // post-phase-1 path where extraction persists the passage at index time.
+  // Fall back to a byte-range read for older indexes that were written
+  // before `text` existed.
+  if (typeof anchor.text === 'string' && anchor.text.length > 0) {
+    return { slug, anchor, text: anchor.text, ...metaFields };
+  }
   const rawPath = projectPath('sources', `${slug}.raw.txt`);
   if (!(await pathExists(rawPath))) return null;
-  // Offsets are JS string indices — matches how locateAnchors computed them
-  // via indexOf on the same capped prefix. Raw is capped at ~6KB so a full
-  // read + slice is cheap and correct for non-ASCII.
   const raw = await fs.readFile(rawPath, 'utf-8');
   const text = raw.slice(anchor.charStart, anchor.charEnd);
-  return { slug, anchor, text };
+  return { slug, anchor, text, ...metaFields };
 }
 
 export async function listAnchorSummaries(

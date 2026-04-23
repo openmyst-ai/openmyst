@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { DeepPlanMessage, DeepPlanSession, WikiGraph as WikiGraphData } from '@shared/types';
-import { bridge } from '../../api/bridge';
-import { useDeepPlan } from '../../store/deepPlan';
+import type {
+  ChairAnswer,
+  ChairAnswerMap,
+  ChairQuestion,
+  DeepPlanMessage,
+  DeepPlanSession,
+  PanelRole,
+} from '@shared/types';
+import { useDeepPlan, type PanelProgressState } from '../../store/deepPlan';
 import { useResearchEvents } from '../../store/researchEvents';
-import { useSourcePreview } from '../../store/sourcePreview';
-import { useSmoothText } from '../../hooks/useSmoothText';
 import { renderMarkdown } from '../../utils/markdown';
-import { stripDeepPlanFences } from './stripFences';
-import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
+import { QuestionCard } from './QuestionCard';
+import { CitationHoverScope } from './CitationHoverScope';
+import {
+  latestQueryText,
+  researchRunningFromEvents,
+} from '../../hooks/useResearchFlash';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -19,45 +27,52 @@ interface Props {
 }
 
 export function ConversationColumn({ session }: Props): JSX.Element {
-  const {
-    status,
-    streaming,
-    streamingBuffer,
-    busy,
-    sendMessage,
-    addResearchHint,
-  } = useDeepPlan();
+  const { status, busy, chat, runPanel, advance, oneShot, panelProgress } = useDeepPlan();
   const [draft, setDraft] = useState('');
-  const [steerAck, setSteerAck] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Sticky-bottom behavior. `pinned` means the user is parked at (or
-  // very near) the bottom of the scroll region, so new chunks should
-  // keep it glued there. The moment they scroll up to re-read something
-  // we flip it off and stop yanking them back down — that's the
-  // "can't scroll up while the model is generating" bug.
   const pinnedRef = useRef(true);
-  const researchRunning = status?.researchRunning ?? false;
 
-  // Typewriter smoothing. `streamingBuffer` lands in uneven bursts
-  // straight from the token stream; `smoothBuffer` releases chars at a
-  // steady ~60fps cadence so prose reads letter-by-letter.
-  const smoothBuffer = useSmoothText(streamingBuffer);
+  const roundRunning = status?.roundRunning ?? false;
+  const pendingQuestions = session.pendingQuestions ?? [];
 
-  // Transient "✓ Steering: …" ack under the input — dismisses itself so
-  // we don't have to manage clear-on-next-hint etc.
-  useEffect(() => {
-    if (!steerAck) return;
-    const id = window.setTimeout(() => setSteerAck(null), 3200);
-    return () => window.clearTimeout(id);
-  }, [steerAck]);
+  // The Chair signals `phaseAdvance: true` on the last chair-turn when it
+  // thinks the phase is done. We surface a contextual CTA inline so the user
+  // doesn't have to hunt for the top-bar "Continue" button — keeping the
+  // discussion path equally prominent so they can also just keep typing.
+  // CTA visibility: once the first chair-turn has landed and nothing's
+  // blocking (round not running, no pending questions, not done), always
+  // surface the advance CTA. The Chair's `phaseAdvance` hint was too
+  // shy at planning/reviewing boundaries — especially without an anchor
+  // log to evaluate against — so we hand the decision to the user.
+  const shouldShowAdvanceCta = useMemo(() => {
+    if (roundRunning || busy) return false;
+    if (pendingQuestions.length > 0) return false;
+    if (session.phase === 'done') return false;
+    const hasChairTurn = session.messages.some((m) => m.kind === 'chair-turn' && m.chair);
+    return hasChairTurn;
+  }, [session.messages, session.phase, pendingQuestions.length, roundRunning, busy]);
+
+  // Map each `user-answers` message to the Chair questions it was
+  // answering, so we can render prompts + labels instead of raw ids.
+  // Walk forwards keeping a handle on the most recent chair-turn's
+  // questions; when we hit a user-answers message, pair them up.
+  const answeredQuestionsById = useMemo(() => {
+    const out = new Map<string, ChairQuestion[]>();
+    let currentChairQuestions: ChairQuestion[] = [];
+    for (const m of session.messages) {
+      if (m.kind === 'chair-turn' && m.chair) {
+        currentChairQuestions = m.chair.questions;
+      } else if (m.kind === 'user-answers') {
+        out.set(m.id, currentChairQuestions);
+      }
+    }
+    return out;
+  }, [session.messages]);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = (): void => {
-      // 48px of slack — if the user is within a few lines of the
-      // bottom we treat them as pinned and keep auto-scrolling; once
-      // they scroll further up, we back off until they return.
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       pinnedRef.current = distance < 48;
     };
@@ -70,89 +85,86 @@ export function ConversationColumn({ session }: Props): JSX.Element {
     if (!el) return;
     if (!pinnedRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
-  }, [session.messages.length, smoothBuffer]);
+  }, [session.messages.length, pendingQuestions.length, roundRunning]);
 
-  const stage = session.stage;
-  const isResearchStage = stage === 'research';
-  const isDone = stage === 'done';
+  const isDone = session.phase === 'done';
 
-  // During the research stage the single chat input becomes the steering
-  // channel — submit it and it's added as a mid-run hint rather than a
-  // normal chat turn.
+  const pendingChatNotes = session.pendingChatNotes ?? [];
+  const hasChatNotes = pendingChatNotes.length > 0;
+
   const handleSend = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       const text = draft.trim();
-      if (!text) return;
-      if (isResearchStage) {
-        if (!researchRunning) return;
-        setDraft('');
-        setSteerAck(text);
-        await addResearchHint(text);
-        return;
-      }
-      if (busy) return;
+      if (!text || busy) return;
       setDraft('');
-      await sendMessage(text);
+      // Default path after the first round: free-chat with the Chair.
+      // Before the first round has completed there is nothing to chat about
+      // yet, so we no-op silently (the round is firing).
+      await chat(text);
     },
-    [draft, busy, isResearchStage, researchRunning, sendMessage, addResearchHint],
+    [draft, busy, chat],
   );
 
-  // During research the center column becomes the stage: the wiki graph
-  // fills it, new sources arrive as pending purple dots that glow when
-  // ingested, and a steer input sits pinned at the bottom. The right
-  // column meanwhile switches to a query-with-rationale log.
-  if (isResearchStage) {
-    return (
-      <ResearchStageView
-        draft={draft}
-        setDraft={setDraft}
-        steerAck={steerAck}
-        handleSend={handleSend}
-        researchRunning={researchRunning}
-      />
-    );
-  }
+  const handleTakeToPanel = useCallback(async () => {
+    if (busy || roundRunning) return;
+    await runPanel();
+  }, [busy, roundRunning, runPanel]);
 
   return (
     <div className="dp-chat">
-      <div className="dp-chat-scroll" ref={scrollRef}>
-        {session.messages.length === 0 && !streaming && (
+      <CitationHoverScope className="dp-chat-scroll" ref={scrollRef}>
+        {session.messages.length === 0 && !roundRunning && (
           <div className="dp-empty">Starting the Deep Plan conversation…</div>
         )}
         {session.messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble
+            key={m.id}
+            message={m}
+            answeredQuestions={answeredQuestionsById.get(m.id)}
+          />
         ))}
-        {streaming && (() => {
-          const { visible } = stripDeepPlanFences(smoothBuffer);
-          // Always show a Thinking indicator while the stream is open. Between
-          // multi-round source_lookup resolutions the model can go silent for
-          // 30–90s while disk/network work happens — if we only showed the
-          // dots when `isWriting` was true, the user sees visible prose from
-          // an earlier round just sitting there and assumes we're frozen.
-          return (
-            <div className="dp-msg dp-msg-assistant">
-              <div className="dp-msg-body">
-                {visible && <Markdown text={visible} />}
-                <div className="dp-typing dp-typing-fade">
-                  <span className="generating-dots">
-                    <span className="dot" />
-                    <span className="dot" />
-                    <span className="dot" />
-                  </span>
-                  <span className="dp-muted"> Thinking…</span>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-      </div>
+        {roundRunning && <PanelProgressPanel progress={panelProgress} />}
+        {roundRunning && <SearchingBanner />}
+        {!roundRunning && pendingQuestions.length > 0 && (
+          <QuestionCard questions={pendingQuestions} />
+        )}
+        {shouldShowAdvanceCta && (
+          <PhaseAdvanceCta
+            phase={session.phase}
+            onAdvance={() => void (session.phase === 'reviewing' ? oneShot() : advance())}
+            disabled={busy}
+          />
+        )}
+      </CitationHoverScope>
 
       <div className="dp-chat-footer">
+        {hasChatNotes && !roundRunning && (
+          <div className="dp-chat-notes-chip">
+            <span className="dp-chat-notes-label">
+              {pendingChatNotes.length} chat {pendingChatNotes.length === 1 ? 'note' : 'notes'} queued for panel
+            </span>
+            <button
+              type="button"
+              className="dp-btn dp-btn-ghost dp-btn-small"
+              onClick={() => void handleTakeToPanel()}
+              disabled={busy}
+              title="Run a fresh panel round with your chat notes as context"
+            >
+              Take to panel
+            </button>
+          </div>
+        )}
         <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
           <AutoResizeTextarea
             className="dp-chat-input"
-            placeholder={isDone ? 'Deep Plan complete.' : 'Write a reply…'}
+            placeholder={
+              isDone
+                ? 'Deep Plan complete.'
+                : pendingQuestions.length > 0
+                ? 'Answer the card — or chat with the Chair…'
+                : 'Chat with the Chair about the plan…'
+            }
             value={draft}
             onChange={setDraft}
             onSubmit={() => void handleSend(new Event('submit') as unknown as React.FormEvent)}
@@ -180,13 +192,6 @@ interface AutoResizeProps {
   disabled?: boolean;
 }
 
-/**
- * Textarea that grows with its content. Starts at ~2 lines and expands
- * up to ~40% of the viewport before it switches to internal scrolling,
- * so pasting or typing a long prompt doesn't get cramped into a tiny
- * 2-line box. Enter submits; Shift+Enter inserts a newline (standard
- * chat convention).
- */
 function AutoResizeTextarea({
   className,
   placeholder,
@@ -222,174 +227,342 @@ function AutoResizeTextarea({
   );
 }
 
-interface ResearchStageViewProps {
-  draft: string;
-  setDraft: (s: string) => void;
-  steerAck: string | null;
-  handleSend: (e: React.FormEvent) => Promise<void>;
-  researchRunning: boolean;
+interface MessageBubbleProps {
+  message: DeepPlanMessage;
+  answeredQuestions?: ChairQuestion[];
 }
 
-function ResearchStageView({
-  draft,
-  setDraft,
-  steerAck,
-  handleSend,
-  researchRunning,
-}: ResearchStageViewProps): JSX.Element {
-  const [graph, setGraph] = useState<WikiGraphData | null>(null);
-  const researchEvents = useResearchEvents((s) => s.events);
-  const openPreview = useSourcePreview((s) => s.open);
-
-  useEffect(() => {
-    const load = (): void => {
-      bridge.wiki.graph().then(setGraph).catch(console.error);
-    };
-    load();
-    const off = bridge.sources.onChanged(load);
-    return off;
-  }, []);
-
-  const freshSlugs = useMemo(
-    () => freshSlugsFromEvents(researchEvents),
-    [researchEvents],
-  );
-  const currentQuery = useMemo(() => latestQueryText(researchEvents), [researchEvents]);
-  const flashQuery = useQueryFlash(currentQuery);
-
-  const handleNodeOpen = (slug: string): void => {
-    void bridge.sources.list().then((all) => {
-      const full = all.find((s) => s.slug === slug);
-      if (full) openPreview(full);
-    });
-  };
-
-  return (
-    <div className="dp-chat dp-chat-research">
-      <div className="dp-research-graph-wrap">
-        {researchRunning && (
-          <div
-            className={`dp-research-thinking${flashQuery ? ' dp-research-thinking-flashing' : ''}`}
-          >
-            <span className="generating-dots">
-              <span className="dot" />
-              <span className="dot" />
-              <span className="dot" />
-            </span>
-            <span className="dp-research-thinking-label">Researching</span>
-            <span
-              className={`dp-research-thinking-query${flashQuery ? ' dp-research-thinking-query-open' : ''}`}
-            >
-              {flashQuery ?? ''}
-            </span>
-          </div>
-        )}
-        <WikiGraph
-          graph={graph}
-          freshSlugs={freshSlugs}
-          running={researchRunning}
-          onNodeOpen={handleNodeOpen}
-          fillContainer
-          hideTooltip
-          showLabels
-          enableZoom
-          baseRadius={5}
-          radiusPerEdge={2}
-          hitRadiusPad={8}
-        />
-      </div>
-      <div className="dp-chat-footer">
-        {steerAck && (
-          <div className="dp-steer-ack" key={steerAck}>
-            <span className="dp-steer-ack-mark">✓</span>
-            <span className="dp-steer-ack-label">Steering:</span>
-            <span className="dp-steer-ack-text">{steerAck}</span>
-          </div>
-        )}
-        <form className="dp-chat-form" onSubmit={(e) => void handleSend(e)}>
-          <AutoResizeTextarea
-            className="dp-chat-input"
-            placeholder="Steer research…"
-            value={draft}
-            onChange={setDraft}
-            onSubmit={() => void handleSend(new Event('submit') as unknown as React.FormEvent)}
-            disabled={!researchRunning}
-          />
-          <button
-            type="submit"
-            className="dp-btn"
-            disabled={!researchRunning || draft.trim().length === 0}
-          >
-            Steer
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/**
- * When the live query text changes to a new non-null value, flash it in
- * the "Researching …" pill for ~3.5s, then collapse the pill back to
- * just "Researching". Each new query resets the timer so rapid-fire
- * queries visibly chain through the bubble instead of a single one
- * sticking.
- */
-function useQueryFlash(query: string | null): string | null {
-  const [flash, setFlash] = useState<string | null>(null);
-  const lastSeenRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!query) return;
-    if (query === lastSeenRef.current) return;
-    lastSeenRef.current = query;
-    setFlash(query);
-    const t = window.setTimeout(() => setFlash(null), 3500);
-    return () => window.clearTimeout(t);
-  }, [query]);
-  return flash;
-}
-
-function latestQueryText(events: Array<{ kind: string; runId?: string; query?: string }>): string | null {
-  // Walk backwards within the current run so a newly-kicked query's text
-  // lights up immediately. Resets on run-start so stale text from a
-  // previous run doesn't bleed through.
-  let runId: string | null = null;
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i]!;
-    if (!runId && ev.runId) runId = ev.runId;
-    if (ev.kind === 'run-start') return null;
-    if (ev.runId !== runId) break;
-    if (ev.kind === 'query-start' && typeof ev.query === 'string') {
-      return ev.query;
-    }
-  }
-  return null;
-}
-
-function MessageBubble({ message }: { message: DeepPlanMessage }): JSX.Element {
-  if (message.kind === 'stage-transition') {
+function MessageBubble({
+  message,
+  answeredQuestions,
+}: MessageBubbleProps): JSX.Element | null {
+  if (message.kind === 'phase-transition') {
     return (
       <div className="dp-stage-transition">
         <span>{message.content}</span>
       </div>
     );
   }
-  if (message.kind === 'research-note') {
+  if (message.kind === 'user-answers') {
     return (
-      <div className="dp-research-note">
-        <div className="dp-research-note-body">
+      <AnswersRecap
+        answers={message.answers ?? {}}
+        questions={answeredQuestions ?? []}
+      />
+    );
+  }
+  if (message.kind === 'user-chat' || message.kind === 'chair-chat') {
+    // Free-chat turns are styled lighter than panel-round messages so the
+    // user can see at a glance which threads are "panel work" vs "just
+    // talking". Still markdown-rendered so citations + links work.
+    const klass =
+      message.kind === 'user-chat'
+        ? 'dp-msg dp-msg-user dp-msg-chat dp-msg-chat-user'
+        : 'dp-msg dp-msg-assistant dp-msg-chat dp-msg-chat-chair';
+    return (
+      <div className={klass}>
+        <div className="dp-msg-body">
           <Markdown text={message.content} />
         </div>
       </div>
     );
   }
+
   const klass = message.role === 'user' ? 'dp-msg dp-msg-user' : 'dp-msg dp-msg-assistant';
-  const { visible } = stripDeepPlanFences(message.content);
   return (
     <div className={klass}>
       <div className="dp-msg-body">
-        <Markdown text={visible || message.content} />
+        <Markdown text={message.content} />
       </div>
     </div>
+  );
+}
+
+interface PhaseAdvanceCtaProps {
+  phase: DeepPlanSession['phase'];
+  onAdvance: () => void;
+  disabled: boolean;
+}
+
+/**
+ * Appears after the last chair-turn when the Chair signalled phaseAdvance.
+ * Gives the user a clean choice: continue the conversation (just keep
+ * typing below), or commit to the next phase. We keep the language light —
+ * the chair has already summarised; this card is purely a UX handle.
+ */
+function PhaseAdvanceCta({ phase, onAdvance, disabled }: PhaseAdvanceCtaProps): JSX.Element {
+  const nextLabel: string = (() => {
+    if (phase === 'ideation') return 'Continue to planning';
+    if (phase === 'planning') return 'Continue to reviewing';
+    if (phase === 'reviewing') return 'Write the draft';
+    return 'Continue';
+  })();
+  const nextName: string = (() => {
+    if (phase === 'ideation') return 'planning';
+    if (phase === 'planning') return 'reviewing';
+    if (phase === 'reviewing') return 'drafting';
+    return 'next phase';
+  })();
+  return (
+    <div className="dp-advance-cta" role="status">
+      <div className="dp-advance-cta-body">
+        <div className="dp-advance-cta-title">Ready when you are.</div>
+        <div className="dp-advance-cta-sub">
+          Keep chatting below to shape the vision — anything you say will
+          steer the next round. Or lock it in and move to {nextName}.
+        </div>
+      </div>
+      <button
+        type="button"
+        className="dp-btn dp-btn-primary dp-btn-small"
+        onClick={onAdvance}
+        disabled={disabled}
+      >
+        {nextLabel}
+      </button>
+    </div>
+  );
+}
+
+interface AnswersRecapProps {
+  answers: ChairAnswerMap;
+  questions: ChairQuestion[];
+}
+
+/**
+ * Compact, readable recap of what the user answered. Looks up each
+ * question by id so we can show the original prompt and the human
+ * choice label rather than raw `q1: economics-policy` shorthand.
+ * Skipped questions stay in the list but dim down — seeing "(skipped)"
+ * helps the panel understand what the user chose not to commit on.
+ */
+function AnswersRecap({ answers, questions }: AnswersRecapProps): JSX.Element | null {
+  const byId = useMemo(() => new Map(questions.map((q) => [q.id, q])), [questions]);
+  const entries = Object.entries(answers);
+  if (entries.length === 0) return null;
+
+  const resolve = (qId: string, ans: ChairAnswer): string => {
+    const q = byId.get(qId);
+    if (ans === null) return '(skipped)';
+    if (Array.isArray(ans)) {
+      const labels = ans.map((id) => q?.choices?.find((c) => c.id === id)?.label ?? id);
+      return labels.join(', ');
+    }
+    if (q?.type === 'choice' || q?.type === 'confirm') {
+      const c = q.choices?.find((x) => x.id === ans);
+      return c?.label ?? ans;
+    }
+    return ans;
+  };
+
+  return (
+    <div className="dp-answers">
+      <div className="dp-answers-head">You answered</div>
+      <ol className="dp-answers-list">
+        {entries.map(([qId, ans]) => {
+          const q = byId.get(qId);
+          const prompt = q?.prompt ?? `Question ${qId}`;
+          const answerText = resolve(qId, ans);
+          const skipped = ans === null;
+          return (
+            <li
+              key={qId}
+              className={`dp-answers-row${skipped ? ' dp-answers-row-skipped' : ''}`}
+            >
+              <div className="dp-answers-q">{prompt}</div>
+              <div className="dp-answers-a">{answerText}</div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/* ---------------------------- Searching banner ---------------------------- */
+
+/**
+ * Shown below the panel card while the research engine is mid-run. The
+ * floating pill on the graph already calls this out visually — this chat-
+ * side banner exists so users who are scrolled up in the transcript (or
+ * focused on the conversation column) also see that we're actively
+ * searching the web and shouldn't close the window.
+ */
+function SearchingBanner(): JSX.Element | null {
+  const events = useResearchEvents((s) => s.events);
+  const searching = useMemo(() => researchRunningFromEvents(events), [events]);
+  const currentQuery = useMemo(() => latestQueryText(events), [events]);
+  if (!searching) return null;
+  return (
+    <div className="dp-searching" role="status" aria-live="polite">
+      <span className="dp-searching-icon generating-dots" aria-hidden>
+        <span className="dot" />
+        <span className="dot" />
+        <span className="dot" />
+      </span>
+      <div className="dp-searching-body">
+        <div className="dp-searching-title">Searching the web — sit tight</div>
+        <div className="dp-searching-sub">
+          {currentQuery
+            ? `Looking up “${currentQuery}”`
+            : 'Running the queries the panel asked for…'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------- Panel progress ---------------------------- */
+
+/**
+ * Each role exposes a short "I'm looking for X" tagline so the user sees
+ * *what* the panelist is doing, not just that they're running. This
+ * mirrors the persona block in the panel prompts — kept terse so the
+ * live progress view stays scannable.
+ */
+const ROLE_DESCRIPTORS: Record<PanelRole, { label: string; tagline: string }> = {
+  explorer: { label: 'Explorer', tagline: 'Angles you haven’t tried yet' },
+  scoper: { label: 'Scoper', tagline: 'What’s in, what’s out' },
+  stakes: { label: 'Stakes', tagline: 'Why this matters, and to whom' },
+  architect: { label: 'Architect', tagline: 'Shape of the piece' },
+  evidence: { label: 'Evidence', tagline: 'Sources behind each claim' },
+  steelman: { label: 'Steelman', tagline: 'Strongest version of the argument' },
+  skeptic: { label: 'Skeptic', tagline: 'Holes in the reasoning' },
+  adversary: { label: 'Adversary', tagline: 'How a hostile reader attacks this' },
+  editor: { label: 'Editor', tagline: 'Clarity, pacing, voice' },
+  audience: { label: 'Audience', tagline: 'What readers actually want' },
+  finaliser: { label: 'Finaliser', tagline: 'Ready to hand off to the drafter?' },
+};
+
+interface PanelProgressPanelProps {
+  progress: PanelProgressState;
+}
+
+function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element {
+  const { roles, byRole, researchDispatched, chair } = progress;
+  const doneCount = roles.filter((r) => byRole[r]?.state === 'done').length;
+  const runningCount = roles.filter((r) => byRole[r]?.state === 'running').length;
+
+  const status: string = (() => {
+    if (chair === 'running') return 'Chair is synthesising the panel’s findings…';
+    if (chair === 'done') return 'Chair is finalising your questions…';
+    if (doneCount === roles.length && roles.length > 0) return 'Panel is done deliberating.';
+    if (runningCount > 0) return `${runningCount} panelist${runningCount === 1 ? '' : 's'} still thinking…`;
+    return 'Panel is assembling…';
+  })();
+
+  return (
+    <div className="dp-panel">
+      <div className="dp-panel-head">
+        <div className="dp-panel-title">
+          <span className="dp-panel-title-label">The panel is deliberating</span>
+          <span className="dp-panel-title-count">
+            {doneCount}/{roles.length} done
+          </span>
+        </div>
+        <div className="dp-panel-status">
+          <span className="generating-dots dp-panel-dots">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+          </span>
+          <span className="dp-panel-status-text">{status}</span>
+        </div>
+      </div>
+
+      <ul className="dp-panel-roles">
+        {roles.map((role) => {
+          const entry = byRole[role];
+          const state = entry?.state ?? 'pending';
+          const meta = ROLE_DESCRIPTORS[role];
+          const findings =
+            entry?.state === 'done'
+              ? entry.findings
+              : undefined;
+          const searchQueries =
+            entry?.state === 'done'
+              ? entry.searchQueries
+              : undefined;
+          const errorMsg = entry?.state === 'failed' ? entry.error : undefined;
+
+          return (
+            <li key={role} className={`dp-panel-role dp-panel-role-${state}`}>
+              <div className="dp-panel-role-indicator" aria-hidden>
+                {state === 'pending' && <span className="dp-panel-indicator-empty" />}
+                {state === 'running' && <span className="dp-panel-indicator-spin" />}
+                {state === 'done' && <span className="dp-panel-indicator-check">✓</span>}
+                {state === 'failed' && <span className="dp-panel-indicator-cross">!</span>}
+              </div>
+              <div className="dp-panel-role-body">
+                <div className="dp-panel-role-head">
+                  <span className="dp-panel-role-name">{meta.label}</span>
+                  <PanelRoleStatusText
+                    state={state}
+                    findings={findings}
+                    searchQueries={searchQueries}
+                  />
+                </div>
+                <div className="dp-panel-role-tagline">
+                  {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="dp-panel-foot">
+        {researchDispatched > 0 && (
+          <span className="dp-panel-foot-chip">
+            {researchDispatched} {researchDispatched === 1 ? 'query' : 'queries'} sent to the web
+          </span>
+        )}
+        <span
+          className={`dp-panel-foot-chip dp-panel-foot-chair dp-panel-foot-chair-${chair}`}
+        >
+          {chair === 'idle' && 'Chair waiting'}
+          {chair === 'running' && 'Chair synthesising'}
+          {chair === 'done' && 'Chair ready'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function PanelRoleStatusText({
+  state,
+  findings,
+  searchQueries,
+}: {
+  state: 'pending' | 'running' | 'done' | 'failed';
+  findings?: number;
+  searchQueries?: number;
+}): JSX.Element {
+  if (state === 'pending') {
+    return <span className="dp-panel-role-note dp-panel-role-note-pending">Queued</span>;
+  }
+  if (state === 'running') {
+    return <span className="dp-panel-role-note dp-panel-role-note-running">Thinking…</span>;
+  }
+  if (state === 'failed') {
+    return <span className="dp-panel-role-note dp-panel-role-note-failed">Skipped (error)</span>;
+  }
+  const parts: string[] = [];
+  if (typeof findings === 'number') {
+    parts.push(
+      findings === 0
+        ? 'No new concerns'
+        : `${findings} ${findings === 1 ? 'concern' : 'concerns'} raised`,
+    );
+  }
+  if (typeof searchQueries === 'number' && searchQueries > 0) {
+    parts.push(
+      `${searchQueries} search${searchQueries === 1 ? '' : 'es'} asked for`,
+    );
+  }
+  return (
+    <span className="dp-panel-role-note dp-panel-role-note-done">
+      {parts.length > 0 ? parts.join(' · ') : 'Done'}
+    </span>
   );
 }

@@ -5,6 +5,7 @@ import { broadcast, log, logError } from '../../platform';
 import { listSources, prepareIngestDigest, saveIngestedDigest } from '../sources';
 import { searchWeb, type JinaResult } from './search';
 import { fetchUrlAsMarkdown } from './fetch';
+import { checkSourceAllowed } from './credibility';
 import type { ResearchQueryProposal } from '../deepPlan/parse';
 
 /**
@@ -234,6 +235,19 @@ async function runOneQuery(
       url: result.url,
       title: result.title,
     });
+
+    const verdict = checkSourceAllowed(result.url);
+    if (!verdict.allowed) {
+      log('research', 'credibility.blocked', { url: result.url, host: verdict.host ?? null });
+      emit(ctx, {
+        kind: 'result-skipped',
+        runId: ctx.runId,
+        queryId,
+        resultId,
+        reason: 'blocked-host',
+      });
+      continue;
+    }
 
     const canonical = canonicalUrl(result.url);
     if (seen.has(canonical)) {

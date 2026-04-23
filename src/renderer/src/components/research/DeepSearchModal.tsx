@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SourceMeta, WikiGraph as WikiGraphData } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useDeepSearch } from '../../store/deepSearch';
 import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
 import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
+import { latestQueryText, useQueryFlash } from '../../hooks/useResearchFlash';
 
 /**
  * Deep Wiki — the unified surface for browsing and extending the project's
@@ -349,40 +350,3 @@ export function DeepSearchModal(): JSX.Element | null {
   );
 }
 
-/**
- * Flash the most recent query into the "Researching" pill for ~3.5s,
- * then collapse back. Each new query resets the timer so rapid-fire
- * queries visibly chain through the bubble.
- */
-function useQueryFlash(query: string | null): string | null {
-  const [flash, setFlash] = useState<string | null>(null);
-  const lastSeenRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!query) return;
-    if (query === lastSeenRef.current) return;
-    lastSeenRef.current = query;
-    setFlash(query);
-    const t = window.setTimeout(() => setFlash(null), 3500);
-    return () => window.clearTimeout(t);
-  }, [query]);
-  return flash;
-}
-
-function latestQueryText(
-  events: Array<{ kind: string; runId?: string; query?: string }>,
-): string | null {
-  // Newest-first walk within the current run, so the banner flips to the
-  // latest query text the instant the engine fires one. Bails on
-  // run-start so text from a previous run can't leak through.
-  let runId: string | null = null;
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i]!;
-    if (!runId && ev.runId) runId = ev.runId;
-    if (ev.kind === 'run-start') return null;
-    if (ev.runId !== runId) break;
-    if (ev.kind === 'query-start' && typeof ev.query === 'string') {
-      return ev.query;
-    }
-  }
-  return null;
-}

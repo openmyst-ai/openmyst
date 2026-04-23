@@ -1,14 +1,13 @@
-import type { DeepPlanRubric } from '@shared/types';
+import type { DeepPlanSession } from '@shared/types';
 import { log } from '../../platform';
 
 /**
  * LLM-facing lookups for project-level context that used to be glued into the
- * system prompt on every turn: the active document, the Deep Plan rubric, and
- * the research queries already run. Pulling these on demand (via fences) cuts
- * the default turn's system prompt by the size of the doc plus ~500w of
- * rubric/queries scaffolding.
+ * system prompt on every turn: the active document, the Deep Plan plan.md +
+ * requirements, and the research queries already run. Pulling these on demand
+ * (via fences) keeps the default turn's system prompt small.
  *
- * Three new fence types, all optional:
+ * Fence types, all optional:
  *
  *   ```doc_lookup
  *   {}                                   // full current contents of the active doc
@@ -22,8 +21,8 @@ import { log } from '../../platform';
  *   {"from": 0, "to": 2000}              // byte-range slice of the doc
  *   ```
  *
- *   ```rubric_lookup
- *   {}                                    // full Deep Plan rubric, if any
+ *   ```plan_lookup
+ *   {}                                    // Deep Plan requirements + plan.md, if any
  *   ```
  *
  *   ```queries_lookup
@@ -35,7 +34,7 @@ import { log } from '../../platform';
  */
 
 const DOC_FENCE = /```doc_lookup\s*\n([\s\S]*?)```/g;
-const RUBRIC_FENCE = /```rubric_lookup\s*\n([\s\S]*?)```/g;
+const PLAN_FENCE = /```plan_lookup\s*\n([\s\S]*?)```/g;
 const QUERIES_FENCE = /```queries_lookup\s*\n([\s\S]*?)```/g;
 
 export interface DocLookupRequest {
@@ -59,7 +58,6 @@ function parseFence<T>(text: string, re: RegExp, cast: (obj: unknown) => T | nul
       try {
         parsed = JSON.parse(body);
       } catch {
-        // tolerate empty / malformed bodies — treat as no-args
         parsed = {};
       }
     }
@@ -81,19 +79,14 @@ export function parseDocLookups(text: string): { requests: DocLookupRequest[]; s
   });
 }
 
-export function parseRubricLookups(text: string): { requests: true[]; stripped: string } {
-  return parseFence<true>(text, RUBRIC_FENCE, () => true);
+export function parsePlanLookups(text: string): { requests: true[]; stripped: string } {
+  return parseFence<true>(text, PLAN_FENCE, () => true);
 }
 
 export function parseQueriesLookups(text: string): { requests: true[]; stripped: string } {
   return parseFence<true>(text, QUERIES_FENCE, () => true);
 }
 
-/**
- * Slice the doc around the first occurrence of `find` — one paragraph before
- * and after, so the model sees enough context to know what it's editing
- * without pulling the whole doc.
- */
 function paragraphWindowAround(doc: string, needle: string): string | null {
   const hay = doc.toLowerCase();
   const n = needle.toLowerCase();
@@ -152,31 +145,48 @@ export function formatDocReply(
   return parts.join('\n\n---\n\n');
 }
 
-export function formatRubricReply(rubric: DeepPlanRubric | null): string {
-  if (!rubric) {
-    log('chat', 'contextLookup.rubric.none');
-    return '[rubric_lookup — no Deep Plan rubric exists for this project. The user did not run Deep Plan, or skipped it.]';
+export interface PlanLookupPayload {
+  /** The user's original task string, verbatim. */
+  task: string;
+  requirements: DeepPlanSession['requirements'];
+  /** vision.md body — dot-point intellectual spine (replaces the old plan.md). */
+  vision: string;
+}
+
+export function formatPlanReply(payload: PlanLookupPayload | null): string {
+  if (!payload) {
+    log('chat', 'contextLookup.plan.none');
+    return '[plan_lookup — no Deep Plan session exists for this project. The user did not run Deep Plan, or skipped it.]';
   }
+  const req = payload.requirements;
   const lines: string[] = [];
-  if (rubric.title) lines.push(`Title: ${rubric.title}`);
-  if (rubric.form) lines.push(`Form: ${rubric.form}`);
-  if (rubric.audience) lines.push(`Audience: ${rubric.audience}`);
-  if (rubric.lengthTarget) lines.push(`Length target: ${rubric.lengthTarget}`);
-  if (rubric.thesis) lines.push(`Thesis: ${rubric.thesis}`);
-  if (rubric.mustCover.length > 0) {
-    lines.push('', 'Must cover:');
-    for (const m of rubric.mustCover) lines.push(`- ${m}`);
+  lines.push(`Task: "${payload.task}"`);
+  lines.push('');
+  lines.push('Task requirements:');
+  if (req.wordCountMin !== null && req.wordCountMax !== null) {
+    if (req.wordCountMin === req.wordCountMax) {
+      lines.push(`- Word count: ~${req.wordCountMin}`);
+    } else {
+      lines.push(`- Word count: ${req.wordCountMin}–${req.wordCountMax}`);
+    }
+  } else if (req.wordCountMin !== null) {
+    lines.push(`- Word count: at least ${req.wordCountMin}`);
+  } else if (req.wordCountMax !== null) {
+    lines.push(`- Word count: at most ${req.wordCountMax}`);
+  } else {
+    lines.push('- Word count: (not specified)');
   }
-  if (rubric.mustAvoid.length > 0) {
-    lines.push('', 'Must avoid:');
-    for (const m of rubric.mustAvoid) lines.push(`- ${m}`);
-  }
-  const notes = rubric.notes.trim();
-  if (notes) {
-    lines.push('', 'Notes:', notes);
-  }
-  log('chat', 'contextLookup.rubric.hit', { fields: lines.length });
-  return `[rubric_lookup — Deep Plan rubric from .myst/deep-plan/session.json]\n\n${lines.join('\n')}`;
+  lines.push(`- Form: ${req.form ?? '(not specified)'}`);
+  lines.push(`- Audience: ${req.audience ?? '(not specified)'}`);
+  if (req.styleNotes) lines.push(`- Style notes: ${req.styleNotes}`);
+  lines.push('');
+  lines.push('vision.md:');
+  lines.push(payload.vision.trim() || '(vision.md is empty — Deep Plan was skipped or started but not completed)');
+  log('chat', 'contextLookup.plan.hit', {
+    visionChars: payload.vision.length,
+    hasWordCount: req.wordCountMin !== null || req.wordCountMax !== null,
+  });
+  return `[plan_lookup — Deep Plan vision + rubric from .myst/deep-plan/session.json]\n\n${lines.join('\n')}`;
 }
 
 export function formatQueriesReply(queries: string[]): string {

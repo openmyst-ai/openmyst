@@ -80,6 +80,7 @@ export async function completeText(options: CompleteTextOptions): Promise<string
       model,
     };
     if (options.logScope) managedOpts.logScope = options.logScope;
+    if (options.maxTokens !== undefined) managedOpts.maxTokens = options.maxTokens;
     return openmystCompleteText(managedOpts);
   }
 
@@ -92,5 +93,6 @@ export async function completeText(options: CompleteTextOptions): Promise<string
     messages: options.messages,
   };
   if (options.logScope) byokOpts.logScope = options.logScope;
+  if (options.maxTokens !== undefined) byokOpts.maxTokens = options.maxTokens;
   return openrouterCompleteText(byokOpts);
 }

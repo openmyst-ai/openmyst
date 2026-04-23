@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
 import type { MystApi } from '@shared/api';
-import type { DeepPlanResearchEvent } from '@shared/types';
+import type { DeepPlanResearchEvent, PanelProgressEvent } from '@shared/types';
 
 const api: MystApi = {
   auth: {
@@ -42,6 +42,9 @@ const api: MystApi = {
     hasJinaKey: () => ipcRenderer.invoke(IpcChannels.Settings.HasJinaKey),
     clearJinaKey: () => ipcRenderer.invoke(IpcChannels.Settings.ClearJinaKey),
     setDeepPlanModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDeepPlanModel, model),
+    setChairModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetChairModel, model),
+    setDraftModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDraftModel, model),
+    setPanelModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetPanelModel, model),
     setSummaryModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetSummaryModel, model),
   },
   projects: {
@@ -116,7 +119,10 @@ const api: MystApi = {
     ingestLink: (url) => ipcRenderer.invoke(IpcChannels.Sources.IngestLink, url),
     pickFiles: () => ipcRenderer.invoke(IpcChannels.Sources.PickFiles),
     list: () => ipcRenderer.invoke(IpcChannels.Sources.List),
+    listAllAnchors: () => ipcRenderer.invoke(IpcChannels.Sources.ListAllAnchors),
     read: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Read, slug),
+    lookupAnchor: (slug, anchorId) =>
+      ipcRenderer.invoke(IpcChannels.Sources.LookupAnchor, slug, anchorId),
     delete: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Delete, slug),
     onChanged: (callback) => {
       const handler = (): void => {
@@ -172,10 +178,10 @@ const api: MystApi = {
     status: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Status),
     start: (task) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task),
     sendMessage: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.SendMessage, message),
+    chat: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.Chat, message),
+    runPanel: () => ipcRenderer.invoke(IpcChannels.DeepPlan.RunPanel),
+    submitAnswers: (answers) => ipcRenderer.invoke(IpcChannels.DeepPlan.SubmitAnswers, answers),
     advance: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Advance),
-    runResearch: () => ipcRenderer.invoke(IpcChannels.DeepPlan.RunResearch),
-    stopResearch: () => ipcRenderer.invoke(IpcChannels.DeepPlan.StopResearch),
-    addResearchHint: (hint) => ipcRenderer.invoke(IpcChannels.DeepPlan.AddResearchHint, hint),
     skip: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Skip),
     oneShot: () => ipcRenderer.invoke(IpcChannels.DeepPlan.OneShot),
     reset: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Reset),
@@ -216,6 +222,18 @@ const api: MystApi = {
       ipcRenderer.on(IpcChannels.DeepPlan.ResearchEvent, handler);
       return () => {
         ipcRenderer.removeListener(IpcChannels.DeepPlan.ResearchEvent, handler);
+      };
+    },
+    onPanelProgress: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        payload: PanelProgressEvent,
+      ): void => {
+        callback(payload);
+      };
+      ipcRenderer.on(IpcChannels.DeepPlan.PanelProgress, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.DeepPlan.PanelProgress, handler);
       };
     },
   },

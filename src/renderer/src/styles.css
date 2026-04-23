@@ -1585,6 +1585,11 @@ img.login-logo {
   color: var(--doc-accent);
   text-decoration: none;
   border-bottom: 1px solid rgba(156, 180, 255, 0.4);
+  /* Tiptap's default caret-over-text cursor carries through links by
+   *  default; override so hovering a citation or wikilink shows the
+   *  standard pointer — consistent with every other link in the app
+   *  and a clearer affordance that the hover preview is clickable. */
+  cursor: pointer;
 }
 .tiptap a:hover,
 .pending-insert-text a:hover {
@@ -4384,5 +4389,1051 @@ img.login-logo {
   font-size: 11px;
   margin-top: 4px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Deep Plan — panel progress, answers recap, question card
+   Shared visual language: rounded card, subtle border, accent
+   mauve on active/selected, muted text for secondary info.
+   ============================================================ */
+
+/* ---- Panel progress ---- */
+.dp-panel {
+  align-self: stretch;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow-xs);
+}
+.dp-panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dp-panel-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dp-panel-title-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: 0.1px;
+}
+.dp-panel-title-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dp-panel-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dp-panel-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.dp-panel-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.55;
+  animation: dp-panel-dot 1.2s ease-in-out infinite;
+}
+.dp-panel-dots .dot:nth-child(2) { animation-delay: 160ms; }
+.dp-panel-dots .dot:nth-child(3) { animation-delay: 320ms; }
+@keyframes dp-panel-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+.dp-panel-status-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dp-panel-roles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 0;
+}
+.dp-panel-role {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 2px;
+  transition: opacity var(--dur) var(--ease);
+}
+.dp-panel-role-pending { opacity: 0.55; }
+.dp-panel-role-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+}
+.dp-panel-indicator-empty {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--border-strong);
+}
+.dp-panel-indicator-spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: dp-panel-spin 0.9s linear infinite;
+}
+@keyframes dp-panel-spin {
+  to { transform: rotate(360deg); }
+}
+.dp-panel-indicator-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+.dp-panel-indicator-cross {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--error-soft);
+  color: var(--error);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+.dp-panel-role-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dp-panel-role-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dp-panel-role-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.dp-panel-role-running .dp-panel-role-name {
+  color: var(--accent);
+}
+.dp-panel-role-failed .dp-panel-role-name {
+  color: var(--error);
+}
+.dp-panel-role-tagline {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.dp-panel-role-note {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dp-panel-role-note-running { color: var(--accent); }
+.dp-panel-role-note-failed { color: var(--error); }
+.dp-panel-role-note-done { color: var(--fg); opacity: 0.75; }
+
+.dp-panel-foot {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dp-panel-foot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.dp-panel-foot-chair-running {
+  background: var(--accent-soft);
+  border-color: var(--accent-bg);
+  color: var(--accent);
+}
+.dp-panel-foot-chair-done {
+  background: var(--accent-bg);
+  border-color: var(--accent-bg);
+  color: var(--accent-fg);
+}
+
+/* ---- Searching banner (chat side) ---- */
+.dp-searching {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: linear-gradient(
+    90deg,
+    rgba(196, 154, 171, 0.14),
+    rgba(196, 154, 171, 0.04)
+  );
+  border: 1px solid var(--accent-bg);
+  border-radius: var(--radius);
+  color: var(--fg);
+  box-shadow: 0 0 0 1px rgba(196, 154, 171, 0.08) inset;
+  animation: dp-searching-pulse 2.4s ease-in-out infinite;
+}
+@keyframes dp-searching-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(196, 154, 171, 0.08) inset; }
+  50% { box-shadow: 0 0 0 1px rgba(196, 154, 171, 0.28) inset, 0 0 18px rgba(196, 154, 171, 0.14); }
+}
+.dp-searching-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 3px;
+}
+.dp-searching-icon .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dp-panel-dot 1.2s ease-in-out infinite;
+}
+.dp-searching-icon .dot:nth-child(2) { animation-delay: 160ms; }
+.dp-searching-icon .dot:nth-child(3) { animation-delay: 320ms; }
+.dp-searching-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dp-searching-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.1px;
+}
+.dp-searching-sub {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Answers recap ---- */
+.dp-answers {
+  align-self: flex-end;
+  max-width: 78%;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dp-answers-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.dp-answers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: dp-answer;
+}
+.dp-answers-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 22px;
+  position: relative;
+}
+.dp-answers-row::before {
+  counter-increment: dp-answer;
+  content: counter(dp-answer);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.dp-answers-q {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.dp-answers-a {
+  font-size: 14px;
+  color: var(--fg);
+  line-height: 1.5;
+  font-weight: 500;
+}
+.dp-answers-row-skipped::before {
+  background: var(--bg-elev);
+  color: var(--muted);
+}
+.dp-answers-row-skipped .dp-answers-a {
+  color: var(--muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* ---- Question card ---- */
+.dp-qcard {
+  align-self: stretch;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.dp-qcard-progress {
+  display: flex;
+  gap: 4px;
+}
+.dp-qcard-progress-seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background var(--dur) var(--ease);
+}
+.dp-qcard-progress-seg-done {
+  background: var(--accent);
+  opacity: 0.55;
+}
+.dp-qcard-progress-seg-active {
+  background: var(--accent);
+  opacity: 1;
+}
+.dp-qcard-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.dp-qcard-type {
+  color: var(--accent);
+}
+.dp-qcard-prompt {
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--fg);
+  font-weight: 600;
+  letter-spacing: -0.1px;
+}
+.dp-qcard-rationale {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-top: -6px;
+}
+.dp-qcard-field {
+  margin-top: 2px;
+}
+.dp-qcard-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dp-qcard-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.dp-qcard-choice:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.dp-qcard-choice:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.dp-qcard-choice:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.dp-qcard-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dp-qcard-choice-selected,
+.dp-qcard-choice-selected:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.dp-qcard-choice-mark {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--border-strong);
+  color: var(--accent-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--bg-elev);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.dp-qcard-choice-mark-radio {
+  border-radius: 50%;
+}
+.dp-qcard-choice-mark-check {
+  border-radius: 5px;
+}
+.dp-qcard-choice-selected .dp-qcard-choice-mark-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--bg-panel);
+}
+.dp-qcard-choice-selected .dp-qcard-choice-mark-check {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg-panel);
+}
+.dp-qcard-choice-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.dp-qcard-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  resize: vertical;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.dp-qcard-textarea::placeholder {
+  color: var(--muted);
+}
+.dp-qcard-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.dp-qcard-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.dp-qcard-skip {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  padding: 8px 4px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.dp-qcard-skip:hover:not(:disabled) {
+  color: var(--fg);
+}
+.dp-qcard-skip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dp-qcard-next {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent-bg);
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.dp-qcard-next:hover:not(:disabled) {
+  background: var(--accent-bg-hover);
+  border-color: var(--accent-bg-hover);
+  box-shadow: var(--shadow-sm);
+}
+.dp-qcard-next:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.dp-qcard-next:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.dp-qcard-next:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Panel-pick ribbon on the Chair's recommended choice. */
+.dp-qcard-choice-recommended {
+  position: relative;
+  border-color: var(--accent);
+}
+.dp-qcard-choice-ribbon {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent);
+}
+
+/* "Write my own" custom-answer textarea appended to a choice question. */
+.dp-qcard-choice-custom {
+  font-style: italic;
+  color: var(--muted);
+}
+.dp-qcard-choice-custom.dp-qcard-choice-selected {
+  font-style: normal;
+  color: var(--accent-fg);
+}
+.dp-qcard-custom-input {
+  width: 100%;
+  min-height: 80px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.dp-qcard-custom-input::placeholder {
+  color: var(--muted);
+}
+.dp-qcard-custom-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+/* Right-column tab switcher: Plan | Graph. */
+.dp-right-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt, #141414);
+}
+.dp-right-tab {
+  position: relative;
+  background: transparent;
+  border: none;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 10px 14px 12px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.dp-right-tab:hover:not(.dp-right-tab-active) {
+  color: var(--fg);
+}
+.dp-right-tab-active {
+  color: var(--fg);
+}
+.dp-right-tab-active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+.dp-right-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: 4px;
+}
+.dp-right-tabpanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* plan.md markdown viewer. */
+.dp-plan {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+.dp-plan-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.dp-plan-empty .dp-muted {
+  max-width: 280px;
+}
+.dp-plan h1,
+.dp-plan h2,
+.dp-plan h3,
+.dp-plan h4 {
+  color: var(--fg);
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+.dp-plan h1 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.dp-plan h2 {
+  font-size: 15px;
+  font-weight: 700;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.dp-plan h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.dp-plan p {
+  margin: 0.6em 0;
+}
+.dp-plan ul,
+.dp-plan ol {
+  margin: 0.4em 0 0.8em;
+  padding-left: 1.4em;
+}
+.dp-plan li {
+  margin: 0.2em 0;
+}
+.dp-plan code {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.dp-plan pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.dp-plan pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.dp-plan blockquote {
+  margin: 0.6em 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--fg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.dp-plan a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--accent);
+}
+.dp-plan a:hover {
+  border-bottom-style: solid;
+}
+
+/* Phase-advance CTA — shown in the chat scroll when the Chair signals
+ * phaseAdvance and there are no pending questions. Hugging the copy to the
+ * left (subtle, not a modal) keeps the discussion path equally prominent. */
+/* Anchor-log column — the append-only evidence pile. Each entry is a
+ * card with source chip, type badge, verbatim text, and optional Chair
+ * note. Kept visually distinct from prose so the user reads it as "the
+ * pile" rather than "the plan". */
+.dp-anchor-log-scope {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dp-anchor-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+}
+.dp-anchor-log-count {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.dp-anchor-entry {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dp-anchor-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.dp-anchor-entry-type {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.dp-anchor-entry-type-definition { border-color: #6b88c4; color: #6b88c4; }
+.dp-anchor-entry-type-claim { border-color: #c4836b; color: #c4836b; }
+.dp-anchor-entry-type-statistic { border-color: #59a379; color: #59a379; }
+.dp-anchor-entry-type-quote { border-color: #a47ac4; color: #a47ac4; }
+.dp-anchor-entry-type-finding { border-color: #d89a2b; color: #d89a2b; }
+.dp-anchor-entry-source {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--accent);
+}
+.dp-anchor-entry-source:hover {
+  border-bottom-style: solid;
+}
+.dp-anchor-entry-text {
+  font-size: 13px;
+  color: var(--fg);
+  margin: 0;
+  white-space: pre-wrap;
+}
+.dp-anchor-entry-note {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+
+/* Anchor-hygiene chips — shown under a chair-turn summary so the user
+ * sees at a glance how many anchors got properly resolved and how many
+ * the Chair fumbled (downgraded auto-fixes). The warn variant is
+ * deliberately muted orange rather than red: it's informational, not
+ * an error — the downgrade kept the plan shippable. */
+.dp-anchor-hygiene {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.dp-anchor-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.dp-anchor-chip-ok {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.dp-anchor-chip-warn {
+  border-color: #d89a2b;
+  color: #d89a2b;
+}
+
+/* Free-chat bubbles — same markdown treatment as normal messages but
+ * visually lighter so the user can distinguish "just talking to the
+ * Chair" from "weighty panel-round summary". */
+.dp-msg-chat .dp-msg-body {
+  opacity: 0.88;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.dp-msg-chat-chair .dp-msg-body {
+  border-left: 2px solid var(--border);
+  padding-left: 10px !important;
+}
+.dp-msg-chat-user .dp-msg-body {
+  background: transparent !important;
+  border: 1px dashed var(--border) !important;
+  color: var(--fg) !important;
+}
+
+/* Chat-notes chip above the input — shows how many chat notes are
+ * queued for the next panel round, plus an explicit escalation button. */
+.dp-chat-notes-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+}
+.dp-chat-notes-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.dp-advance-cta {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent-bg);
+  color: var(--accent-fg);
+}
+.dp-advance-cta-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dp-advance-cta-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.dp-advance-cta-sub {
+  font-size: 12.5px;
+  opacity: 0.85;
+}
+
+/* Citation hover popover. Fixed-positioned so getBoundingClientRect coords
+ * translate 1:1 without having to care about scrollable ancestors. */
+.dp-plan-scope {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.dp-citation-hover {
+  position: fixed;
+  z-index: 1100;
+  max-width: 360px;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dp-citation-hover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.35;
+}
+.dp-citation-hover-url {
+  font-size: 11.5px;
+  color: var(--accent);
+  word-break: break-all;
+  text-decoration: none;
+}
+.dp-citation-hover-url:hover {
+  text-decoration: underline;
+}
+.dp-citation-hover-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11px;
+}
+.dp-citation-hover-label {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.dp-citation-hover-anchor {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--fg);
+}
+.dp-citation-hover-type {
+  color: var(--muted);
+  font-style: italic;
+}
+.dp-citation-hover-excerpt {
+  border-left: 2px solid var(--accent);
+  padding: 4px 0 4px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dp-citation-hover-excerpt-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.dp-citation-hover-excerpt-body {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.dp-citation-hover-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.dp-citation-hover-kw {
+  font-size: 11px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--accent-bg, transparent);
+}
+.dp-citation-hover-body {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.dp-citation-hover-loading,
+.dp-citation-hover-muted {
+  color: var(--muted);
+  font-style: italic;
+}
+.dp-citation-hover-error {
+  color: #b94a48;
 }
 

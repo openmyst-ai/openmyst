@@ -3,7 +3,7 @@ const CHAT_FENCE_TAGS = [
   'source_lookup',
   'web_search',
   'doc_lookup',
-  'rubric_lookup',
+  'plan_lookup',
   'queries_lookup',
 ] as const;
 

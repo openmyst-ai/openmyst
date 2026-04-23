@@ -5,10 +5,12 @@ import {
   ingestLink,
   ingestSources,
   ingestText,
+  listAllAnchors,
   listSources,
   pickSourceFiles,
   readSource,
 } from '../features/sources';
+import { readAnchor } from '../features/sources/lookup';
 
 export function registerSourcesIpc(): void {
   ipcMain.handle(IpcChannels.Sources.Ingest, async (_event, filePaths: unknown) => {
@@ -34,12 +36,25 @@ export function registerSourcesIpc(): void {
   });
   ipcMain.handle(IpcChannels.Sources.PickFiles, () => pickSourceFiles());
   ipcMain.handle(IpcChannels.Sources.List, () => listSources());
+  ipcMain.handle(IpcChannels.Sources.ListAllAnchors, () => listAllAnchors());
   ipcMain.handle(IpcChannels.Sources.Read, (_event, slug: unknown) => {
     if (typeof slug !== 'string' || slug.trim().length === 0) {
       throw new Error('Source slug must be a non-empty string.');
     }
     return readSource(slug.trim());
   });
+  ipcMain.handle(
+    IpcChannels.Sources.LookupAnchor,
+    async (_event, slug: unknown, anchorId: unknown) => {
+      if (typeof slug !== 'string' || slug.trim().length === 0) {
+        throw new Error('Source slug must be a non-empty string.');
+      }
+      if (typeof anchorId !== 'string' || anchorId.trim().length === 0) {
+        throw new Error('Anchor id must be a non-empty string.');
+      }
+      return readAnchor(slug.trim(), anchorId.trim());
+    },
+  );
   ipcMain.handle(IpcChannels.Sources.Delete, async (_event, slug: unknown) => {
     if (typeof slug !== 'string' || slug.trim().length === 0) {
       throw new Error('Source slug must be a non-empty string.');

@@ -17,12 +17,16 @@ export function SettingsModal(): JSX.Element {
   const [localError, setLocalError] = useState<string | null>(null);
   const [showBugReport, setShowBugReport] = useState(false);
 
-  // One model drives both chat and Deep Plan/Search for launch — keeps the
-  // UI simple and cost predictable. We use `defaultModel` as the source of
-  // truth in the UI and mirror it to `deepPlanModel` on save. The summary
-  // model (digest calls inside research) is a separate knob because it's a
-  // bounded JSON-shaped task where a fast cheap model gives a 2-3× speedup.
+  // Model slots, each independent:
+  //   - defaultModel: chat + Deep Search planner
+  //   - chairModel: Chair synthesiser + Chair free-chat (strong)
+  //   - draftModel: final one-shot drafter (strong)
+  //   - panelModel: Deep Plan panel roles (cheap, 3-4 calls/round)
+  //   - summaryModel: source-ingest digest + anchor extraction (cheap, once/source)
   const currentModel = settings?.defaultModel ?? '';
+  const currentChairModel = settings?.chairModel ?? '';
+  const currentDraftModel = settings?.draftModel ?? '';
+  const currentPanelModel = settings?.panelModel ?? '';
   const currentSummaryModel = settings?.summaryModel ?? '';
 
   const saveKey = async (): Promise<void> => {
@@ -55,7 +59,48 @@ export function SettingsModal(): JSX.Element {
     setSaving(true);
     try {
       await bridge.settings.setDefaultModel(next);
-      await bridge.settings.setDeepPlanModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeChairModel = async (next: string): Promise<void> => {
+    if (!next || next === currentChairModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setChairModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeDraftModel = async (next: string): Promise<void> => {
+    if (!next || next === currentDraftModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setDraftModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changePanelModel = async (next: string): Promise<void> => {
+    if (!next || next === currentPanelModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setPanelModel(next);
       await refreshSettings();
     } catch (err) {
       setLocalError((err as Error).message);
@@ -109,6 +154,29 @@ export function SettingsModal(): JSX.Element {
     ? MODEL_OPTIONS
     : [{ id: currentModel, label: `${currentModel} (custom)` }, ...MODEL_OPTIONS];
 
+  const chairOptionsWithCurrent = MODEL_OPTIONS.some((o) => o.id === currentChairModel)
+    ? MODEL_OPTIONS
+    : [
+        { id: currentChairModel, label: `${currentChairModel} (custom)` },
+        ...MODEL_OPTIONS,
+      ];
+
+  const draftOptionsWithCurrent = MODEL_OPTIONS.some((o) => o.id === currentDraftModel)
+    ? MODEL_OPTIONS
+    : [
+        { id: currentDraftModel, label: `${currentDraftModel} (custom)` },
+        ...MODEL_OPTIONS,
+      ];
+
+  const panelOptionsWithCurrent = SUMMARY_MODEL_OPTIONS.some(
+    (o) => o.id === currentPanelModel,
+  )
+    ? SUMMARY_MODEL_OPTIONS
+    : [
+        { id: currentPanelModel, label: `${currentPanelModel} (custom)` },
+        ...SUMMARY_MODEL_OPTIONS,
+      ];
+
   const summaryOptionsWithCurrent = SUMMARY_MODEL_OPTIONS.some(
     (o) => o.id === currentSummaryModel,
   )
@@ -122,7 +190,8 @@ export function SettingsModal(): JSX.Element {
     <section className="modal-section">
       <h3>Model</h3>
       <p className="muted">
-        Used for chat, Deep Plan, and Deep Search planning.
+        Used for chat and Deep Search planning. Deep Plan's Chair + drafter
+        have their own settings below.
       </p>
       <div className="row">
         <select
@@ -147,12 +216,108 @@ export function SettingsModal(): JSX.Element {
     </section>
   );
 
+  const chairModelDropdown = (
+    <section className="modal-section">
+      <h3>Deep Plan: Chair model</h3>
+      <p className="muted">
+        Synthesises each panel round, maintains vision.md, handles
+        free-chat. Default: Gemma-4-31B-IT — strong structured-output
+        reliability and fast enough for tight loops.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentChairModel}
+          onChange={(e) => void changeChairModel(e.target.value)}
+          disabled={saving}
+        >
+          {chairOptionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CustomModelInput
+        currentModel={currentChairModel}
+        onApply={changeChairModel}
+        disabled={saving}
+        placeholder="e.g. google/gemma-4-31b-it"
+      />
+    </section>
+  );
+
+  const draftModelDropdown = (
+    <section className="modal-section">
+      <h3>Deep Plan: Draft model</h3>
+      <p className="muted">
+        The model that writes the final essay from the completed plan.md.
+        Separate from the Chair so you can run a rigorous planner and a
+        different-voice drafter.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentDraftModel}
+          onChange={(e) => void changeDraftModel(e.target.value)}
+          disabled={saving}
+        >
+          {draftOptionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CustomModelInput
+        currentModel={currentDraftModel}
+        onApply={changeDraftModel}
+        disabled={saving}
+        placeholder="e.g. z-ai/glm-4.6"
+      />
+    </section>
+  );
+
+  const panelModelDropdown = (
+    <section className="modal-section">
+      <h3>Deep Plan: Panel model</h3>
+      <p className="muted">
+        Runs each Deep Plan panel role (3–4 calls per round) — vision-steering
+        + research-request proposals. Cheap + fast is the sweet spot; this
+        is the bulk of per-round LLM calls.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentPanelModel}
+          onChange={(e) => void changePanelModel(e.target.value)}
+          disabled={saving}
+        >
+          {panelOptionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CustomModelInput
+        currentModel={currentPanelModel}
+        onApply={changePanelModel}
+        disabled={saving}
+        placeholder="e.g. google/gemini-2.5-flash-lite"
+      />
+    </section>
+  );
+
   const summaryModelDropdown = (
     <section className="modal-section">
-      <h3>Research summary model</h3>
+      <h3>Source digest / anchor extraction model</h3>
       <p className="muted">
-        Used to summarise ingested sources during Deep Search / Deep Plan. A
-        smaller model here speeds up research without affecting chat quality.
+        Runs once per source on ingest. Summarises the source and extracts
+        the anchor set that the drafter eventually cites. Anchor quality
+        here directly shapes downstream draft quality — a slightly stronger
+        model is worth it if budget allows. One call per source, not per
+        round.
       </p>
       <div className="row">
         <select
@@ -191,6 +356,9 @@ export function SettingsModal(): JSX.Element {
           <>
             <AccountSection />
             {modelDropdown}
+            {chairModelDropdown}
+            {draftModelDropdown}
+            {panelModelDropdown}
             {summaryModelDropdown}
           </>
         ) : (
@@ -228,6 +396,9 @@ export function SettingsModal(): JSX.Element {
             </section>
 
             {modelDropdown}
+            {chairModelDropdown}
+            {draftModelDropdown}
+            {panelModelDropdown}
             {summaryModelDropdown}
 
             <section className="modal-section">

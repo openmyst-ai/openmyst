@@ -1,11 +1,12 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
-  DeepPlanRubric,
+  DeepPlanPhase,
   DeepPlanSession,
-  DeepPlanStage,
   DeepPlanStatus,
+  PlanRequirements,
 } from '@shared/types';
+import { DEEP_PLAN_PHASE_ORDER } from '@shared/types';
 import { projectPath, projectRoot, ensureDir, log } from '../../platform';
 
 /**
@@ -28,17 +29,76 @@ function pendingFlagPath(): string {
   return projectPath('.myst', 'deep-plan', 'pending.flag');
 }
 
-function emptyRubric(): DeepPlanRubric {
+function emptyRoundsPerPhase(): Record<DeepPlanPhase, number> {
+  return { ideation: 0, planning: 0, reviewing: 0, done: 0 };
+}
+
+function emptyRequirements(): PlanRequirements {
   return {
-    title: null,
+    wordCountMin: null,
+    wordCountMax: null,
     form: null,
     audience: null,
-    lengthTarget: null,
-    thesis: null,
-    mustCover: [],
-    mustAvoid: [],
-    notes: '',
+    styleNotes: null,
   };
+}
+
+/**
+ * Best-effort extraction of hard constraints from a freeform task string.
+ * We only pull what we can detect with high confidence — anything ambiguous
+ * stays null and gets filled in later by the Chair as the panel converges.
+ */
+export function extractRequirements(task: string): PlanRequirements {
+  const out = emptyRequirements();
+  const lower = task.toLowerCase();
+
+  // Word-count range: "1500-2500 words" / "1500 to 2500 words" / "~2000 words"
+  const rangeMatch = lower.match(
+    /(\d{3,6})\s*(?:-|–|to|\s)\s*(\d{3,6})\s*words?/,
+  );
+  if (rangeMatch) {
+    out.wordCountMin = Number(rangeMatch[1]);
+    out.wordCountMax = Number(rangeMatch[2]);
+  } else {
+    // Single target: "~2000 words" / "2000 words" / "a 2000-word essay"
+    const singleMatch = lower.match(/(\d{3,6})[-\s]?words?/);
+    if (singleMatch) {
+      const n = Number(singleMatch[1]);
+      out.wordCountMin = n;
+      out.wordCountMax = n;
+    }
+  }
+
+  // Form — match against a small known vocabulary. If none fits, leave null.
+  const forms = [
+    'essay',
+    'blog post',
+    'blog',
+    'article',
+    'report',
+    'memo',
+    'review',
+    'op-ed',
+    'editorial',
+    'whitepaper',
+    'case study',
+    'feature',
+    'profile',
+  ];
+  for (const f of forms) {
+    if (lower.includes(f)) {
+      out.form = f;
+      break;
+    }
+  }
+
+  // Audience — look for "for <X>" patterns. Crude but gets the common case.
+  const audienceMatch = task.match(
+    /\bfor\s+(?:a\s+|an\s+|the\s+)?([a-zA-Z][a-zA-Z\s-]{3,40}?)\s+(?:audience|readers?|community|crowd)\b/i,
+  );
+  if (audienceMatch) out.audience = audienceMatch[1]!.trim();
+
+  return out;
 }
 
 export async function ensureDeepPlanDir(): Promise<void> {
@@ -69,21 +129,79 @@ export async function shouldAutoStart(): Promise<boolean> {
   }
 }
 
+/**
+ * Best-effort backfill of legacy session files. Anything written before
+ * the plan.md rewrite carried a `rubric` + `researchQueries` shape; we
+ * drop those and seed the new fields so returning users don't crash. The
+ * loop will pick up wherever the old phase marker says.
+ */
+function backfillLegacy(parsed: Record<string, unknown>): void {
+  if (!parsed.phase && typeof parsed.stage === 'string') {
+    const stage = parsed.stage;
+    const mapping: Record<string, DeepPlanPhase> = {
+      intent: 'ideation',
+      sources: 'ideation',
+      scoping: 'ideation',
+      gaps: 'planning',
+      research: 'planning',
+      synthesis: 'planning',
+      handoff: 'reviewing',
+      clarify: 'planning',
+      review: 'reviewing',
+      done: 'done',
+    };
+    parsed.phase = mapping[stage] ?? 'ideation';
+    delete parsed.stage;
+  }
+  if (!parsed.phase) parsed.phase = 'ideation';
+  if (!Array.isArray(parsed.pendingQuestions)) parsed.pendingQuestions = [];
+  if (!Array.isArray(parsed.pendingChatNotes)) parsed.pendingChatNotes = [];
+  // Migration path: we've been through two anchor architectures. Legacy
+  // sessions may have `plan` (pre-vision architecture) or `anchorLog`
+  // (panel-curated era). Both are dropped silently — the new anchor
+  // architecture reads anchors straight from source indexes at draft
+  // time, no session-side storage. Users lose stale per-session anchor
+  // curation; everyone keeps their task, requirements, transcript, and
+  // vision.
+  if (typeof parsed.vision !== 'string') parsed.vision = '';
+  delete (parsed as { plan?: unknown }).plan;
+  delete (parsed as { anchorLog?: unknown }).anchorLog;
+  if (
+    !parsed.requirements ||
+    typeof parsed.requirements !== 'object'
+  ) {
+    parsed.requirements = emptyRequirements();
+  } else {
+    parsed.requirements = {
+      ...emptyRequirements(),
+      ...(parsed.requirements as Record<string, unknown>),
+    };
+  }
+  if (typeof parsed.searchesUsed !== 'number') parsed.searchesUsed = 0;
+  if (
+    !parsed.roundsPerPhase ||
+    typeof parsed.roundsPerPhase !== 'object'
+  ) {
+    parsed.roundsPerPhase = emptyRoundsPerPhase();
+  } else {
+    const merged = { ...emptyRoundsPerPhase(), ...(parsed.roundsPerPhase as Record<string, number>) };
+    parsed.roundsPerPhase = merged;
+  }
+  if (typeof parsed.skipped !== 'boolean') parsed.skipped = false;
+  if (typeof parsed.completed !== 'boolean') parsed.completed = false;
+  if (typeof parsed.tokensUsedK !== 'number') parsed.tokensUsedK = 0;
+  // Drop fields that no longer exist so we don't carry dead weight forward.
+  delete (parsed as { researchHints?: unknown }).researchHints;
+  delete (parsed as { researchQueries?: unknown }).researchQueries;
+  delete (parsed as { rubric?: unknown }).rubric;
+}
+
 export async function readSession(): Promise<DeepPlanSession | null> {
   try {
     const raw = await fs.readFile(sessionPath(), 'utf-8');
-    const parsed = JSON.parse(raw) as DeepPlanSession;
-    // Backfill for sessions written before researchHints existed, so old
-    // on-disk sessions keep working without a migration pass.
-    if (!Array.isArray(parsed.researchHints)) parsed.researchHints = [];
-    // The old two-stage tail (`clarify` → `review`) collapsed into a single
-    // `synthesis` stage. Map stale values on read so in-flight sessions
-    // from previous app versions land on the new pipeline without surgery.
-    const stage = parsed.stage as unknown as string;
-    if (stage === 'clarify' || stage === 'review') {
-      parsed.stage = 'synthesis';
-    }
-    return parsed;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    backfillLegacy(parsed);
+    return parsed as unknown as DeepPlanSession;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -107,15 +225,19 @@ export async function deleteSession(): Promise<void> {
 export async function createSession(task: string): Promise<DeepPlanSession> {
   const root = projectRoot();
   const now = new Date().toISOString();
+  const trimmed = task.trim();
   const session: DeepPlanSession = {
     id: randomUUID(),
     projectPath: root,
-    stage: 'intent',
-    task: task.trim(),
-    rubric: emptyRubric(),
+    phase: 'ideation',
+    task: trimmed,
+    requirements: extractRequirements(trimmed),
+    vision: '',
     messages: [],
-    researchQueries: [],
-    researchHints: [],
+    pendingQuestions: [],
+    pendingChatNotes: [],
+    roundsPerPhase: emptyRoundsPerPhase(),
+    searchesUsed: 0,
     tokensUsedK: 0,
     createdAt: now,
     updatedAt: now,
@@ -123,7 +245,10 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
     completed: false,
   };
   await writeSession(session);
-  log('deep-plan', 'session.created', { task: task.slice(0, 120) });
+  log('deep-plan', 'session.created', {
+    task: trimmed.slice(0, 120),
+    requirements: session.requirements,
+  });
   return session;
 }
 
@@ -137,24 +262,14 @@ export async function updateSession(
   return next;
 }
 
-export function nextStage(stage: DeepPlanStage): DeepPlanStage {
-  const order: DeepPlanStage[] = [
-    'intent',
-    'sources',
-    'scoping',
-    'gaps',
-    'research',
-    'synthesis',
-    'handoff',
-    'done',
-  ];
-  const i = order.indexOf(stage);
-  if (i < 0 || i === order.length - 1) return 'done';
-  return order[i + 1]!;
+export function nextPhase(phase: DeepPlanPhase): DeepPlanPhase {
+  const i = DEEP_PLAN_PHASE_ORDER.indexOf(phase);
+  if (i < 0 || i === DEEP_PLAN_PHASE_ORDER.length - 1) return 'done';
+  return DEEP_PLAN_PHASE_ORDER[i + 1]!;
 }
 
 export async function buildStatus(
-  researchRunning: boolean = false,
+  roundRunning: boolean = false,
 ): Promise<DeepPlanStatus> {
   const session = await readSession();
   const auto = await shouldAutoStart();
@@ -162,6 +277,6 @@ export async function buildStatus(
     active: session !== null && !session.completed && !session.skipped,
     shouldAutoStart: auto,
     session,
-    researchRunning,
+    roundRunning,
   };
 }

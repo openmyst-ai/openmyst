@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  ChairAnswerMap,
   ChatMessage,
   Comment,
   DeepPlanResearchEvent,
@@ -7,9 +8,12 @@ import type {
   DeepSearchStatus,
   DocumentFile,
   MeStatus,
+  PanelProgressEvent,
   PendingEdit,
   ProjectMeta,
   Result,
+  AnchorLogEntry,
+  SourceAnchor,
   SourceMeta,
   UpdateStatus,
   WikiGraph,
@@ -43,6 +47,9 @@ export interface MystApi {
     hasJinaKey: () => Promise<boolean>;
     clearJinaKey: () => Promise<void>;
     setDeepPlanModel: (model: string) => Promise<void>;
+    setChairModel: (model: string) => Promise<void>;
+    setDraftModel: (model: string) => Promise<void>;
+    setPanelModel: (model: string) => Promise<void>;
     setSummaryModel: (model: string) => Promise<void>;
   };
   projects: {
@@ -84,7 +91,19 @@ export interface MystApi {
     ingestLink: (url: string) => Promise<SourceMeta>;
     pickFiles: () => Promise<string[]>;
     list: () => Promise<SourceMeta[]>;
+    /** Flat list of every anchor across every ingested source. Powers the Anchors tab + drafter handoff. */
+    listAllAnchors: () => Promise<AnchorLogEntry[]>;
     read: (slug: string) => Promise<string>;
+    lookupAnchor: (
+      slug: string,
+      anchorId: string,
+    ) => Promise<{
+      slug: string;
+      anchor: SourceAnchor;
+      text: string;
+      sourceName?: string;
+      sourceUrl?: string;
+    } | null>;
     delete: (slug: string) => Promise<void>;
     onChanged: (callback: () => void) => () => void;
   };
@@ -126,10 +145,12 @@ export interface MystApi {
     status: () => Promise<DeepPlanStatus>;
     start: (task: string) => Promise<DeepPlanStatus>;
     sendMessage: (message: string) => Promise<DeepPlanStatus>;
+    /** Cheap free-chat with the Chair — single LLM call, no panel, no plan rewrite. */
+    chat: (message: string) => Promise<DeepPlanStatus>;
+    /** Explicitly trigger a panel round — consumes pendingChatNotes as context. */
+    runPanel: () => Promise<DeepPlanStatus>;
+    submitAnswers: (answers: ChairAnswerMap) => Promise<DeepPlanStatus>;
     advance: () => Promise<DeepPlanStatus>;
-    runResearch: () => Promise<DeepPlanStatus>;
-    stopResearch: () => Promise<DeepPlanStatus>;
-    addResearchHint: (hint: string) => Promise<DeepPlanStatus>;
     skip: () => Promise<DeepPlanStatus>;
     oneShot: () => Promise<DeepPlanStatus>;
     reset: () => Promise<DeepPlanStatus>;
@@ -137,6 +158,7 @@ export interface MystApi {
     onChunk: (callback: (chunk: string) => void) => () => void;
     onChunkDone: (callback: () => void) => () => void;
     onResearchEvent: (callback: (event: DeepPlanResearchEvent) => void) => () => void;
+    onPanelProgress: (callback: (event: PanelProgressEvent) => void) => () => void;
   };
   deepSearch: {
     status: () => Promise<DeepSearchStatus>;

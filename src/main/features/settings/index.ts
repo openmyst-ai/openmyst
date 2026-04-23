@@ -2,7 +2,14 @@ import { app, safeStorage } from 'electron';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings } from '@shared/types';
-import { DEFAULT_DEEP_PLAN_MODEL, DEFAULT_MODEL, DEFAULT_SUMMARY_MODEL } from '@shared/types';
+import {
+  DEFAULT_CHAIR_MODEL,
+  DEFAULT_DEEP_PLAN_MODEL,
+  DEFAULT_DRAFT_MODEL,
+  DEFAULT_MODEL,
+  DEFAULT_PANEL_MODEL,
+  DEFAULT_SUMMARY_MODEL,
+} from '@shared/types';
 
 /**
  * User-wide settings, stored outside any project. Lives at
@@ -16,7 +23,17 @@ import { DEFAULT_DEEP_PLAN_MODEL, DEFAULT_MODEL, DEFAULT_SUMMARY_MODEL } from '@
 
 interface StoredSettings {
   defaultModel: string;
+  /**
+   * Legacy field — the single Deep Plan model before the Phase 1 split.
+   * Still written so older app builds can read the file, but Deep Plan
+   * internals now use `chairModel` and `draftModel`. Migration: on read,
+   * if `chairModel` or `draftModel` is missing, we copy `deepPlanModel`
+   * into them so the user's prior pick carries forward.
+   */
   deepPlanModel: string;
+  chairModel: string;
+  draftModel: string;
+  panelModel: string;
   summaryModel: string;
   openRouterKeyCipher: string | null;
   jinaKeyCipher: string | null;
@@ -27,6 +44,9 @@ interface StoredSettings {
 const DEFAULTS: StoredSettings = {
   defaultModel: DEFAULT_MODEL,
   deepPlanModel: DEFAULT_DEEP_PLAN_MODEL,
+  chairModel: DEFAULT_CHAIR_MODEL,
+  draftModel: DEFAULT_DRAFT_MODEL,
+  panelModel: DEFAULT_PANEL_MODEL,
   summaryModel: DEFAULT_SUMMARY_MODEL,
   openRouterKeyCipher: null,
   jinaKeyCipher: null,
@@ -54,7 +74,24 @@ async function readStored(): Promise<StoredSettings> {
   try {
     const raw = await fs.readFile(settingsPath(), 'utf-8');
     const parsed = JSON.parse(raw) as Partial<StoredSettings>;
-    return { ...DEFAULTS, ...parsed };
+    // Phase-1 migration: if the user's settings predate chair/draft split,
+    // carry their prior `deepPlanModel` forward into both new slots so the
+    // upgrade is invisible. They can then point chairModel at gpt-oss-120b
+    // (the new default) on their own schedule via the settings UI.
+    const migrated: StoredSettings = { ...DEFAULTS, ...parsed };
+    if (parsed.chairModel === undefined && typeof parsed.deepPlanModel === 'string') {
+      migrated.chairModel = parsed.deepPlanModel;
+    }
+    if (parsed.draftModel === undefined && typeof parsed.deepPlanModel === 'string') {
+      migrated.draftModel = parsed.deepPlanModel;
+    }
+    // Split panel model out from summary model for existing users — their
+    // panel previously shared summaryModel, so copy the current value
+    // forward so behavior doesn't flip on upgrade.
+    if (parsed.panelModel === undefined && typeof parsed.summaryModel === 'string') {
+      migrated.panelModel = parsed.summaryModel;
+    }
+    return migrated;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULTS };
     throw err;
@@ -72,6 +109,9 @@ export async function getSettings(): Promise<AppSettings> {
   return {
     defaultModel: stored.defaultModel,
     deepPlanModel: stored.deepPlanModel,
+    chairModel: stored.chairModel,
+    draftModel: stored.draftModel,
+    panelModel: stored.panelModel,
     summaryModel: stored.summaryModel,
     hasOpenRouterKey: stored.openRouterKeyCipher !== null,
     hasJinaKey: stored.jinaKeyCipher !== null,
@@ -141,13 +181,44 @@ export async function clearJinaKey(): Promise<void> {
 }
 
 export async function setDeepPlanModel(model: string): Promise<void> {
+  // Legacy setter — kept for backward compat with any caller that still
+  // speaks the pre-split API. Writes BOTH new slots so the user's intent
+  // (one Deep Plan model) is reflected post-split.
   const stored = await readStored();
-  await writeStored({ ...stored, deepPlanModel: model });
+  await writeStored({
+    ...stored,
+    deepPlanModel: model,
+    chairModel: model,
+    draftModel: model,
+  });
 }
 
 export async function getDeepPlanModel(): Promise<string> {
+  // Legacy getter — returns chairModel for the deepSearch planner path
+  // that still consumes the old API. Safe because Chair is the "planner"
+  // role in spirit.
   const stored = await readStored();
-  return stored.deepPlanModel;
+  return stored.chairModel;
+}
+
+export async function setChairModel(model: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, chairModel: model });
+}
+
+export async function getChairModel(): Promise<string> {
+  const stored = await readStored();
+  return stored.chairModel;
+}
+
+export async function setDraftModel(model: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, draftModel: model });
+}
+
+export async function getDraftModel(): Promise<string> {
+  const stored = await readStored();
+  return stored.draftModel;
 }
 
 export async function setSummaryModel(model: string): Promise<void> {
@@ -158,6 +229,16 @@ export async function setSummaryModel(model: string): Promise<void> {
 export async function getSummaryModel(): Promise<string> {
   const stored = await readStored();
   return stored.summaryModel;
+}
+
+export async function setPanelModel(model: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, panelModel: model });
+}
+
+export async function getPanelModel(): Promise<string> {
+  const stored = await readStored();
+  return stored.panelModel;
 }
 
 export async function pushRecentProject(path: string): Promise<void> {

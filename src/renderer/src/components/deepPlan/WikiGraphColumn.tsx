@@ -1,52 +1,55 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { WikiGraph as WikiGraphData, DeepPlanResearchEvent } from '@shared/types';
+import type { WikiGraph as WikiGraphData } from '@shared/types';
 import { bridge } from '../../api/bridge';
 import { useResearchEvents } from '../../store/researchEvents';
 import { useDeepPlan } from '../../store/deepPlan';
 import { useSourcePreview } from '../../store/sourcePreview';
 import { WikiGraph, freshSlugsFromEvents } from '../graph/WikiGraph';
+import {
+  latestQueryText,
+  researchRunningFromEvents,
+  useQueryFlash,
+} from '../../hooks/useResearchFlash';
 
 /**
- * Deep Plan's right column. Two modes:
- *   - Non-research stages → the wiki graph fills the column, full-bleed.
- *   - Research stage → the graph moves to the center column (next to the
- *     steer input), and this column becomes a live query log showing each
- *     planner query alongside the rationale the LLM gave for running it.
- *
- * The log scopes to the current run (via runId) so a new run wipes the
- * list instead of leaking queries from the previous exploration.
+ * Deep Plan's right column. The wiki graph is visible across every phase
+ * now — the panel can dispatch research in any phase, so users always
+ * want the live map of their knowledge graph to the right of the
+ * conversation. "Fresh" slugs (ingested in the current run) glow while
+ * a round is executing. When the engine is actively searching, a
+ * floating pill pins to the top of the graph with the live query text so
+ * the user never has to guess whether anything is happening.
  */
 
 export function WikiGraphColumn(): JSX.Element {
   const [graph, setGraph] = useState<WikiGraphData | null>(null);
   const researchEvents = useResearchEvents((s) => s.events);
   const openPreview = useSourcePreview((s) => s.open);
-  const status = useDeepPlan((s) => s.status);
-
-  const session = status?.session;
-  const stage = session?.stage;
-  const researchRunning = status?.researchRunning ?? false;
-  const isResearchStage = stage === 'research';
+  const roundRunning = useDeepPlan((s) => s.status?.roundRunning ?? false);
 
   useEffect(() => {
-    if (isResearchStage) return;
     const load = (): void => {
       bridge.wiki.graph().then(setGraph).catch(console.error);
     };
     load();
     const off = bridge.sources.onChanged(load);
     return off;
-  }, [isResearchStage]);
+  }, []);
 
   const freshSlugs = useMemo(
     () => freshSlugsFromEvents(researchEvents),
     [researchEvents],
   );
 
-  const runQueries = useMemo(
-    () => allQueriesNewestFirst(researchEvents),
+  const searching = useMemo(
+    () => researchRunningFromEvents(researchEvents),
     [researchEvents],
   );
+  const currentQuery = useMemo(
+    () => latestQueryText(researchEvents),
+    [researchEvents],
+  );
+  const flashQuery = useQueryFlash(currentQuery);
 
   const handleNodeOpen = (slug: string): void => {
     void bridge.sources.list().then((all) => {
@@ -55,44 +58,35 @@ export function WikiGraphColumn(): JSX.Element {
     });
   };
 
-  if (isResearchStage) {
-    return (
-      <div className="dp-query-log">
-        <div className="dp-query-log-header">
-          <span className={`ds-dot${researchRunning ? ' ds-dot-running' : ''}`} />
-          <span>Queries</span>
-          <span className="dp-query-log-count">{runQueries.length}</span>
-        </div>
-        <div className="dp-query-log-scroll">
-          {runQueries.length === 0 ? (
-            <div className="dp-query-log-empty">
-              Generating queries…
-            </div>
-          ) : (
-            <ul className="dp-query-log-list">
-              {runQueries.map((q) => (
-                <li key={q.queryId} className="dp-query-log-item">
-                  <div className="dp-query-log-query">
-                    <span className="dp-query-log-prefix">Search:</span> {q.query}
-                  </div>
-                  {q.rationale && (
-                    <div className="dp-query-log-rationale">{q.rationale}</div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="dp-graph dp-graph-fullbleed">
+      {searching && (
+        <div
+          className={`dp-research-thinking${
+            flashQuery ? ' dp-research-thinking-flashing' : ''
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="generating-dots">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+          </span>
+          <span className="dp-research-thinking-label">Researching the web</span>
+          <span
+            className={`dp-research-thinking-query${
+              flashQuery ? ' dp-research-thinking-query-open' : ''
+            }`}
+          >
+            {flashQuery ?? ''}
+          </span>
+        </div>
+      )}
       <WikiGraph
         graph={graph}
         freshSlugs={freshSlugs}
-        running={researchRunning}
+        running={roundRunning}
         onNodeOpen={handleNodeOpen}
         fillContainer
         hideTooltip
@@ -104,21 +98,4 @@ export function WikiGraphColumn(): JSX.Element {
       />
     </div>
   );
-}
-
-function allQueriesNewestFirst(
-  events: DeepPlanResearchEvent[],
-): Array<{ queryId: string; query: string; rationale: string }> {
-  // Walk backwards across every run in the session. Continue-research
-  // kicks off a new runId but the user still wants to see what they've
-  // already searched for, so the log is per-session, not per-run. A full
-  // reset (explicit Reset button in Deep Search) is the only thing that
-  // wipes the log.
-  const out: Array<{ queryId: string; query: string; rationale: string }> = [];
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i]!;
-    if (ev.kind !== 'query-start') continue;
-    out.push({ queryId: ev.queryId, query: ev.query, rationale: ev.rationale });
-  }
-  return out;
 }
