@@ -1585,6 +1585,11 @@ img.login-logo {
   color: var(--doc-accent);
   text-decoration: none;
   border-bottom: 1px solid rgba(156, 180, 255, 0.4);
+  /* Tiptap's default caret-over-text cursor carries through links by
+   *  default; override so hovering a citation or wikilink shows the
+   *  standard pointer — consistent with every other link in the app
+   *  and a clearer affordance that the hover preview is clickable. */
+  cursor: pointer;
 }
 .tiptap a:hover,
 .pending-insert-text a:hover {
