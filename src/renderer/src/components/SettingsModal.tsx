@@ -220,9 +220,9 @@ export function SettingsModal(): JSX.Element {
     <section className="modal-section">
       <h3>Deep Plan: Chair model</h3>
       <p className="muted">
-        The strong model that synthesises the panel each round, rewrites
-        plan.md, and handles free-chat. Default: GPT-OSS 120B — it has the
-        headroom for the anchor-first self-check.
+        Synthesises each panel round, maintains vision.md, handles
+        free-chat. Default: Gemma-4-31B-IT — strong structured-output
+        reliability and fast enough for tight loops.
       </p>
       <div className="row">
         <select
@@ -242,7 +242,7 @@ export function SettingsModal(): JSX.Element {
         currentModel={currentChairModel}
         onApply={changeChairModel}
         disabled={saving}
-        placeholder="e.g. openai/gpt-oss-120b"
+        placeholder="e.g. google/gemma-4-31b-it"
       />
     </section>
   );

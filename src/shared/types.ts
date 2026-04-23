@@ -71,27 +71,18 @@ export const SUMMARY_MODEL_OPTIONS: Array<{ id: string; label: string }> = [
   { id: 'mistralai/mistral-nemo', label: 'Mistral Nemo (fastest — JSON output unreliable)' },
 ];
 
-export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v3.2';
+/**
+ * Default model across chat, Chair, drafter, panel. Gemma-4-31b-it is
+ * punchy: strong structured-output compliance, good general-purpose
+ * reasoning, cheap enough to fan out the panel on. Only the source-digest
+ * slot diverges (see DEFAULT_SUMMARY_MODEL) because that's a one-shot
+ * per-source task where the cheapest reliable model wins.
+ */
+export const DEFAULT_DEEP_PLAN_MODEL = 'google/gemma-4-31b-it';
 export const DEFAULT_SUMMARY_MODEL = 'google/gemini-2.5-flash-lite';
-/**
- * Chair + Chair-chat default. gpt-oss-120b is the right fit: it's got the
- * headroom to think through the anchor-first plan rewrite rigorously, run
- * the self-check pass, and emit richer summaries.
- */
-export const DEFAULT_CHAIR_MODEL = 'openai/gpt-oss-120b';
-/**
- * Final-draft default. Independent of Chair so the user can run a strong
- * planner with a cheaper / different-voice drafter, or vice versa.
- */
-export const DEFAULT_DRAFT_MODEL = 'deepseek/deepseek-v3.2';
-/**
- * Panel default. Panel roles are JSON-shaped vision-steering + research-
- * request jobs — cheap-model territory. Split from `summaryModel` because
- * source digest (anchor extraction) has different shape + quality trade-
- * offs: digest benefits from a slightly more precise extractor, panel
- * just needs fast structured output.
- */
-export const DEFAULT_PANEL_MODEL = 'google/gemini-2.5-flash-lite';
+export const DEFAULT_CHAIR_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_DRAFT_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_PANEL_MODEL = 'google/gemma-4-31b-it';
 
 export interface ProjectMeta {
   name: string;
@@ -107,7 +98,7 @@ export interface ProjectSummary {
 
 export type Result<T, E = string> = { ok: true; value: T } | { ok: false; error: E };
 
-export const DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
+export const DEFAULT_MODEL = 'google/gemma-4-31b-it';
 
 export type ChatRole = 'user' | 'assistant';
 
