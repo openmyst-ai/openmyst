@@ -14,7 +14,7 @@ import {
 } from '@shared/types';
 import { broadcast, log, logError } from '../../platform';
 import { completeText, type LlmMessage } from '../../llm';
-import { getSummaryModel } from '../settings';
+import { getPanelModel } from '../settings';
 import { listSources } from '../sources';
 import { runResearchEngine } from '../research/engine';
 import { ensureSearchReady } from '../research/search';
@@ -245,7 +245,7 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
 
   emitProgress({ kind: 'round-start', phase, roles });
 
-  const model = await getSummaryModel();
+  const model = await getPanelModel();
   const priorFindingsDigest = digestPriorFindings(args.session);
   const remainingBudget = Math.max(
     0,

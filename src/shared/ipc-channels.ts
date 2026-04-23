@@ -23,6 +23,7 @@ export const IpcChannels = {
     SetDeepPlanModel: 'settings:set-deep-plan-model',
     SetChairModel: 'settings:set-chair-model',
     SetDraftModel: 'settings:set-draft-model',
+    SetPanelModel: 'settings:set-panel-model',
     SetSummaryModel: 'settings:set-summary-model',
   },
   Projects: {

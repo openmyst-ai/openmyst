@@ -10,6 +10,7 @@ import {
   setDraftModel,
   setJinaKey,
   setOpenRouterKey,
+  setPanelModel,
   setSummaryModel,
 } from '../features/settings';
 
@@ -70,6 +71,13 @@ export function registerSettingsIpc(): void {
       throw new Error('Model id must be a non-empty string.');
     }
     await setDraftModel(model.trim());
+  });
+
+  ipcMain.handle(IpcChannels.Settings.SetPanelModel, async (_event, model: unknown) => {
+    if (typeof model !== 'string' || model.trim().length === 0) {
+      throw new Error('Model id must be a non-empty string.');
+    }
+    await setPanelModel(model.trim());
   });
 
   ipcMain.handle(IpcChannels.Settings.SetSummaryModel, async (_event, model: unknown) => {

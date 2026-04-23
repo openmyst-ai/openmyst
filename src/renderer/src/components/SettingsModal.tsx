@@ -17,16 +17,16 @@ export function SettingsModal(): JSX.Element {
   const [localError, setLocalError] = useState<string | null>(null);
   const [showBugReport, setShowBugReport] = useState(false);
 
-  // Deep Plan has three independent model slots:
+  // Model slots, each independent:
   //   - defaultModel: chat + Deep Search planner
-  //   - chairModel: Chair (panel synthesiser) + Chair free-chat
-  //   - draftModel: the final one-shot drafter
-  //   - summaryModel: cheap per-source digest pass (runs during ingest)
-  // Keeping them separate lets the user run gpt-oss-120b on Chair while
-  // leaving the drafter on a different voice, without touching chat.
+  //   - chairModel: Chair synthesiser + Chair free-chat (strong)
+  //   - draftModel: final one-shot drafter (strong)
+  //   - panelModel: Deep Plan panel roles (cheap, 3-4 calls/round)
+  //   - summaryModel: source-ingest digest + anchor extraction (cheap, once/source)
   const currentModel = settings?.defaultModel ?? '';
   const currentChairModel = settings?.chairModel ?? '';
   const currentDraftModel = settings?.draftModel ?? '';
+  const currentPanelModel = settings?.panelModel ?? '';
   const currentSummaryModel = settings?.summaryModel ?? '';
 
   const saveKey = async (): Promise<void> => {
@@ -95,6 +95,20 @@ export function SettingsModal(): JSX.Element {
     }
   };
 
+  const changePanelModel = async (next: string): Promise<void> => {
+    if (!next || next === currentPanelModel) return;
+    setLocalError(null);
+    setSaving(true);
+    try {
+      await bridge.settings.setPanelModel(next);
+      await refreshSettings();
+    } catch (err) {
+      setLocalError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const changeSummaryModel = async (next: string): Promise<void> => {
     if (!next || next === currentSummaryModel) return;
     setLocalError(null);
@@ -152,6 +166,15 @@ export function SettingsModal(): JSX.Element {
     : [
         { id: currentDraftModel, label: `${currentDraftModel} (custom)` },
         ...MODEL_OPTIONS,
+      ];
+
+  const panelOptionsWithCurrent = SUMMARY_MODEL_OPTIONS.some(
+    (o) => o.id === currentPanelModel,
+  )
+    ? SUMMARY_MODEL_OPTIONS
+    : [
+        { id: currentPanelModel, label: `${currentPanelModel} (custom)` },
+        ...SUMMARY_MODEL_OPTIONS,
       ];
 
   const summaryOptionsWithCurrent = SUMMARY_MODEL_OPTIONS.some(
@@ -255,12 +278,46 @@ export function SettingsModal(): JSX.Element {
     </section>
   );
 
+  const panelModelDropdown = (
+    <section className="modal-section">
+      <h3>Deep Plan: Panel model</h3>
+      <p className="muted">
+        Runs each Deep Plan panel role (3–4 calls per round) — vision-steering
+        + research-request proposals. Cheap + fast is the sweet spot; this
+        is the bulk of per-round LLM calls.
+      </p>
+      <div className="row">
+        <select
+          className="model-select"
+          value={currentPanelModel}
+          onChange={(e) => void changePanelModel(e.target.value)}
+          disabled={saving}
+        >
+          {panelOptionsWithCurrent.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <CustomModelInput
+        currentModel={currentPanelModel}
+        onApply={changePanelModel}
+        disabled={saving}
+        placeholder="e.g. google/gemini-2.5-flash-lite"
+      />
+    </section>
+  );
+
   const summaryModelDropdown = (
     <section className="modal-section">
-      <h3>Research summary model</h3>
+      <h3>Source digest / anchor extraction model</h3>
       <p className="muted">
-        Used to summarise ingested sources during Deep Search / Deep Plan. A
-        smaller model here speeds up research without affecting chat quality.
+        Runs once per source on ingest. Summarises the source and extracts
+        the anchor set that the drafter eventually cites. Anchor quality
+        here directly shapes downstream draft quality — a slightly stronger
+        model is worth it if budget allows. One call per source, not per
+        round.
       </p>
       <div className="row">
         <select
@@ -301,6 +358,7 @@ export function SettingsModal(): JSX.Element {
             {modelDropdown}
             {chairModelDropdown}
             {draftModelDropdown}
+            {panelModelDropdown}
             {summaryModelDropdown}
           </>
         ) : (
@@ -340,6 +398,7 @@ export function SettingsModal(): JSX.Element {
             {modelDropdown}
             {chairModelDropdown}
             {draftModelDropdown}
+            {panelModelDropdown}
             {summaryModelDropdown}
 
             <section className="modal-section">

@@ -12,6 +12,9 @@ export interface AppSettings {
   chairModel: string;
   /** Model used by the one-shot drafter at Deep Plan → draft handoff. */
   draftModel: string;
+  /** Cheap model used by the Deep Plan panel roles each round. */
+  panelModel: string;
+  /** Cheap model used for source-ingest digest + anchor extraction. */
   summaryModel: string;
   recentProjects: string[];
   /**
@@ -73,8 +76,7 @@ export const DEFAULT_SUMMARY_MODEL = 'google/gemini-2.5-flash-lite';
 /**
  * Chair + Chair-chat default. gpt-oss-120b is the right fit: it's got the
  * headroom to think through the anchor-first plan rewrite rigorously, run
- * the self-check pass, and emit richer summaries. Panel stays on the
- * cheap summary model.
+ * the self-check pass, and emit richer summaries.
  */
 export const DEFAULT_CHAIR_MODEL = 'openai/gpt-oss-120b';
 /**
@@ -82,6 +84,14 @@ export const DEFAULT_CHAIR_MODEL = 'openai/gpt-oss-120b';
  * planner with a cheaper / different-voice drafter, or vice versa.
  */
 export const DEFAULT_DRAFT_MODEL = 'deepseek/deepseek-v3.2';
+/**
+ * Panel default. Panel roles are JSON-shaped vision-steering + research-
+ * request jobs — cheap-model territory. Split from `summaryModel` because
+ * source digest (anchor extraction) has different shape + quality trade-
+ * offs: digest benefits from a slightly more precise extractor, panel
+ * just needs fast structured output.
+ */
+export const DEFAULT_PANEL_MODEL = 'google/gemini-2.5-flash-lite';
 
 export interface ProjectMeta {
   name: string;

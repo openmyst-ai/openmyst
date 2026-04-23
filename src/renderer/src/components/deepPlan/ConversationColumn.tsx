@@ -39,14 +39,17 @@ export function ConversationColumn({ session }: Props): JSX.Element {
   // thinks the phase is done. We surface a contextual CTA inline so the user
   // doesn't have to hunt for the top-bar "Continue" button — keeping the
   // discussion path equally prominent so they can also just keep typing.
+  // CTA visibility: once the first chair-turn has landed and nothing's
+  // blocking (round not running, no pending questions, not done), always
+  // surface the advance CTA. The Chair's `phaseAdvance` hint was too
+  // shy at planning/reviewing boundaries — especially without an anchor
+  // log to evaluate against — so we hand the decision to the user.
   const shouldShowAdvanceCta = useMemo(() => {
     if (roundRunning || busy) return false;
     if (pendingQuestions.length > 0) return false;
     if (session.phase === 'done') return false;
-    const lastChair = [...session.messages]
-      .reverse()
-      .find((m) => m.kind === 'chair-turn' && m.chair);
-    return lastChair?.chair?.phaseAdvance === true;
+    const hasChairTurn = session.messages.some((m) => m.kind === 'chair-turn' && m.chair);
+    return hasChairTurn;
   }, [session.messages, session.phase, pendingQuestions.length, roundRunning, busy]);
 
   // Map each `user-answers` message to the Chair questions it was

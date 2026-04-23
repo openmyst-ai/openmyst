@@ -7,6 +7,7 @@ import {
   DEFAULT_DEEP_PLAN_MODEL,
   DEFAULT_DRAFT_MODEL,
   DEFAULT_MODEL,
+  DEFAULT_PANEL_MODEL,
   DEFAULT_SUMMARY_MODEL,
 } from '@shared/types';
 
@@ -32,6 +33,7 @@ interface StoredSettings {
   deepPlanModel: string;
   chairModel: string;
   draftModel: string;
+  panelModel: string;
   summaryModel: string;
   openRouterKeyCipher: string | null;
   jinaKeyCipher: string | null;
@@ -44,6 +46,7 @@ const DEFAULTS: StoredSettings = {
   deepPlanModel: DEFAULT_DEEP_PLAN_MODEL,
   chairModel: DEFAULT_CHAIR_MODEL,
   draftModel: DEFAULT_DRAFT_MODEL,
+  panelModel: DEFAULT_PANEL_MODEL,
   summaryModel: DEFAULT_SUMMARY_MODEL,
   openRouterKeyCipher: null,
   jinaKeyCipher: null,
@@ -82,6 +85,12 @@ async function readStored(): Promise<StoredSettings> {
     if (parsed.draftModel === undefined && typeof parsed.deepPlanModel === 'string') {
       migrated.draftModel = parsed.deepPlanModel;
     }
+    // Split panel model out from summary model for existing users — their
+    // panel previously shared summaryModel, so copy the current value
+    // forward so behavior doesn't flip on upgrade.
+    if (parsed.panelModel === undefined && typeof parsed.summaryModel === 'string') {
+      migrated.panelModel = parsed.summaryModel;
+    }
     return migrated;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULTS };
@@ -102,6 +111,7 @@ export async function getSettings(): Promise<AppSettings> {
     deepPlanModel: stored.deepPlanModel,
     chairModel: stored.chairModel,
     draftModel: stored.draftModel,
+    panelModel: stored.panelModel,
     summaryModel: stored.summaryModel,
     hasOpenRouterKey: stored.openRouterKeyCipher !== null,
     hasJinaKey: stored.jinaKeyCipher !== null,
@@ -219,6 +229,16 @@ export async function setSummaryModel(model: string): Promise<void> {
 export async function getSummaryModel(): Promise<string> {
   const stored = await readStored();
   return stored.summaryModel;
+}
+
+export async function setPanelModel(model: string): Promise<void> {
+  const stored = await readStored();
+  await writeStored({ ...stored, panelModel: model });
+}
+
+export async function getPanelModel(): Promise<string> {
+  const stored = await readStored();
+  return stored.panelModel;
 }
 
 export async function pushRecentProject(path: string): Promise<void> {

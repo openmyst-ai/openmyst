@@ -49,6 +49,7 @@ export interface MystApi {
     setDeepPlanModel: (model: string) => Promise<void>;
     setChairModel: (model: string) => Promise<void>;
     setDraftModel: (model: string) => Promise<void>;
+    setPanelModel: (model: string) => Promise<void>;
     setSummaryModel: (model: string) => Promise<void>;
   };
   projects: {

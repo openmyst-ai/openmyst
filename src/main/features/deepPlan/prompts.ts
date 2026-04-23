@@ -630,7 +630,7 @@ export function oneShotPrompt(
 
 1. **CITE YOUR SOURCES.** The anchor log below is the session's evidence base. Every factual claim, specific number, named figure, technical definition, contested position, or historical fact in your draft MUST carry an inline Harvard citation drawn from the anchor log. A draft with ZERO citations is a hard failure — the whole point of the Deep Plan session was to gather these anchors. If you find yourself writing a factual sentence without a citation, either add one or remove the sentence.
 
-2. **FORMAT:** citations are Harvard-style markdown links in parentheses, preserving the \`#anchor-id\` fragment exactly as the anchor log has it: \`([SourceName](slug.md#anchor-id))\`. The \`#anchor-id\` is invisible to readers in rendered markdown but powers the hover-preview feature — dropping it breaks the product's core value. Never emit a citation without the \`#anchor-id\` fragment when the log entry has one.
+2. **FORMAT — in-text citation:** \`([Author, Year](slug.md#anchor-id))\`. The whole parenthesised chunk — including "Author, Year" — is a single markdown link whose href carries the \`#anchor-id\`. Reader sees "(Author, Year)"; hover reveals the verbatim anchor passage. Examples: \`([Sen, 1970](sen-liberal-paradox.md#impossibility-theorem))\`, \`([Stanford Encyclopedia, 2018](pareto-efficiency.md#three-conditions))\`. When you genuinely can't infer a year from the source (no date in the summary or URL), use just the author/source name: \`([Sen](sen-liberal-paradox.md#x))\`. NEVER drop the \`#anchor-id\` fragment — it powers the hover preview that lets readers cross-check your paraphrase.
 
 3. **CITATION DENSITY floor.** Roughly 1 citation per 150–200 words of body prose. For a 2,000-word essay that means ~10–15 inline citations minimum. Fewer than that means you're gliding past load-bearing claims without grounding them. Over-citation (every sentence cited) is also bad — consolidate when adjacent sentences lean on the same anchor — but ZERO is a failure mode we've seen and this prompt is here to stop it.
 
@@ -665,11 +665,14 @@ HOW TO WRITE THE DRAFT:
 6. **Uncited prose IS allowed** — for connective tissue, your own reasoning, textbook-level common knowledge, or transitions. Uncited prose is EARNED when the claim is uncontested background.
 
 Citation mechanics (strict):
-- Format: \`([SourceName](slug.md#anchor-id))\`. Always parenthesised, always with \`#anchor-id\` when the log has one, always with a human-readable \`SourceName\`.
-- Example: ...the three-conditions decomposition of Pareto efficiency ([Stanford Encyclopedia](stanford-welfare.md#three-conditions)) partitions the concept into exchange, production, and output efficiency.
-- Two sources on a sentence → two adjacent citations: \`([Smith](smith.md#a)) ([Jones](jones.md#b))\`.
+- In-text format: \`([Author, Year](slug.md#anchor-id))\`. The entire \`([...](...))\` is one markdown link. Visible text is "Author, Year"; the hidden href carries \`slug.md#anchor-id\` so hover works. **Infer "Author, Year" from the anchor's source name + any year visible in the source summary / URL / text.** Authors: surname only (e.g. "Sen", "Feldstein", "Arrow"). Institutional sources: short label ("Stanford Encyclopedia", "Richmond Fed", "OECD").
+- Examples:
+  - Inline: \`...the liberal paradox ([Sen, 1970](sen-1970.md#liberal-paradox)) shows that minimal liberalism and Pareto are incompatible.\`
+  - Institution: \`...Feldstein's defence of efficiency-first policy ([Richmond Fed, 2011](richmond-feldstein.md#defense)) remains the canonical case.\`
+  - Year unknown (source carries no date): \`([Sen](sen-liberal-paradox.md#x))\` — drop the comma and year rather than inventing one.
+- Two sources on a sentence → two adjacent citations: \`([Smith, 2022](smith.md#a)) ([Jones, 2019](jones.md#b))\`.
 - Same source, adjacent sentences → cite ONCE at the natural anchor point (end of topic sentence, or end of synthesis sentence).
-- Never wrap citations in backticks; never write "Smith et al. (2022)" inline prose; never emit numeric footnote markers.
+- Never wrap citations in backticks; never emit numeric footnote markers; never write "Smith et al. (2022)" as inline prose (your parenthesised markdown link IS the citation).
 
 Blockquote discipline: default zero. One or two max if a primary-source quotation genuinely carries unique rhetorical weight.
 
@@ -681,10 +684,23 @@ Counter-argument + conclusion:
 - Address the strongest objection to the thesis before rebutting or conceding. Name it specifically.
 - The conclusion engages every major thread the body developed, named specifically. No generic "supplementing with frameworks that engage..." lists.
 
-References section (required, end of draft):
-- \`## References\` heading (sentence case).
-- List every unique slug actually cited in the body, once each. Format: \`- [SourceName](slug.md)\`. Alphabetise by SourceName.
-- Do NOT list sources you didn't cite. Do NOT duplicate.
+References section (required, end of draft) — HARVARD STYLE:
+- \`## References\` heading (sentence case, no variations).
+- List every unique slug actually cited in the body, once each. ONE bullet per source.
+- Harvard format, per entry:
+  \`- Author (Year) *Title*. Publisher or outlet. Available at: URL. [[source](slug.md)]\`
+  - **Author**: surname(s), full initial(s). "Sen, A." / "Smith, J. and Jones, K." Institutional source: full name — "Stanford Encyclopedia of Philosophy", "Federal Reserve Bank of Richmond".
+  - **(Year)**: in parentheses immediately after the author. If truly unknown, use \`(n.d.)\`.
+  - **Title** in italics. Preserve the original capitalisation from the source.
+  - **Publisher / outlet** if identifiable (journal name, news outlet, publisher, institution).
+  - **Available at: URL.** — include the URL if the anchor entry shows a source URL. Drop the "Available at" clause when no URL.
+  - **Trailing \`[[source](slug.md)]\`** — this is the Myst-internal link to the source wiki page; ALWAYS include it as the last element of each bullet so the reference remains clickable inside the app.
+- Examples:
+  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. Available at: https://www.jstor.org/stable/1829989. [[source](sen-1970.md)]\`
+  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. Available at: https://plato.stanford.edu/entries/pareto/. [[source](pareto-efficiency.md)]\`
+  - \`- Richmond Fed (2011) *Efficient Rent Seeking*. Federal Reserve Bank of Richmond. [[source](richmond-feldstein.md)]\`
+- Alphabetise by author surname (or institution name when author-less). One bullet per source. Do NOT list sources you didn't cite in the body. Do NOT duplicate.
+- Infer metadata from the anchor log entries — each anchor shows its source name, and many anchor texts or URLs reveal year / publisher. If a field is genuinely unrecoverable, omit it rather than invent. The ONE required element you must never skip is the trailing \`[[source](slug.md)]\`.
 
 Form + output rules:
 - Hit the rubric — length, form, audience.

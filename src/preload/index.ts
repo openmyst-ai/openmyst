@@ -44,6 +44,7 @@ const api: MystApi = {
     setDeepPlanModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDeepPlanModel, model),
     setChairModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetChairModel, model),
     setDraftModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetDraftModel, model),
+    setPanelModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetPanelModel, model),
     setSummaryModel: (model) => ipcRenderer.invoke(IpcChannels.Settings.SetSummaryModel, model),
   },
   projects: {
