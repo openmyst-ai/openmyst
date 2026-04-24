@@ -475,7 +475,7 @@ h3 {
   align-self: center;
   width: 100%;
 }
-.welcome-tagline {
+.welcome-home .welcome-tagline {
   font-size: 17px;
   font-weight: 500;
   color: var(--fg);
