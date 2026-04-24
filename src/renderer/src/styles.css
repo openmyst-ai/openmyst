@@ -4645,6 +4645,44 @@ img.login-logo {
   color: var(--muted);
   line-height: 1.45;
 }
+.dp-panel-role-silent {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Live panel thought — rendered inline under a role's header the
+ * moment the role finishes. Replaces the persona tagline so users see
+ * the actual thought the panelist landed on, not a generic descriptor.
+ * Intentionally readable body copy, not a status chip. */
+.dp-panel-role-thought {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+.dp-panel-role-thought-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.dp-panel-role-thought-research {
+  list-style: disc;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dp-panel-role-thought-query {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--fg);
+}
+.dp-panel-role-thought-why {
+  font-style: italic;
+}
 .dp-panel-role-note {
   font-size: 11px;
   color: var(--muted);

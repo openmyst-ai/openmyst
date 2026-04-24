@@ -152,7 +152,14 @@ async function runOnePanelist(
 
   if (!reply || reply.trim().length === 0) {
     log('deep-plan', 'panel.role.emptyReply', { role });
-    emitProgress({ kind: 'role-done', role, findings: 0, searchQueries: 0 });
+    emitProgress({
+      kind: 'role-done',
+      role,
+      findings: 0,
+      searchQueries: 0,
+      visionNotes: '',
+      needsResearch: [],
+    });
     return { role, visionNotes: '', needsResearch: [] };
   }
 
@@ -160,12 +167,16 @@ async function runOnePanelist(
   emitProgress({
     kind: 'role-done',
     role,
-    // The renderer's progress event shape dates from the old "findings"
-    // era; now that panel is vision-notes + research only, we report
-    // `findings = 1` when the role emitted a non-empty vision note and
-    // `0` when silent. Swap to a dedicated field later if the UI evolves.
+    // `findings` stays as "did this role contribute anything" for the
+    // existing header stats. The actual content streams via
+    // `visionNotes` + `needsResearch` so the renderer can show the
+    // role's thought inline the moment it finishes — users see the
+    // panel's thinking live instead of waiting for the Chair to close
+    // the round.
     findings: output.visionNotes.trim().length > 0 ? 1 : 0,
     searchQueries: output.needsResearch.length,
+    visionNotes: output.visionNotes,
+    needsResearch: output.needsResearch,
   });
   return output;
 }

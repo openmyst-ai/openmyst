@@ -9,14 +9,9 @@ import type {
   PanelRole,
 } from '@shared/types';
 import { useDeepPlan, type PanelProgressState } from '../../store/deepPlan';
-import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
 import { QuestionCard } from './QuestionCard';
 import { CitationHoverScope } from './CitationHoverScope';
-import {
-  latestQueryText,
-  researchRunningFromEvents,
-} from '../../hooks/useResearchFlash';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -126,7 +121,6 @@ export function ConversationColumn({ session }: Props): JSX.Element {
           />
         ))}
         {roundRunning && <PanelProgressPanel progress={panelProgress} />}
-        {roundRunning && <SearchingBanner />}
         {!roundRunning && pendingQuestions.length > 0 && (
           <QuestionCard questions={pendingQuestions} />
         )}
@@ -439,37 +433,6 @@ function AnswersRecap({ answers, questions }: AnswersRecapProps): JSX.Element | 
 
 /* ---------------------------- Searching banner ---------------------------- */
 
-/**
- * Shown below the panel card while the research engine is mid-run. The
- * floating pill on the graph already calls this out visually — this chat-
- * side banner exists so users who are scrolled up in the transcript (or
- * focused on the conversation column) also see that we're actively
- * searching the web and shouldn't close the window.
- */
-function SearchingBanner(): JSX.Element | null {
-  const events = useResearchEvents((s) => s.events);
-  const searching = useMemo(() => researchRunningFromEvents(events), [events]);
-  const currentQuery = useMemo(() => latestQueryText(events), [events]);
-  if (!searching) return null;
-  return (
-    <div className="dp-searching" role="status" aria-live="polite">
-      <span className="dp-searching-icon generating-dots" aria-hidden>
-        <span className="dot" />
-        <span className="dot" />
-        <span className="dot" />
-      </span>
-      <div className="dp-searching-body">
-        <div className="dp-searching-title">Searching the web — sit tight</div>
-        <div className="dp-searching-sub">
-          {currentQuery
-            ? `Looking up “${currentQuery}”`
-            : 'Running the queries the panel asked for…'}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------------- Panel progress ---------------------------- */
 
 /**
@@ -541,6 +504,10 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
             entry?.state === 'done'
               ? entry.searchQueries
               : undefined;
+          const visionNotes =
+            entry?.state === 'done' ? entry.visionNotes.trim() : '';
+          const researchRequests =
+            entry?.state === 'done' ? entry.needsResearch : [];
           const errorMsg = entry?.state === 'failed' ? entry.error : undefined;
 
           return (
@@ -560,9 +527,38 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
                     searchQueries={searchQueries}
                   />
                 </div>
-                <div className="dp-panel-role-tagline">
-                  {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
-                </div>
+                {/* Live panel thought. While running we show the persona's
+                 *  tagline; when the role finishes, its actual vision note
+                 *  + research requests replace the tagline immediately so
+                 *  users read the panel's thinking while the Chair is
+                 *  still synthesising. */}
+                {state === 'done' && (visionNotes || researchRequests.length > 0) ? (
+                  <div className="dp-panel-role-thought">
+                    {visionNotes && (
+                      <p className="dp-panel-role-thought-note">{visionNotes}</p>
+                    )}
+                    {researchRequests.length > 0 && (
+                      <ul className="dp-panel-role-thought-research">
+                        {researchRequests.map((req, i) => (
+                          <li key={i}>
+                            <span className="dp-panel-role-thought-query">“{req.query}”</span>
+                            {req.rationale && (
+                              <span className="dp-panel-role-thought-why"> — {req.rationale}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : state === 'done' ? (
+                  <div className="dp-panel-role-tagline dp-panel-role-silent">
+                    No new notes from this lens.
+                  </div>
+                ) : (
+                  <div className="dp-panel-role-tagline">
+                    {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
+                  </div>
+                )}
               </div>
             </li>
           );

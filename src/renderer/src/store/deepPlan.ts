@@ -4,6 +4,7 @@ import type {
   DeepPlanSession,
   DeepPlanStatus,
   PanelProgressEvent,
+  PanelResearchRequest,
   PanelRole,
 } from '@shared/types';
 import { bridge } from '../api/bridge';
@@ -21,7 +22,14 @@ import { bridge } from '../api/bridge';
 export type PanelRoleStatus =
   | { state: 'pending' }
   | { state: 'running' }
-  | { state: 'done'; findings: number; searchQueries: number }
+  | {
+      state: 'done';
+      findings: number;
+      searchQueries: number;
+      /** Streamed through from the main process when the role finishes. */
+      visionNotes: string;
+      needsResearch: PanelResearchRequest[];
+    }
   | { state: 'failed'; error: string };
 
 export interface PanelProgressState {
@@ -238,6 +246,8 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
             state: 'done',
             findings: event.findings,
             searchQueries: event.searchQueries,
+            visionNotes: event.visionNotes,
+            needsResearch: event.needsResearch,
           };
           return { panelProgress: progress };
         case 'role-failed':
