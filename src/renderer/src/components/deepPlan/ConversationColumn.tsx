@@ -5,6 +5,7 @@ import type {
   ChairQuestion,
   DeepPlanMessage,
   DeepPlanSession,
+  PanelOutput,
   PanelRole,
 } from '@shared/types';
 import { useDeepPlan, type PanelProgressState } from '../../store/deepPlan';
@@ -269,12 +270,69 @@ function MessageBubble({
   }
 
   const klass = message.role === 'user' ? 'dp-msg dp-msg-user' : 'dp-msg dp-msg-assistant';
+  const panelOutputs = message.kind === 'chair-turn' ? message.panel : undefined;
   return (
     <div className={klass}>
       <div className="dp-msg-body">
         <Markdown text={message.content} />
+        {panelOutputs && panelOutputs.length > 0 && (
+          <PanelDiscussion outputs={panelOutputs} />
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Collapsible accordion showing each panel role's contribution to the
+ * round: their vision note, their research requests. Hidden by default
+ * so the Chair summary stays the primary read; users who want to see
+ * the mechanics expand it.
+ */
+function PanelDiscussion({ outputs }: { outputs: PanelOutput[] }): JSX.Element {
+  const contributingRoles = outputs.filter(
+    (p) => p.visionNotes.trim().length > 0 || p.needsResearch.length > 0,
+  );
+  return (
+    <details className="dp-panel-discussion">
+      <summary className="dp-panel-discussion-summary">
+        Panel discussion ·{' '}
+        {contributingRoles.length > 0
+          ? `${contributingRoles.length} of ${outputs.length} contributed`
+          : `all ${outputs.length} silent`}
+      </summary>
+      <ul className="dp-panel-discussion-list">
+        {outputs.map((p) => (
+          <PanelDiscussionItem key={p.role} output={p} />
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function PanelDiscussionItem({ output }: { output: PanelOutput }): JSX.Element {
+  const silent =
+    !output.visionNotes.trim() && output.needsResearch.length === 0;
+  return (
+    <li className={`dp-panel-discussion-item${silent ? ' dp-panel-discussion-item-silent' : ''}`}>
+      <div className="dp-panel-discussion-role">{output.role}</div>
+      {output.visionNotes.trim() && (
+        <p className="dp-panel-discussion-note">{output.visionNotes.trim()}</p>
+      )}
+      {output.needsResearch.length > 0 && (
+        <ul className="dp-panel-discussion-research">
+          {output.needsResearch.map((req, i) => (
+            <li key={i}>
+              <span className="dp-panel-discussion-research-query">“{req.query}”</span>
+              {req.rationale && (
+                <span className="dp-panel-discussion-research-why"> — {req.rationale}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {silent && <p className="dp-panel-discussion-note dp-muted">(no notes this round)</p>}
+    </li>
   );
 }
 

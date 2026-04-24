@@ -445,6 +445,13 @@ export interface DeepPlanMessage {
   chair?: ChairOutput;
   /** Populated when `kind === 'user-answers'`. */
   answers?: ChairAnswerMap;
+  /**
+   * Per-role panel outputs from the round this chair-turn synthesised.
+   * The UI surfaces these as a collapsible "Panel discussion" accordion
+   * under the Chair's summary so the session isn't a black box — users
+   * can see what each role actually contributed.
+   */
+  panel?: PanelOutput[];
 }
 
 export interface DeepPlanSession {

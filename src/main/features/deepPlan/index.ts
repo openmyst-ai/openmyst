@@ -77,7 +77,7 @@ function appendMessage(
   role: DeepPlanMessage['role'],
   content: string,
   kind: DeepPlanMessage['kind'] = 'chat',
-  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers'>> = {},
+  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers' | 'panel'>> = {},
 ): DeepPlanSession {
   const msg: DeepPlanMessage = {
     id: randomUUID(),
@@ -369,6 +369,7 @@ async function runPanelAndChair(): Promise<void> {
     await updateSession((s) => {
       const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
+        panel: panelOutputs,
       });
       const patch = chairOutput.requirementsPatch;
       const mergedRequirements = patch
