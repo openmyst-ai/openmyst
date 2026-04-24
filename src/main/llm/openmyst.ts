@@ -72,6 +72,78 @@ function buildHeaders(token: string): Record<string, string> {
   };
 }
 
+/**
+ * Wrap a fetch-producing thunk with 429 retry. The openmyst backend enforces
+ * a sliding rate limit per user — when it fires, parallel panel + research
+ * fetches cascade into the same cooldown window and the whole round fails
+ * silently. This helper:
+ *   - retries up to `maxAttempts` times on 429 (default 3, i.e. 2 retries)
+ *   - respects the `Retry-After` header when present
+ *   - falls back to parsing `"Try again in Xs"` out of the JSON body when
+ *     the backend doesn't set a header (openmyst's current behaviour)
+ *   - caps waits at 30s so we never pause the UI forever
+ *   - consumes the response body when it's a retryable 429 (otherwise the
+ *     connection stays half-open and we can't re-hit the same URL cleanly)
+ *
+ * Caller is responsible for processing the final `Response` — we only retry
+ * the request, we do NOT read the body on success.
+ */
+export async function fetchWithRetryOn429(
+  request: () => Promise<Response>,
+  opts: { maxAttempts?: number; logScope?: string } = {},
+): Promise<Response> {
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
+  const logScope = opts.logScope ?? 'llm';
+  let lastBody = '';
+  let lastStatus = 429;
+  let lastHeaders: Headers | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await request();
+    if (response.status !== 429) return response;
+    // Read the body so we can re-issue the request on the same connection
+    // cleanly AND extract the "Try again in Xs" hint from the JSON body.
+    let body = '';
+    try {
+      body = await response.text();
+    } catch {
+      /* ignore body read failure; fall back to header hint */
+    }
+    lastBody = body;
+    lastStatus = response.status;
+    lastHeaders = response.headers;
+
+    const headerHint = response.headers.get('Retry-After');
+    let waitSec = headerHint ? Number.parseInt(headerHint, 10) : Number.NaN;
+    if (Number.isNaN(waitSec)) {
+      const match = body.match(/Try again in (\d+)\s*s/i);
+      if (match) waitSec = Number.parseInt(match[1]!, 10);
+    }
+    if (Number.isNaN(waitSec) || waitSec <= 0) waitSec = 5;
+    const waitMs = Math.min(waitSec * 1000, 30_000);
+
+    if (attempt === maxAttempts) {
+      // Give up — reconstitute a Response with the body we consumed so
+      // callers' normal error-parsing code path works uniformly.
+      return new Response(body, {
+        status: lastStatus,
+        headers: lastHeaders ?? undefined,
+      });
+    }
+
+    log(logScope, 'openmyst.rateLimit.retry', {
+      attempt,
+      maxAttempts,
+      waitSec,
+      status: lastStatus,
+    });
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+
+  // Unreachable — the loop always either returns or exhausts maxAttempts.
+  return new Response(lastBody, { status: lastStatus, headers: lastHeaders ?? undefined });
+}
+
 async function parseErrorResponse(response: Response): Promise<OpenmystApiError> {
   let body: OpenmystErrorBody = {};
   const retryAfterHeader = response.headers.get('Retry-After');
@@ -138,11 +210,15 @@ export async function openmystStreamChat(options: {
   if (options.temperature !== undefined) body['temperature'] = options.temperature;
   if (options.maxTokens !== undefined) body['max_tokens'] = options.maxTokens;
 
-  const response = await fetch(`${OPENMYST_API_BASE_URL}/api/v1/chat`, {
-    method: 'POST',
-    headers: buildHeaders(token),
-    body: JSON.stringify(body),
-  });
+  const response = await fetchWithRetryOn429(
+    () =>
+      fetch(`${OPENMYST_API_BASE_URL}/api/v1/chat`, {
+        method: 'POST',
+        headers: buildHeaders(token),
+        body: JSON.stringify(body),
+      }),
+    { logScope },
+  );
 
   if (!response.ok) {
     const err = await parseErrorResponse(response);
@@ -244,11 +320,15 @@ export async function openmystCompleteText(options: {
   if (options.maxTokens !== undefined) body['max_tokens'] = options.maxTokens;
 
   try {
-    const response = await fetch(`${OPENMYST_API_BASE_URL}/api/v1/chat`, {
-      method: 'POST',
-      headers: buildHeaders(token),
-      body: JSON.stringify(body),
-    });
+    const response = await fetchWithRetryOn429(
+      () =>
+        fetch(`${OPENMYST_API_BASE_URL}/api/v1/chat`, {
+          method: 'POST',
+          headers: buildHeaders(token),
+          body: JSON.stringify(body),
+        }),
+      { logScope },
+    );
 
     if (!response.ok) {
       const err = await parseErrorResponse(response);

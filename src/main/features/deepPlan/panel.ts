@@ -253,14 +253,24 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
   );
   const perRoundCap = Math.min(DEEP_PLAN_MAX_SEARCHES_PER_ROUND, remainingBudget);
 
-  // Fan out all panelists in parallel. Individual failures degrade
-  // gracefully to an empty output — the Chair can still synthesise
-  // whatever came back.
-  const panelOutputs = await Promise.all(
-    roles.map((role) =>
-      runOnePanelist(role, args, model, priorFindingsDigest, remainingBudget),
-    ),
-  );
+  // Run panelists with a concurrency cap. Each phase has at most 4 roles
+  // (ideation 3, planning 4, reviewing 4), so a cap of 5 effectively runs
+  // the whole phase in parallel — fastest path when backend rate limits
+  // have headroom. If a 429 does slip through under load, the
+  // `fetchWithRetryOn429` wrapper on every LLM call absorbs it, so we
+  // keep full parallelism here. Drop this back to 2–3 if backend limits
+  // start biting again.
+  const PANEL_CONCURRENCY = 5;
+  const panelOutputs: PanelOutput[] = [];
+  for (let i = 0; i < roles.length; i += PANEL_CONCURRENCY) {
+    const batch = roles.slice(i, i + PANEL_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map((role) =>
+        runOnePanelist(role, args, model, priorFindingsDigest, remainingBudget),
+      ),
+    );
+    panelOutputs.push(...batchResults);
+  }
 
   const researchRequests = mergeResearchRequests(panelOutputs, perRoundCap);
   const newlyIngestedSourceSlugs = await dispatchPanelResearch(researchRequests);
