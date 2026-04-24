@@ -5,6 +5,7 @@ import { log, logError } from '../../platform';
 import { getAuthTokenSync, invalidateToken } from '../auth';
 import { refreshAfterRequest } from '../me';
 import { getJinaKey } from '../settings';
+import { fetchWithRetryOn429 } from '../../llm/openmyst';
 import { checkSourceAllowed } from './credibility';
 
 /**
@@ -78,16 +79,20 @@ async function openmystFetch(url: string): Promise<FetchedPage> {
 
   log('sources', 'fetchUrl.openmyst.request', { url });
 
-  const response = await fetch(`${OPENMYST_API_BASE_URL}/api/v1/fetch`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'User-Agent': `openmyst-desktop/${version} (${platform()}-${arch()})`,
-      'X-Client-Version': version,
-    },
-    body: JSON.stringify({ url }),
-  });
+  const response = await fetchWithRetryOn429(
+    () =>
+      fetch(`${OPENMYST_API_BASE_URL}/api/v1/fetch`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': `openmyst-desktop/${version} (${platform()}-${arch()})`,
+          'X-Client-Version': version,
+        },
+        body: JSON.stringify({ url }),
+      }),
+    { logScope: 'sources' },
+  );
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');

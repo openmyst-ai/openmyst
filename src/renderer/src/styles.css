@@ -463,6 +463,54 @@ h3 {
   padding: 22px 24px;
   border-bottom: 1px solid var(--border);
 }
+/* Home landing — post-login default. Vertical stack with title,
+ * tagline, lede paragraph, primary CTA, secondary action row,
+ * version/update footnote. Narrower than the stage on purpose —
+ * `align-self: center` keeps it horizontally centred inside the
+ * 720px stage rather than pinning to the left edge. */
+.welcome-home {
+  padding-top: 48px;
+  padding-bottom: 44px;
+  max-width: 640px;
+  align-self: center;
+  width: 100%;
+}
+.welcome-tagline {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--fg);
+  margin: 6px 0 0;
+  letter-spacing: -0.01em;
+}
+.welcome-lede {
+  font-size: 13.5px;
+  color: var(--fg-muted);
+  line-height: 1.55;
+  margin: 14px 0 0;
+  max-width: 480px;
+}
+.welcome-home-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  width: 100%;
+}
+.welcome-home-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.welcome-home-footnote {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+}
+.welcome-home-status {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
 .welcome-gallery-hero-text {
   flex: 1;
   min-width: 0;
@@ -584,9 +632,13 @@ h3 {
 .welcome-gallery-footer {
   display: flex;
   gap: 8px;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 10px 14px;
   border-top: 1px solid var(--border);
+}
+.welcome-gallery-footer-right {
+  display: flex;
+  gap: 8px;
 }
 
 /* ---- Error ---- */
@@ -855,9 +907,23 @@ img.login-logo {
 }
 .source-name-label {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.source-name-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.source-name-origin {
+  font-size: 10px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
 }
 .source-name-delete {
   color: var(--fg-muted);
@@ -1888,27 +1954,34 @@ img.login-logo {
   color: var(--accent);
   font-style: italic;
 }
-/* Thinking indicator — spinning Open Myst logo in place of three dots.
- * Used wherever a stream hasn't produced visible text yet. Callers still
- * pass three <.dot> spans inside; we hide them and render the logo via
- * a background-image on the container so no TSX changes are needed. */
+/* Thinking indicator — three pulsing dots. Used inline wherever a
+ * stream hasn't produced visible text yet. Matches the Deep Plan
+ * panel-status indicator so the app's loading affordances are
+ * consistent; previously this class rendered a spinning logo which
+ * felt decorative next to the panel's tighter 3-dot animation. */
 .generating-dots {
-  display: inline-block;
-  width: 18px;
-  height: 18px;
-  vertical-align: text-bottom;
-  background-image: url('./assets/logo.svg');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  animation: app-logo-spin 2.2s linear infinite;
-  will-change: transform;
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  vertical-align: middle;
 }
 .generating-dots .dot {
-  display: none;
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent, currentColor);
+  opacity: 0.55;
+  animation: generating-dots-pulse 1.2s ease-in-out infinite;
+}
+.generating-dots .dot:nth-child(2) { animation-delay: 160ms; }
+.generating-dots .dot:nth-child(3) { animation-delay: 320ms; }
+@keyframes generating-dots-pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .generating-dots { animation: none; }
+  .generating-dots .dot { animation: none; opacity: 0.55; }
 }
 .chat-error {
   padding: 8px 16px;
@@ -4561,6 +4634,48 @@ img.login-logo {
   color: var(--muted);
   line-height: 1.45;
 }
+.dp-panel-role-silent {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Live panel thought — rendered inline under a role's header the moment
+ * it finishes. Plain body copy, minimal type variation — the role name
+ * + status chip above already carry the visual weight. The note is the
+ * content, the search line is supporting context. */
+.dp-panel-role-thought {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+.dp-panel-role-thought-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+/* Search lines are flat paragraphs, not a bullet list — they sit with
+ * the same left margin as the vision note above so everything reads as
+ * one continuous thought block. Query + rationale on a single line
+ * separated by " - " so the whole thing flows inline. */
+.dp-panel-role-thought-search-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.dp-panel-role-thought-search-label {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.dp-panel-role-thought-search-query {
+  font-weight: 600;
+  /* Warm purple-brown so the query pops against the muted rationale
+   * without clashing with the accent rose used elsewhere. Picks up the
+   * theme's plum family but dialled toward the brown end. */
+  color: #a97f89;
+}
 .dp-panel-role-note {
   font-size: 11px;
   color: var(--muted);
@@ -5264,6 +5379,71 @@ img.login-logo {
   border-color: #d89a2b;
   color: #d89a2b;
 }
+
+/* Panel discussion accordion — collapsed summary line under each Chair
+ * turn. Hidden detail; click to expand and see every role's note +
+ * research request. Keeps the Chair summary primary while making the
+ * panel's thinking legible to users who want to see it. */
+.dp-panel-discussion {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-panel) 60%, transparent);
+}
+.dp-panel-discussion-summary {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.dp-panel-discussion-summary::-webkit-details-marker {
+  display: none;
+}
+.dp-panel-discussion-summary::before {
+  content: '▸ ';
+  display: inline-block;
+  margin-right: 4px;
+  transition: transform 0.15s ease;
+}
+.dp-panel-discussion[open] > .dp-panel-discussion-summary::before {
+  content: '▾ ';
+}
+.dp-panel-discussion-summary:hover {
+  color: var(--fg);
+}
+.dp-panel-discussion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dp-panel-discussion-item {
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dp-panel-discussion-item:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+.dp-panel-discussion-role {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+}
+.dp-panel-discussion-item-silent .dp-panel-discussion-role {
+  color: var(--muted);
+}
+/* Thought body + search list styling lives under
+ * `.dp-panel-role-thought*` and is shared with the live panel view. */
 
 /* Free-chat bubbles — same markdown treatment as normal messages but
  * visually lighter so the user can distinguish "just talking to the

@@ -37,6 +37,35 @@ const BLOCKED_HOSTS: readonly string[] = [
   '4chan.org',
   // Professional networking timelines.
   'linkedin.com',
+  // Commercial / product listings — landing pages, not source material.
+  // An Amazon product page or eBay listing is not a thing you cite.
+  'amazon.com',
+  'amazon.co.uk',
+  'amazon.ca',
+  'amazon.de',
+  'amazon.fr',
+  'amazon.co.jp',
+  'ebay.com',
+  'etsy.com',
+  'alibaba.com',
+  'aliexpress.com',
+  'temu.com',
+  'shein.com',
+  'walmart.com',
+  'target.com',
+  'bestbuy.com',
+  // Q&A + homework content farms, mostly user-generated junk.
+  'chegg.com',
+  'coursehero.com',
+  'studocu.com',
+  // Video platforms — we can't ingest video. Transcripts, if available,
+  // are better sourced from a published transcript page, not the video
+  // URL itself.
+  'youtube.com',
+  'youtu.be',
+  'vimeo.com',
+  'rumble.com',
+  'dailymotion.com',
   // Link shorteners — we want the resolved URL, not the redirect.
   'bit.ly',
   't.co',
@@ -59,19 +88,29 @@ export interface CredibilityVerdict {
  */
 export const PREFERRED_SOURCE_HINT = `SOURCE QUALITY — this is load-bearing. The wiki's value is proportional to the strength of its sources, and search is the lever you control.
 
-PREFER (in rough priority order):
-1. Primary academic literature: arxiv.org, journal papers (nature.com, science.org, jstor.org, springer.com, sciencedirect.com), author working papers at *.edu, SSRN.
-2. Reference works written by subject-matter editors: stanford encyclopedia of philosophy (plato.stanford.edu), wikipedia, iep.utm.edu.
-3. Reputable news with editorial standards: reuters.com, apnews.com, ft.com, nytimes.com, economist.com, bbc.co.uk, wsj.com.
-4. Official sources: *.gov, *.who.int, *.oecd.org, central-bank publications (bis.org, federalreserve.gov), world-bank.org.
-5. Established long-form analysis: theatlantic.com, newyorker.com, nybooks.com, aeon.co.
+SOURCE TYPES to focus on (think in categories, not URLs):
+- **Research papers** — peer-reviewed journal articles, working papers, preprints.
+- **Journal articles** — academic journals, domain-specific publications.
+- **News articles** — reporting from outlets with editorial standards (Reuters, AP, FT, NYT, Economist, BBC, WSJ, Guardian).
+- **Long-form analysis / essays** — The Atlantic, New Yorker, NYBooks, Aeon.
+- **Reference works** — Wikipedia, Stanford Encyclopedia of Philosophy, IEP, domain encyclopedias, official documentation.
+- **Government / institutional reports** — *.gov, WHO, OECD, World Bank, central banks.
+- **Expert blogs / Substack** — only when the author is a recognised subject-matter authority with a verifiable track record (e.g. a domain expert's personal blog, a named researcher's Substack). NOT random "top 10" blogs.
+- **Books + book chapters** — when excerpts, reviews, or publisher pages with substantive content are available online.
 
-AVOID (these are "technically on-topic" but thin):
-- Explainer / SEO content farms: Investopedia, Corporate Finance Institute, "XYZ Explained" sites, "Ultimate guide to ..." listicles, wikiHow. The wiki does NOT need a 4th generic summary of a well-understood concept — one Wikipedia entry plus one primary source beats five SEO explainers. If the query is shaped in a way that would naturally return these, reshape it.
-- Shape queries to return primary material, not summaries. "pareto efficiency explained" pulls Investopedia; "arrow impossibility theorem 1951" pulls the primary literature. When the concept has a named originator or landmark paper, put that name in the query.
-- If the wiki already has 2+ sources on a given concept, do NOT search for another one — pivot to an adjacent concept, a primary-source author, or a contested angle instead. Diminishing returns set in fast.
+NEVER use as a source (these are landing pages, not material to cite):
+- **Product / commercial listings** — Amazon pages, eBay listings, Etsy, retailer product pages. A book's Amazon page is NOT a source for that book's ideas; find the book's text, a review, or the publisher page.
+- **Forums & Q&A** — Reddit threads, Quora answers, Chegg, Course Hero, StackExchange answers (use the original paper/docs the answer links to instead).
+- **Social media** — TikTok, Instagram, Twitter/X, Facebook, LinkedIn posts. Even "expert" social-media posts are hard to cite precisely.
+- **Short-form explainer farms** — Investopedia, Corporate Finance Institute, wikiHow, "Ultimate Guide to X" listicles. One Wikipedia entry + one primary source beats five SEO explainers.
+- **Marketing / landing pages** — SaaS product pages, course-sales pages, conference home pages. These describe a thing, they don't analyse it.
+- **News aggregators without original content** — Google News result pages, RSS aggregators.
 
-Hard-blocked domains (tiktok, reddit, linkedin, quora, pinterest, facebook, instagram, twitter/x, snapchat, 4chan, link shorteners) are rejected at fetch time, so queries that would return them waste a search budget slot.`;
+PRIMARY > SECONDARY > TERTIARY:
+- Primary (the original claim/research/dataset) beats secondary (someone summarising it) beats tertiary (a summary of a summary). When a concept has a named originator or landmark paper, put that name in the query — "arrow impossibility theorem 1951" pulls the primary literature; "pareto efficiency explained" pulls Investopedia.
+- If the wiki already has 2+ sources on a concept, do NOT search for another one. Pivot to an adjacent concept, a primary-source author, or a contested angle.
+
+Hard-blocked hosts (rejected at fetch time, so queries that would return them waste budget): tiktok, instagram, facebook, twitter/x, threads, snapchat, reddit, quora, pinterest, 4chan, linkedin, amazon, ebay, etsy, alibaba, aliexpress, temu, shein, walmart, target, bestbuy, chegg, coursehero, studocu, youtube, youtu.be, vimeo, rumble, dailymotion, and link shorteners. We cannot ingest video — if a video is the primary source, find the published transcript or a written follow-up instead.`;
 
 function normaliseHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, '').trim();

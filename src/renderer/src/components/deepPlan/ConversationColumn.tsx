@@ -5,17 +5,13 @@ import type {
   ChairQuestion,
   DeepPlanMessage,
   DeepPlanSession,
+  PanelOutput,
   PanelRole,
 } from '@shared/types';
 import { useDeepPlan, type PanelProgressState } from '../../store/deepPlan';
-import { useResearchEvents } from '../../store/researchEvents';
 import { renderMarkdown } from '../../utils/markdown';
 import { QuestionCard } from './QuestionCard';
 import { CitationHoverScope } from './CitationHoverScope';
-import {
-  latestQueryText,
-  researchRunningFromEvents,
-} from '../../hooks/useResearchFlash';
 
 function Markdown({ text }: { text: string }): JSX.Element {
   const html = useMemo(() => renderMarkdown(text), [text]);
@@ -80,12 +76,30 @@ export function ConversationColumn({ session }: Props): JSX.Element {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Count signals that should trigger a scroll-if-pinned: new messages,
+  // pending-question card appearing, round boundaries, AND individual
+  // panel-role completions / chair state changes during an in-flight
+  // round (so live panel-thoughts that extend past the viewport bring
+  // a pinned user down to them). `pinnedRef` stays false as soon as
+  // the user scrolls up, so none of these re-pull them against their
+  // will — they stay where they chose until they scroll back to bottom.
+  const panelDoneCount = useMemo(
+    () => Object.values(panelProgress.byRole).filter((r) => r.state === 'done').length,
+    [panelProgress.byRole],
+  );
+  const chairStage = panelProgress.chair;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (!pinnedRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
-  }, [session.messages.length, pendingQuestions.length, roundRunning]);
+  }, [
+    session.messages.length,
+    pendingQuestions.length,
+    roundRunning,
+    panelDoneCount,
+    chairStage,
+  ]);
 
   const isDone = session.phase === 'done';
 
@@ -125,7 +139,6 @@ export function ConversationColumn({ session }: Props): JSX.Element {
           />
         ))}
         {roundRunning && <PanelProgressPanel progress={panelProgress} />}
-        {roundRunning && <SearchingBanner />}
         {!roundRunning && pendingQuestions.length > 0 && (
           <QuestionCard questions={pendingQuestions} />
         )}
@@ -269,11 +282,88 @@ function MessageBubble({
   }
 
   const klass = message.role === 'user' ? 'dp-msg dp-msg-user' : 'dp-msg dp-msg-assistant';
+  const panelOutputs = message.kind === 'chair-turn' ? message.panel : undefined;
   return (
     <div className={klass}>
       <div className="dp-msg-body">
         <Markdown text={message.content} />
+        {panelOutputs && panelOutputs.length > 0 && (
+          <PanelDiscussion outputs={panelOutputs} />
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Collapsible accordion showing each panel role's contribution to the
+ * round: their vision note, their research requests. Hidden by default
+ * so the Chair summary stays the primary read; users who want to see
+ * the mechanics expand it.
+ */
+function PanelDiscussion({ outputs }: { outputs: PanelOutput[] }): JSX.Element {
+  const contributingRoles = outputs.filter(
+    (p) => p.visionNotes.trim().length > 0 || p.needsResearch.length > 0,
+  );
+  return (
+    <details className="dp-panel-discussion">
+      <summary className="dp-panel-discussion-summary">
+        Panel discussion ·{' '}
+        {contributingRoles.length > 0
+          ? `${contributingRoles.length} of ${outputs.length} contributed`
+          : `all ${outputs.length} silent`}
+      </summary>
+      <ul className="dp-panel-discussion-list">
+        {outputs.map((p) => (
+          <PanelDiscussionItem key={p.role} output={p} />
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function PanelDiscussionItem({ output }: { output: PanelOutput }): JSX.Element {
+  const silent =
+    !output.visionNotes.trim() && output.needsResearch.length === 0;
+  return (
+    <li className={`dp-panel-discussion-item${silent ? ' dp-panel-discussion-item-silent' : ''}`}>
+      <div className="dp-panel-discussion-role">{output.role}</div>
+      {silent ? (
+        <div className="dp-panel-role-tagline dp-panel-role-silent">No notes.</div>
+      ) : (
+        <PanelThoughtBody
+          visionNotes={output.visionNotes.trim()}
+          researchRequests={output.needsResearch}
+        />
+      )}
+    </li>
+  );
+}
+
+/**
+ * Shared render for a panelist's thought: the vision note + any research
+ * requests with their rationale. Used both by the live PanelProgressPanel
+ * (while the round is running) and the post-round PanelDiscussion
+ * accordion (on completed chair-turn messages), so both paths share the
+ * same type scale + bullet style.
+ */
+function PanelThoughtBody({
+  visionNotes,
+  researchRequests,
+}: {
+  visionNotes: string;
+  researchRequests: PanelOutput['needsResearch'];
+}): JSX.Element {
+  return (
+    <div className="dp-panel-role-thought">
+      {visionNotes && <p className="dp-panel-role-thought-note">{visionNotes}</p>}
+      {researchRequests.map((req, i) => (
+        <p key={i} className="dp-panel-role-thought-search-line">
+          <span className="dp-panel-role-thought-search-label">Search:</span>{' '}
+          <span className="dp-panel-role-thought-search-query">{req.query}</span>
+          {req.rationale && <> - {req.rationale}</>}
+        </p>
+      ))}
     </div>
   );
 }
@@ -381,37 +471,6 @@ function AnswersRecap({ answers, questions }: AnswersRecapProps): JSX.Element | 
 
 /* ---------------------------- Searching banner ---------------------------- */
 
-/**
- * Shown below the panel card while the research engine is mid-run. The
- * floating pill on the graph already calls this out visually — this chat-
- * side banner exists so users who are scrolled up in the transcript (or
- * focused on the conversation column) also see that we're actively
- * searching the web and shouldn't close the window.
- */
-function SearchingBanner(): JSX.Element | null {
-  const events = useResearchEvents((s) => s.events);
-  const searching = useMemo(() => researchRunningFromEvents(events), [events]);
-  const currentQuery = useMemo(() => latestQueryText(events), [events]);
-  if (!searching) return null;
-  return (
-    <div className="dp-searching" role="status" aria-live="polite">
-      <span className="dp-searching-icon generating-dots" aria-hidden>
-        <span className="dot" />
-        <span className="dot" />
-        <span className="dot" />
-      </span>
-      <div className="dp-searching-body">
-        <div className="dp-searching-title">Searching the web — sit tight</div>
-        <div className="dp-searching-sub">
-          {currentQuery
-            ? `Looking up “${currentQuery}”`
-            : 'Running the queries the panel asked for…'}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------------- Panel progress ---------------------------- */
 
 /**
@@ -446,7 +505,15 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
   const status: string = (() => {
     if (chair === 'running') return 'Chair is synthesising the panel’s findings…';
     if (chair === 'done') return 'Chair is finalising your questions…';
-    if (doneCount === roles.length && roles.length > 0) return 'Panel is done deliberating.';
+    const panelDone = doneCount === roles.length && roles.length > 0;
+    // Once the panel is done and they've asked for research, the
+    // orchestrator is fetching pages before the Chair fires. Surface
+    // that explicitly so the user isn't staring at "Panel is done
+    // deliberating" while web fetches are in flight.
+    if (panelDone && researchDispatched > 0) {
+      return `Searching the web — ${researchDispatched} ${researchDispatched === 1 ? 'query' : 'queries'} in flight…`;
+    }
+    if (panelDone) return 'Panel is done deliberating.';
     if (runningCount > 0) return `${runningCount} panelist${runningCount === 1 ? '' : 's'} still thinking…`;
     return 'Panel is assembling…';
   })();
@@ -483,6 +550,10 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
             entry?.state === 'done'
               ? entry.searchQueries
               : undefined;
+          const visionNotes =
+            entry?.state === 'done' ? entry.visionNotes.trim() : '';
+          const researchRequests =
+            entry?.state === 'done' ? entry.needsResearch : [];
           const errorMsg = entry?.state === 'failed' ? entry.error : undefined;
 
           return (
@@ -502,9 +573,23 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
                     searchQueries={searchQueries}
                   />
                 </div>
-                <div className="dp-panel-role-tagline">
-                  {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
-                </div>
+                {/* Live panel thought. While running we show the persona's
+                 *  tagline; when the role finishes, its actual vision note
+                 *  + research requests replace the tagline immediately so
+                 *  users read the panel's thinking while the Chair is
+                 *  still synthesising. */}
+                {state === 'done' && (visionNotes || researchRequests.length > 0) ? (
+                  <PanelThoughtBody
+                    visionNotes={visionNotes}
+                    researchRequests={researchRequests}
+                  />
+                ) : state === 'done' ? (
+                  <div className="dp-panel-role-tagline dp-panel-role-silent">No notes.</div>
+                ) : (
+                  <div className="dp-panel-role-tagline">
+                    {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
+                  </div>
+                )}
               </div>
             </li>
           );

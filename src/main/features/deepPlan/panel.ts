@@ -152,7 +152,14 @@ async function runOnePanelist(
 
   if (!reply || reply.trim().length === 0) {
     log('deep-plan', 'panel.role.emptyReply', { role });
-    emitProgress({ kind: 'role-done', role, findings: 0, searchQueries: 0 });
+    emitProgress({
+      kind: 'role-done',
+      role,
+      findings: 0,
+      searchQueries: 0,
+      visionNotes: '',
+      needsResearch: [],
+    });
     return { role, visionNotes: '', needsResearch: [] };
   }
 
@@ -160,12 +167,16 @@ async function runOnePanelist(
   emitProgress({
     kind: 'role-done',
     role,
-    // The renderer's progress event shape dates from the old "findings"
-    // era; now that panel is vision-notes + research only, we report
-    // `findings = 1` when the role emitted a non-empty vision note and
-    // `0` when silent. Swap to a dedicated field later if the UI evolves.
+    // `findings` stays as "did this role contribute anything" for the
+    // existing header stats. The actual content streams via
+    // `visionNotes` + `needsResearch` so the renderer can show the
+    // role's thought inline the moment it finishes — users see the
+    // panel's thinking live instead of waiting for the Chair to close
+    // the round.
     findings: output.visionNotes.trim().length > 0 ? 1 : 0,
     searchQueries: output.needsResearch.length,
+    visionNotes: output.visionNotes,
+    needsResearch: output.needsResearch,
   });
   return output;
 }
@@ -253,14 +264,24 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
   );
   const perRoundCap = Math.min(DEEP_PLAN_MAX_SEARCHES_PER_ROUND, remainingBudget);
 
-  // Fan out all panelists in parallel. Individual failures degrade
-  // gracefully to an empty output — the Chair can still synthesise
-  // whatever came back.
-  const panelOutputs = await Promise.all(
-    roles.map((role) =>
-      runOnePanelist(role, args, model, priorFindingsDigest, remainingBudget),
-    ),
-  );
+  // Run panelists with a concurrency cap. Each phase has at most 4 roles
+  // (ideation 3, planning 4, reviewing 4), so a cap of 5 effectively runs
+  // the whole phase in parallel — fastest path when backend rate limits
+  // have headroom. If a 429 does slip through under load, the
+  // `fetchWithRetryOn429` wrapper on every LLM call absorbs it, so we
+  // keep full parallelism here. Drop this back to 2–3 if backend limits
+  // start biting again.
+  const PANEL_CONCURRENCY = 5;
+  const panelOutputs: PanelOutput[] = [];
+  for (let i = 0; i < roles.length; i += PANEL_CONCURRENCY) {
+    const batch = roles.slice(i, i + PANEL_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map((role) =>
+        runOnePanelist(role, args, model, priorFindingsDigest, remainingBudget),
+      ),
+    );
+    panelOutputs.push(...batchResults);
+  }
 
   const researchRequests = mergeResearchRequests(panelOutputs, perRoundCap);
   const newlyIngestedSourceSlugs = await dispatchPanelResearch(researchRequests);

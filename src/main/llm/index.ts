@@ -3,7 +3,7 @@ import { getAuthTokenSync } from '../features/auth';
 import { getOpenRouterKey, getSettings } from '../features/settings';
 import { openrouterCompleteText, openrouterStreamChat } from './openrouter';
 import { openmystCompleteText, openmystStreamChat } from './openmyst';
-import type { CompleteTextOptions, StreamChatOptions } from './types';
+import type { CompleteTextOptions, StreamChatOptions, StreamChatResult } from './types';
 
 /**
  * LLM facade. Every feature that needs a completion imports from here, not
@@ -41,7 +41,7 @@ export async function ensureLlmReady(): Promise<void> {
   if (!key) throw new Error('OpenRouter API key not set. Add it in Settings.');
 }
 
-export async function streamChat(options: StreamChatOptions): Promise<string> {
+export async function streamChat(options: StreamChatOptions): Promise<StreamChatResult> {
   if (USE_OPENMYST) {
     const token = getAuthTokenSync();
     if (!token) throw new Error('Sign in to use Open Myst.');

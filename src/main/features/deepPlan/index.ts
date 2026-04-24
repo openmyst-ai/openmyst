@@ -72,12 +72,33 @@ function estimateTokensK(chars: number): number {
   return chars / 4000;
 }
 
+/**
+ * Max follow-up stream requests when the upstream connection drops
+ * mid-generation (managed-backend proxies typically enforce ~300s per
+ * request). Three continuations = up to ~4 total windows of streaming,
+ * which is plenty for even a maximalist one-shot draft.
+ */
+const MAX_CONTINUATIONS = 3;
+
+/**
+ * Prompt appended after the partial content to get the model to resume
+ * transparently. Wording matters: some models treat "continue" as a
+ * signal to summarise what they've said; we're explicit that they should
+ * pick up at the exact character and emit zero preamble.
+ */
+const CONTINUE_INSTRUCTION =
+  'Your previous response was cut off mid-sentence by an upstream timeout — it was NOT finished. ' +
+  'Continue writing from EXACTLY where you stopped: resume the incomplete word or sentence if there is one, ' +
+  'then keep going until the draft is fully complete. ' +
+  'Do NOT repeat any prior content. Do NOT add any preamble, intro, summary, meta-commentary, apology, or acknowledgement. ' +
+  'Do NOT wrap your output in a code block. Emit only the raw markdown that should follow — as if the stream had never paused.';
+
 function appendMessage(
   session: DeepPlanSession,
   role: DeepPlanMessage['role'],
   content: string,
   kind: DeepPlanMessage['kind'] = 'chat',
-  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers'>> = {},
+  extra: Partial<Pick<DeepPlanMessage, 'chair' | 'answers' | 'panel'>> = {},
 ): DeepPlanSession {
   const msg: DeepPlanMessage = {
     id: randomUUID(),
@@ -369,6 +390,7 @@ async function runPanelAndChair(): Promise<void> {
     await updateSession((s) => {
       const next = appendMessage(s, 'assistant', chairOutput.summary, 'chair-turn', {
         chair: chairOutput,
+        panel: panelOutputs,
       });
       const patch = chairOutput.requirementsPatch;
       const mergedRequirements = patch
@@ -413,8 +435,8 @@ async function runPanelAndChair(): Promise<void> {
 async function streamWithLookupResolution(args: {
   model: string;
   messages: LlmMessage[];
-}): Promise<string> {
-  let content = await streamChat({
+}): Promise<{ content: string; complete: boolean }> {
+  let result = await streamChat({
     model: args.model,
     messages: args.messages,
     logScope: 'deep-plan',
@@ -422,17 +444,20 @@ async function streamWithLookupResolution(args: {
   });
 
   for (let round = 0; round < MAX_LOOKUP_ROUNDS; round++) {
-    const { requests } = parseSourceLookups(content);
+    const { requests } = parseSourceLookups(result.content);
     if (requests.length === 0) break;
+    // If the current round was cut off, don't chase lookups — resolve with
+    // what we have so the caller can rescue the partial.
+    if (!result.complete) break;
     log('deep-plan', 'sourceLookup.round', { round, count: requests.length });
     const resolved = await resolveSourceLookups(requests);
     const followUp = formatLookupReply(resolved);
     const replayMessages: LlmMessage[] = [
       ...args.messages,
-      { role: 'assistant', content },
+      { role: 'assistant', content: result.content },
       { role: 'user', content: followUp },
     ];
-    content = await streamChat({
+    result = await streamChat({
       model: args.model,
       messages: replayMessages,
       logScope: 'deep-plan',
@@ -440,7 +465,8 @@ async function streamWithLookupResolution(args: {
     });
   }
 
-  return parseSourceLookups(content).stripped || content;
+  const stripped = parseSourceLookups(result.content).stripped || result.content;
+  return { content: stripped, complete: result.complete };
 }
 
 export async function runOneShot(): Promise<DeepPlanStatus> {
@@ -477,9 +503,42 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     promptChars: prompt.length,
   });
 
-  let fullContent = '';
+  // Auto-continue loop. If the upstream stream drops before `[DONE]` (almost
+  // always the managed backend's ~300s proxy timeout biting a long draft),
+  // we replay the original request with the partial content as the prior
+  // assistant turn and ask the model to resume from where it stopped. Chunks
+  // keep broadcasting to the same channel, so from the UI it looks like one
+  // continuous stream — just with a brief pause while we re-establish.
+  let accumulated = '';
+  let complete = false;
   try {
-    fullContent = await streamWithLookupResolution({ model, messages });
+    for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
+      const turnMessages: LlmMessage[] =
+        attempt === 0
+          ? messages
+          : [
+              ...messages,
+              { role: 'assistant', content: accumulated },
+              { role: 'user', content: CONTINUE_INSTRUCTION },
+            ];
+      const result = await streamWithLookupResolution({ model, messages: turnMessages });
+      accumulated += result.content;
+      complete = result.complete;
+      if (complete) {
+        if (attempt > 0) {
+          log('deep-plan', 'oneshot.continued', {
+            attempts: attempt,
+            finalChars: accumulated.length,
+          });
+        }
+        break;
+      }
+      log('deep-plan', 'oneshot.autoContinue', {
+        attempt: attempt + 1,
+        max: MAX_CONTINUATIONS,
+        chars: accumulated.length,
+      });
+    }
   } catch (err) {
     logError('deep-plan', 'oneshot.failed', err);
     broadcast(IpcChannels.DeepPlan.ChunkDone);
@@ -488,7 +547,14 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
 
   broadcast(IpcChannels.DeepPlan.ChunkDone);
 
-  const draft = fullContent.trim();
+  if (!complete) {
+    log('deep-plan', 'oneshot.exhaustedContinuations', {
+      chars: accumulated.length,
+      max: MAX_CONTINUATIONS,
+    });
+  }
+
+  const draft = accumulated.trim();
   if (draft.length === 0) {
     throw new Error('The generator returned an empty draft. Try again.');
   }
@@ -499,7 +565,7 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     ...s,
     phase: 'done',
     completed: true,
-    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length),
+    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + accumulated.length),
   }));
   await clearAutoStart();
   broadcast(IpcChannels.Document.Changed);

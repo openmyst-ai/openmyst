@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { WorkspaceProject } from '@shared/types';
+import type { UpdateStatus, WorkspaceProject } from '@shared/types';
 import { useApp } from '../store/app';
+import { useAuth } from '../store/auth';
+import { bridge } from '../api/bridge';
 import logoUrl from '../assets/logo.svg';
 
 /**
@@ -11,9 +13,16 @@ import logoUrl from '../assets/logo.svg';
  * Settings lives in a fixed corner so it never crowds the card layout.
  * The native file-dialog entry points stay as escape hatches.
  */
+type WelcomeView = 'home' | 'projects';
+
 export function Welcome(): JSX.Element {
   const { settings, openSettings } = useApp();
   const hasWorkspace = Boolean(settings?.workspaceRoot);
+  // Default signed-in landing is the Home screen. From there the user
+  // chooses whether to enter the project gallery. Workspace-not-set is
+  // still a separate branch — can't show Home without a workspace to
+  // own the projects.
+  const [view, setView] = useState<WelcomeView>('home');
 
   return (
     <div className="welcome welcome-v2">
@@ -26,7 +35,13 @@ export function Welcome(): JSX.Element {
         Settings
       </button>
       <div className="welcome-stage">
-        {hasWorkspace ? <ProjectGallery /> : <WorkspaceSetup />}
+        {!hasWorkspace ? (
+          <WorkspaceSetup />
+        ) : view === 'home' ? (
+          <HomeView onOpenProjects={() => setView('projects')} />
+        ) : (
+          <ProjectGallery onBackToHome={() => setView('home')} />
+        )}
       </div>
     </div>
   );
@@ -41,6 +56,149 @@ function SpinningLogo(props: { size: number }): JSX.Element {
       alt=""
       aria-hidden="true"
     />
+  );
+}
+
+/**
+ * Post-login landing screen. Shows app identity + version + the three
+ * actions a freshly-logged-in user reaches for: enter their project
+ * gallery, check for an update, sign out. Settings is already on the
+ * Welcome shell (corner button), so it isn't repeated here.
+ */
+function HomeView({ onOpenProjects }: { onOpenProjects: () => void }): JSX.Element {
+  const { signOut } = useAuth();
+  const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void bridge.updater.getStatus().then((s) => {
+      if (mounted) setStatus(s);
+    });
+    const off = bridge.updater.onChanged(() => {
+      void bridge.updater.getStatus().then((s) => {
+        if (mounted) setStatus(s);
+      });
+    });
+    return () => {
+      mounted = false;
+      off();
+    };
+  }, []);
+
+  const check = async (): Promise<void> => {
+    setChecking(true);
+    try {
+      const next = await bridge.updater.check();
+      setStatus(next);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async (): Promise<void> => {
+    try {
+      await bridge.updater.downloadAndInstall();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSignOut = async (): Promise<void> => {
+    setSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const currentVersion = status?.currentVersion ?? '—';
+  const updateState = status?.state ?? 'idle';
+
+  // Update status line phrased for the home screen (Settings has its own
+  // fuller copy). We only surface the useful states here: checking,
+  // available, downloading, downloaded-ready, not-available, error.
+  let updateLine: string | null = null;
+  if (updateState === 'checking' || checking) {
+    updateLine = 'Checking…';
+  } else if (updateState === 'available') {
+    updateLine = status?.availableVersion
+      ? `Update available: v${status.availableVersion}`
+      : 'Update available';
+  } else if (updateState === 'downloading') {
+    updateLine = status?.progressPercent != null
+      ? `Downloading… ${status.progressPercent}%`
+      : 'Downloading…';
+  } else if (updateState === 'downloaded') {
+    updateLine = status?.availableVersion
+      ? `v${status.availableVersion} ready — restart to install`
+      : 'Update ready';
+  } else if (updateState === 'not-available') {
+    updateLine = 'You\'re on the latest version.';
+  } else if (updateState === 'error') {
+    updateLine = status?.error ?? 'Update check failed.';
+  }
+
+  const showRestart = updateState === 'downloaded';
+  const checkDisabled =
+    checking || updateState === 'checking' || updateState === 'downloading' || updateState === 'disabled';
+
+  return (
+    <div className="welcome-hero welcome-home">
+      <SpinningLogo size={120} />
+      <h1 className="welcome-title">Open Myst</h1>
+      <p className="welcome-tagline">Your grounded research collaborator.</p>
+      <p className="welcome-lede">
+        Every claim traces back to a verbatim source. A panel of agents
+        helps you think it through. You steer the vision; Myst keeps the
+        evidence honest.
+      </p>
+
+      <div className="welcome-home-actions">
+        <button
+          type="button"
+          className="welcome-bubble welcome-bubble-primary welcome-bubble-lg"
+          onClick={onOpenProjects}
+        >
+          Go to my projects →
+        </button>
+
+        <div className="welcome-home-secondary">
+          <button
+            type="button"
+            className="welcome-bubble welcome-bubble-ghost"
+            onClick={() => void check()}
+            disabled={checkDisabled}
+          >
+            Check for updates
+          </button>
+          {showRestart && (
+            <button
+              type="button"
+              className="welcome-bubble"
+              onClick={() => void install()}
+            >
+              Restart &amp; install
+            </button>
+          )}
+          <button
+            type="button"
+            className="welcome-bubble welcome-bubble-ghost"
+            onClick={() => void handleSignOut()}
+            disabled={signingOut}
+          >
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </button>
+        </div>
+
+        <p className="welcome-home-footnote muted">
+          v{currentVersion}
+          {updateLine ? <> · {updateLine}</> : null}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -98,7 +256,7 @@ function WorkspaceSetup(): JSX.Element {
   );
 }
 
-function ProjectGallery(): JSX.Element {
+function ProjectGallery({ onBackToHome }: { onBackToHome: () => void }): JSX.Element {
   const {
     settings,
     workspaceProjects,
@@ -172,19 +330,28 @@ function ProjectGallery(): JSX.Element {
           <button
             type="button"
             className="welcome-bubble welcome-bubble-ghost"
-            onClick={() => void openExistingProject()}
-            disabled={loading}
+            onClick={onBackToHome}
           >
-            Open from disk…
+            ← Home
           </button>
-          <button
-            type="button"
-            className="welcome-bubble welcome-bubble-ghost"
-            onClick={() => void pickWorkspaceRoot()}
-            disabled={loading}
-          >
-            Change workspace folder
-          </button>
+          <div className="welcome-gallery-footer-right">
+            <button
+              type="button"
+              className="welcome-bubble welcome-bubble-ghost"
+              onClick={() => void openExistingProject()}
+              disabled={loading}
+            >
+              Open from disk…
+            </button>
+            <button
+              type="button"
+              className="welcome-bubble welcome-bubble-ghost"
+              onClick={() => void pickWorkspaceRoot()}
+              disabled={loading}
+            >
+              Change workspace folder
+            </button>
+          </div>
         </footer>
 
         {error && (

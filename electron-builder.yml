@@ -19,6 +19,11 @@ files:
 asarUnpack: []
 
 mac:
+  # Space-free artifact name. productName has a space ("Open Myst") which
+  # GitHub's asset upload rewrites to a dot, breaking the updater's URL
+  # lookup (latest-mac.yml still advertises the hyphen form). Hard-coding
+  # the hyphen name avoids the mismatch.
+  artifactName: Open-Myst-${version}-${arch}-mac.${ext}
   category: public.app-category.productivity
   target:
     - target: dmg
@@ -53,14 +58,14 @@ mac:
           - openmyst
 
 dmg:
-  artifactName: ${productName}-${version}-${arch}.dmg
+  artifactName: Open-Myst-${version}-${arch}.${ext}
 
 win:
   target:
     - target: nsis
       arch:
         - x64
-  artifactName: ${productName}-${version}-setup.${ext}
+  artifactName: Open-Myst-${version}-setup.${ext}
 
 nsis:
   oneClick: false
@@ -81,7 +86,7 @@ linux:
       arch:
         - x64
   category: Office
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: Open-Myst-${version}-${arch}.${ext}
   # The `protocols:` block above also writes a MimeType=x-scheme-handler/openmyst
   # entry into the .desktop file for the Linux AppImage.
 

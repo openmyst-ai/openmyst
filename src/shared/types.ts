@@ -382,7 +382,16 @@ export interface AnchorLogEntry {
 export type PanelProgressEvent =
   | { kind: 'round-start'; phase: DeepPlanPhase; roles: PanelRole[] }
   | { kind: 'role-start'; role: PanelRole }
-  | { kind: 'role-done'; role: PanelRole; findings: number; searchQueries: number }
+  | {
+      kind: 'role-done';
+      role: PanelRole;
+      findings: number;
+      searchQueries: number;
+      /** The vision-note text the role emitted this round (empty string when silent). Streamed to the UI so users see the thought live. */
+      visionNotes: string;
+      /** Any research queries the role asked for this round — same order the parser produced. */
+      needsResearch: PanelResearchRequest[];
+    }
   | { kind: 'role-failed'; role: PanelRole; error: string }
   | { kind: 'research-dispatched'; queries: number }
   | { kind: 'chair-start' }
@@ -445,6 +454,13 @@ export interface DeepPlanMessage {
   chair?: ChairOutput;
   /** Populated when `kind === 'user-answers'`. */
   answers?: ChairAnswerMap;
+  /**
+   * Per-role panel outputs from the round this chair-turn synthesised.
+   * The UI surfaces these as a collapsible "Panel discussion" accordion
+   * under the Chair's summary so the session isn't a black box — users
+   * can see what each role actually contributed.
+   */
+  panel?: PanelOutput[];
 }
 
 export interface DeepPlanSession {

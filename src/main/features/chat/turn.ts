@@ -201,12 +201,14 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
 
   log('chat', 'turn.systemPrompt', { chars: systemContent.length });
 
-  let fullContent = await streamChat({
-    model,
-    messages,
-    logScope: 'chat',
-    onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
-  });
+  let fullContent = (
+    await streamChat({
+      model,
+      messages,
+      logScope: 'chat',
+      onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
+    })
+  ).content;
 
   // Deep reference: if the LLM emitted source_lookup or web_search blocks,
   // resolve them (disk for source_lookup, live search backend for
@@ -251,12 +253,14 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
       { role: 'assistant', content: fullContent },
       { role: 'user', content: followUp },
     ];
-    fullContent = await streamChat({
-      model,
-      messages: replayMessages,
-      logScope: 'chat',
-      onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
-    });
+    fullContent = (
+      await streamChat({
+        model,
+        messages: replayMessages,
+        logScope: 'chat',
+        onChunk: (chunk) => broadcast(IpcChannels.Chat.Chunk, chunk),
+      })
+    ).content;
   }
 
   // Strip any residual lookup/search fences before handing to edit parsing.
@@ -319,11 +323,13 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
           `Now emit the myst_edit block to fulfil the original request: "${userText.slice(0, 200)}"`,
       },
     ];
-    const retryContent = await streamChat({
-      model,
-      messages: retryMessages,
-      logScope: 'chat',
-    });
+    const retryContent = (
+      await streamChat({
+        model,
+        messages: retryMessages,
+        logScope: 'chat',
+      })
+    ).content;
     const retryResult = parseEditBlocks(retryContent);
     if (retryResult.edits.length > 0) {
       edits = retryResult.edits;
@@ -345,11 +351,13 @@ export async function runTurn(ctx: TurnContext): Promise<ChatMessage> {
             `Re-emit the failed myst_edit blocks. Keep old_string SHORT — one sentence ideally, never more than a few. Copy the exact snippet from the document character-for-character (quotes, dashes, whitespace). For ambiguous matches, add an "occurrence" field (1-indexed).`,
         },
       ];
-      const retryContent = await streamChat({
-        model,
-        messages: retryMessages,
-        logScope: 'chat',
-      });
+      const retryContent = (
+        await streamChat({
+          model,
+          messages: retryMessages,
+          logScope: 'chat',
+        })
+      ).content;
       const retryResult = parseEditBlocks(retryContent);
       let resolved = false;
       if (retryResult.edits.length > 0) {

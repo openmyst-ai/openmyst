@@ -21,6 +21,18 @@ import {
  * cipher as base64 inside the same JSON; the plaintext never touches disk.
  */
 
+/**
+ * Bump this when you want every existing user's model slots force-reset to
+ * the current DEFAULT_* values on next app launch. Used to roll out new
+ * model defaults without leaving users stuck on whatever they'd manually
+ * configured. The reset runs once per bump — subsequent reads see the
+ * updated version and skip.
+ *
+ *   v1 — 2026-04: reset to gemma-4-31b-it + gemini-2.5-flash-lite defaults
+ *        after the panel/summary/chair/draft slot split landed.
+ */
+const CURRENT_MODEL_DEFAULTS_VERSION = 1;
+
 interface StoredSettings {
   defaultModel: string;
   /**
@@ -35,6 +47,13 @@ interface StoredSettings {
   draftModel: string;
   panelModel: string;
   summaryModel: string;
+  /**
+   * Last defaults-version applied for this user. When lower than
+   * CURRENT_MODEL_DEFAULTS_VERSION, the five model slots above get
+   * force-reset to DEFAULT_* on next read. 0 = never applied (fresh
+   * users + anyone whose settings predate the field).
+   */
+  modelDefaultsVersion: number;
   openRouterKeyCipher: string | null;
   jinaKeyCipher: string | null;
   recentProjects: string[];
@@ -48,6 +67,7 @@ const DEFAULTS: StoredSettings = {
   draftModel: DEFAULT_DRAFT_MODEL,
   panelModel: DEFAULT_PANEL_MODEL,
   summaryModel: DEFAULT_SUMMARY_MODEL,
+  modelDefaultsVersion: CURRENT_MODEL_DEFAULTS_VERSION,
   openRouterKeyCipher: null,
   jinaKeyCipher: null,
   recentProjects: [],
@@ -74,11 +94,14 @@ async function readStored(): Promise<StoredSettings> {
   try {
     const raw = await fs.readFile(settingsPath(), 'utf-8');
     const parsed = JSON.parse(raw) as Partial<StoredSettings>;
+    const migrated: StoredSettings = { ...DEFAULTS, ...parsed };
+
     // Phase-1 migration: if the user's settings predate chair/draft split,
     // carry their prior `deepPlanModel` forward into both new slots so the
-    // upgrade is invisible. They can then point chairModel at gpt-oss-120b
-    // (the new default) on their own schedule via the settings UI.
-    const migrated: StoredSettings = { ...DEFAULTS, ...parsed };
+    // upgrade is invisible. (Only matters for existing users on bumps
+    // below CURRENT_MODEL_DEFAULTS_VERSION; the force-reset below will
+    // overwrite these anyway on the initial rollout, but the soft-copy
+    // keeps things sane if someone hand-edits settings.json.)
     if (parsed.chairModel === undefined && typeof parsed.deepPlanModel === 'string') {
       migrated.chairModel = parsed.deepPlanModel;
     }
@@ -86,11 +109,33 @@ async function readStored(): Promise<StoredSettings> {
       migrated.draftModel = parsed.deepPlanModel;
     }
     // Split panel model out from summary model for existing users — their
-    // panel previously shared summaryModel, so copy the current value
-    // forward so behavior doesn't flip on upgrade.
+    // panel previously shared summaryModel.
     if (parsed.panelModel === undefined && typeof parsed.summaryModel === 'string') {
       migrated.panelModel = parsed.summaryModel;
     }
+
+    // Force-reset model slots on defaults-version bump. Triggered for
+    // users whose stored version is older than CURRENT — typically right
+    // after they install an app update that declared new defaults. Runs
+    // exactly once: we write the new version back immediately so
+    // subsequent reads skip the branch.
+    const storedDefaultsVersion =
+      typeof parsed.modelDefaultsVersion === 'number' ? parsed.modelDefaultsVersion : 0;
+    if (storedDefaultsVersion < CURRENT_MODEL_DEFAULTS_VERSION) {
+      migrated.defaultModel = DEFAULT_MODEL;
+      migrated.deepPlanModel = DEFAULT_DEEP_PLAN_MODEL;
+      migrated.chairModel = DEFAULT_CHAIR_MODEL;
+      migrated.draftModel = DEFAULT_DRAFT_MODEL;
+      migrated.panelModel = DEFAULT_PANEL_MODEL;
+      migrated.summaryModel = DEFAULT_SUMMARY_MODEL;
+      migrated.modelDefaultsVersion = CURRENT_MODEL_DEFAULTS_VERSION;
+      // Persist the reset so the next read doesn't repeat it. Fire-and-
+      // forget; a failure here just means we try again next launch.
+      void writeStored(migrated).catch(() => {
+        /* ignore — non-fatal */
+      });
+    }
+
     return migrated;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { ...DEFAULTS };

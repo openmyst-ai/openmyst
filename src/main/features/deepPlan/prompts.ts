@@ -431,9 +431,18 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
 }
 
 VISION.md rules:
-- Vision is SMALL. Target 200–800 words. Dot-points, not prose. The upper cap is 1500 words — past that you're drifting into plan-rewrite territory.
+- **Vision is the most important artefact in the session.** It carries the NOVEL IDEAS, the thesis, the POV, the angle the writer + you have landed on. Everything else (panel, anchors, drafter) serves it. Not a structure planner, not an outline — an idea document.
+- Vision is SMALL. Target 200–800 words. Dot-points, not prose. Hard cap at 1500 words — past that you're drifting into plan-rewrite territory.
 - Vision carries IDEAS, not citations. No \`([Name](slug.md#...))\` references inside vision. No blockquotes. No long paragraphs. Citations live in the anchor log; vision tells the drafter WHAT to do with them.
-- Good vision sections: "Thesis", "POV / angle", "Section intents" (bullet per section with a one-line intent + short labels for the 1–3 key anchors it leans on — e.g. "the Sen's theorem claim", not by \`#id\`), "Novel insights surfaced in conversation", "Counter-argument to engage", "What this piece is NOT".
+- **Keep the formatting LIGHT.** One H1 for the piece's working title. Flat bold labels (e.g. \`**Thesis:**\`) and bullets underneath them, NOT a cascade of H2s/H3s turning vision into a mini-plan.md. Markdown heading hierarchy should feel invisible; the ideas should be the star.
+- What belongs in vision, roughly in priority order:
+  1. **Thesis** — the single claim the piece makes, one or two sentences.
+  2. **POV / angle** — the lens. Why THIS take, not a textbook summary?
+  3. **Novel insights** — the ideas the writer + Chair surfaced in conversation that don't live in any one source. The core of the piece.
+  4. **Counter-argument to engage** — the strongest opposing position, stated in one line.
+  5. **What this piece is NOT** — scope-setting; what you deliberately chose to leave out.
+  6. **Section arc** *(light touch, not a heading outline)* — a single line or brief bullet list naming 3–6 beats in reading order, phrased as intents ("open with the decomposition", "pivot to the distributional critique", "land on what the concept can and cannot do"). This seeds the drafter's H2s; the drafter writes the actual section titles at draft time.
+- The section arc is one line in the vision, not its own major section with sub-bullets. If you find yourself writing more than a line per beat, you're drifting into plan-rewrite territory.
 - \`visionUpdate: null\` is the right call on rounds where nothing substantive shifted. Don't rewrite vision just to rewrite it — small churn is noise.
 - When you DO rewrite vision, you're rewriting the WHOLE thing in full (no patches). Preserve what still holds; sharpen what just moved.
 
@@ -441,6 +450,7 @@ Question rules:
 - **FIRST PRIORITY — missing hard requirements.** If the rubric above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Use \`choice\` with 3–4 reasonable defaults and mark one \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom with \`allowCustom: true\`}.
 - At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. Once requirements are complete, the user has delegated — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). Empty array is often the right answer.
 - Prefer \`choice\` > \`confirm\` > \`multi\` > \`open\`. Mark ONE choice \`recommended\` when there's a defensible default. Set \`allowCustom: true\` when the options don't exhaust the space.
+- **NEVER ask a "ready to advance to the next phase?" or "shall we move on?" question via the question card.** The UI has its own phase-advance CTA the user can hit whenever they want. If you think the phase is ready to close, set \`phaseAdvance: true\` AND mention it conversationally in your \`summary\` (e.g. "I think we're ready for planning — hit Continue when you are, or keep chatting if there's more to work through."). Never split that decision across a question card — you end up with a phantom answer recorded in the transcript while the phase doesn't actually advance.
 
 phaseAdvance rule:
 - NEVER \`true\` while any hard requirement (word count, form, audience) is still "(not specified)".
@@ -638,6 +648,8 @@ export function oneShotPrompt(
 
 5. **HONOUR THE WORD-COUNT RANGE** in the rubric. Going over or under by more than 10% is a failure.
 
+6. **STRUCTURE WITH HEADINGS.** Every draft opens with a \`# Title\` H1 and breaks the body into \`## Section\` H2s that follow the vision's "Structure" section (when present) or derive from the form (3–6 H2s for a standard essay, 2–4 for a blog/op-ed, 5–8 for a report). Section titles tell the reader what the section ARGUES, not just what topic it covers. A wall of unbroken prose with no H2s is a shipping failure — full details in the "Structure + headings" block below.
+
 You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle. The VISION is the intellectual spine (thesis, POV, section intents). The ANCHOR LOG is the evidence pile. Your job: turn the vision into finished analytical prose, grounded by the anchors, paraphrased naturally in your own voice.
 
 User's task: "${session.task}"
@@ -688,24 +700,36 @@ References section (required, end of draft) — HARVARD STYLE:
 - \`## References\` heading (sentence case, no variations).
 - List every unique slug actually cited in the body, once each. ONE bullet per source.
 - Harvard format, per entry:
-  \`- Author (Year) *Title*. Publisher or outlet. Available at: URL. [[source](slug.md)]\`
+  \`- Author (Year) *Title*. Publisher or outlet. [[web](https://…)] [[source](slug.md)]\`
   - **Author**: surname(s), full initial(s). "Sen, A." / "Smith, J. and Jones, K." Institutional source: full name — "Stanford Encyclopedia of Philosophy", "Federal Reserve Bank of Richmond".
   - **(Year)**: in parentheses immediately after the author. If truly unknown, use \`(n.d.)\`.
   - **Title** in italics. Preserve the original capitalisation from the source.
   - **Publisher / outlet** if identifiable (journal name, news outlet, publisher, institution).
-  - **Available at: URL.** — include the URL if the anchor entry shows a source URL. Drop the "Available at" clause when no URL.
-  - **Trailing \`[[source](slug.md)]\`** — this is the Myst-internal link to the source wiki page; ALWAYS include it as the last element of each bullet so the reference remains clickable inside the app.
+  - **\`[[web](URL)]\`** — clickable link to the original website the source lives on. Take the URL from the anchor entry (the anchor list's "source URL" or, failing that, the URL visible in the anchor text / summary). Include this ONLY when you have a real URL; do not invent one.
+  - **\`[[source](slug.md)]\`** — ALWAYS the final element: the Myst-internal link to the source's wiki page, so the reference stays clickable inside the app even when the original URL is paywalled / dead / missing.
+- Both links go inside double square brackets so they render as distinct link-chip tails rather than dissolving into the prose. \`[web]\` first, \`[source]\` last.
 - Examples:
-  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. Available at: https://www.jstor.org/stable/1829989. [[source](sen-1970.md)]\`
-  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. Available at: https://plato.stanford.edu/entries/pareto/. [[source](pareto-efficiency.md)]\`
-  - \`- Richmond Fed (2011) *Efficient Rent Seeking*. Federal Reserve Bank of Richmond. [[source](richmond-feldstein.md)]\`
+  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. [[web](https://www.jstor.org/stable/1829989)] [[source](sen-1970.md)]\`
+  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. [[web](https://plato.stanford.edu/entries/pareto/)] [[source](pareto-efficiency.md)]\`
+  - \`- Richmond Fed (2011) *Efficient Rent Seeking*. Federal Reserve Bank of Richmond. [[source](richmond-feldstein.md)]\` *(no URL available; web chip omitted)*
 - Alphabetise by author surname (or institution name when author-less). One bullet per source. Do NOT list sources you didn't cite in the body. Do NOT duplicate.
-- Infer metadata from the anchor log entries — each anchor shows its source name, and many anchor texts or URLs reveal year / publisher. If a field is genuinely unrecoverable, omit it rather than invent. The ONE required element you must never skip is the trailing \`[[source](slug.md)]\`.
+- Infer metadata from the anchor log entries — each anchor shows its source name + URL, and many anchor texts reveal year / publisher. If a field is genuinely unrecoverable, omit it rather than invent. The ONE required element you must never skip is the trailing \`[[source](slug.md)]\` chip.
+
+Structure + headings (mandatory — draft gets rejected without them):
+- **Open with a \`# Title\` H1.** Never ship a draft with no title line. Pick a title that names the piece's actual angle, not a generic restatement of the task.
+- **Use H2 section headings (\`## Section title\`) to break the body into its thread arc.** Derive the H2s from the vision's section-arc line (the brief intents it lists: "open with X", "pivot to Y", "land on Z") + the form — you pick the actual H2 titles, not the vision.
+  - **Essay (1500–2500 words)**: 3–6 H2 sections. Never one continuous flow.
+  - **Blog post (800–1500 words)**: 2–4 H2 sections.
+  - **Op-ed (800–1500 words)**: usually 2–4 H2s, sometimes 1 if the argument is tightly linear.
+  - **Report (2500+ words)**: 5–8 H2 sections, often with H3 sub-sections.
+- Section titles do the work — they should tell a reader what the section argues, not just what topic it covers. "The decomposition that gets cited" beats "Background".
+- **References is its own \`## References\` H2 at the end.** Not in the body flow; always the final section.
+- H3+ sub-headings are allowed for long/structured pieces (reports especially) but optional for essays.
 
 Form + output rules:
 - Hit the rubric — length, form, audience.
-- No preamble, no "Here is your draft:", no meta-commentary. Start with the title or opening line and write straight through.
-- Use proper markdown: \`#\` headings, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
+- No preamble, no "Here is your draft:", no meta-commentary. Start with the H1 title line and write straight through.
+- Use proper markdown: \`#\` title, \`## Section\` H2s, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
 
 Output: the complete markdown draft, nothing else.
 
