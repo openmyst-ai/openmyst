@@ -4641,22 +4641,10 @@ img.login-logo {
   line-height: 1.5;
   color: var(--fg);
 }
-.dp-panel-role-thought-searches {
-  list-style: disc;
-  padding-left: 18px;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.dp-panel-role-thought-search {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.dp-panel-role-thought-search::marker {
-  color: var(--muted);
-}
+/* Search lines are flat paragraphs, not a bullet list — they sit with
+ * the same left margin as the vision note above so everything reads as
+ * one continuous thought block. Query + rationale on a single line
+ * separated by " - " so the whole thing flows inline. */
 .dp-panel-role-thought-search-line {
   margin: 0;
   font-size: 11.5px;
@@ -4667,12 +4655,12 @@ img.login-logo {
   color: var(--muted);
   opacity: 0.7;
 }
-.dp-panel-role-thought-search-why {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--muted);
-  opacity: 0.75;
+.dp-panel-role-thought-search-query {
+  font-weight: 600;
+  /* Warm purple-brown so the query pops against the muted rationale
+   * without clashing with the accent rose used elsewhere. Picks up the
+   * theme's plum family but dialled toward the brown end. */
+  color: #a97f89;
 }
 .dp-panel-role-note {
   font-size: 11px;

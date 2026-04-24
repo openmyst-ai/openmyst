@@ -76,12 +76,30 @@ export function ConversationColumn({ session }: Props): JSX.Element {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
+  // Count signals that should trigger a scroll-if-pinned: new messages,
+  // pending-question card appearing, round boundaries, AND individual
+  // panel-role completions / chair state changes during an in-flight
+  // round (so live panel-thoughts that extend past the viewport bring
+  // a pinned user down to them). `pinnedRef` stays false as soon as
+  // the user scrolls up, so none of these re-pull them against their
+  // will — they stay where they chose until they scroll back to bottom.
+  const panelDoneCount = useMemo(
+    () => Object.values(panelProgress.byRole).filter((r) => r.state === 'done').length,
+    [panelProgress.byRole],
+  );
+  const chairStage = panelProgress.chair;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (!pinnedRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
-  }, [session.messages.length, pendingQuestions.length, roundRunning]);
+  }, [
+    session.messages.length,
+    pendingQuestions.length,
+    roundRunning,
+    panelDoneCount,
+    chairStage,
+  ]);
 
   const isDone = session.phase === 'done';
 
@@ -339,21 +357,13 @@ function PanelThoughtBody({
   return (
     <div className="dp-panel-role-thought">
       {visionNotes && <p className="dp-panel-role-thought-note">{visionNotes}</p>}
-      {researchRequests.length > 0 && (
-        <ul className="dp-panel-role-thought-searches">
-          {researchRequests.map((req, i) => (
-            <li key={i} className="dp-panel-role-thought-search">
-              <p className="dp-panel-role-thought-search-line">
-                <span className="dp-panel-role-thought-search-label">Search:</span>{' '}
-                {req.query}
-              </p>
-              {req.rationale && (
-                <p className="dp-panel-role-thought-search-why">{req.rationale}</p>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {researchRequests.map((req, i) => (
+        <p key={i} className="dp-panel-role-thought-search-line">
+          <span className="dp-panel-role-thought-search-label">Search:</span>{' '}
+          <span className="dp-panel-role-thought-search-query">{req.query}</span>
+          {req.rationale && <> - {req.rationale}</>}
+        </p>
+      ))}
     </div>
   );
 }
