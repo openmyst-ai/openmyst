@@ -58,6 +58,14 @@ const BLOCKED_HOSTS: readonly string[] = [
   'chegg.com',
   'coursehero.com',
   'studocu.com',
+  // Video platforms — we can't ingest video. Transcripts, if available,
+  // are better sourced from a published transcript page, not the video
+  // URL itself.
+  'youtube.com',
+  'youtu.be',
+  'vimeo.com',
+  'rumble.com',
+  'dailymotion.com',
   // Link shorteners — we want the resolved URL, not the redirect.
   'bit.ly',
   't.co',
@@ -102,7 +110,7 @@ PRIMARY > SECONDARY > TERTIARY:
 - Primary (the original claim/research/dataset) beats secondary (someone summarising it) beats tertiary (a summary of a summary). When a concept has a named originator or landmark paper, put that name in the query — "arrow impossibility theorem 1951" pulls the primary literature; "pareto efficiency explained" pulls Investopedia.
 - If the wiki already has 2+ sources on a concept, do NOT search for another one. Pivot to an adjacent concept, a primary-source author, or a contested angle.
 
-Hard-blocked hosts (rejected at fetch time, so queries that would return them waste budget): tiktok, instagram, facebook, twitter/x, threads, snapchat, reddit, quora, pinterest, 4chan, linkedin, amazon, ebay, etsy, alibaba, aliexpress, temu, shein, walmart, target, bestbuy, chegg, coursehero, studocu, and link shorteners.`;
+Hard-blocked hosts (rejected at fetch time, so queries that would return them waste budget): tiktok, instagram, facebook, twitter/x, threads, snapchat, reddit, quora, pinterest, 4chan, linkedin, amazon, ebay, etsy, alibaba, aliexpress, temu, shein, walmart, target, bestbuy, chegg, coursehero, studocu, youtube, youtu.be, vimeo, rumble, dailymotion, and link shorteners. We cannot ingest video — if a video is the primary source, find the published transcript or a written follow-up instead.`;
 
 function normaliseHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, '').trim();

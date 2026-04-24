@@ -4650,38 +4650,54 @@ img.login-logo {
   opacity: 0.7;
 }
 
-/* Live panel thought — rendered inline under a role's header the
- * moment the role finishes. Replaces the persona tagline so users see
- * the actual thought the panelist landed on, not a generic descriptor.
- * Intentionally readable body copy, not a status chip. */
+/* Live panel thought — rendered inline under a role's header the moment
+ * it finishes. Plain body copy, minimal type variation — the role name
+ * + status chip above already carry the visual weight. The note is the
+ * content, the search line is supporting context. */
 .dp-panel-role-thought {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   margin-top: 2px;
 }
 .dp-panel-role-thought-note {
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.5;
   color: var(--fg);
 }
-.dp-panel-role-thought-research {
+.dp-panel-role-thought-searches {
   list-style: disc;
-  margin: 0;
   padding-left: 18px;
-  font-size: 12px;
-  color: var(--muted);
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
-.dp-panel-role-thought-query {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  color: var(--fg);
+.dp-panel-role-thought-search {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
-.dp-panel-role-thought-why {
-  font-style: italic;
+.dp-panel-role-thought-search::marker {
+  color: var(--muted);
+}
+.dp-panel-role-thought-search-line {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.dp-panel-role-thought-search-label {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.dp-panel-role-thought-search-why {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  opacity: 0.75;
 }
 .dp-panel-role-note {
   font-size: 11px;
@@ -5449,29 +5465,8 @@ img.login-logo {
 .dp-panel-discussion-item-silent .dp-panel-discussion-role {
   color: var(--muted);
 }
-.dp-panel-discussion-note {
-  font-size: 13px;
-  line-height: 1.45;
-  margin: 0;
-  color: var(--fg);
-}
-.dp-panel-discussion-research {
-  list-style: disc;
-  margin: 0;
-  padding-left: 18px;
-  font-size: 12.5px;
-  color: var(--muted);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.dp-panel-discussion-research-query {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  color: var(--fg);
-}
-.dp-panel-discussion-research-why {
-  font-style: italic;
-}
+/* Thought body + search list styling lives under
+ * `.dp-panel-role-thought*` and is shared with the live panel view. */
 
 /* Free-chat bubbles — same markdown treatment as normal messages but
  * visually lighter so the user can distinguish "just talking to the

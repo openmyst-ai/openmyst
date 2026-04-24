@@ -310,23 +310,51 @@ function PanelDiscussionItem({ output }: { output: PanelOutput }): JSX.Element {
   return (
     <li className={`dp-panel-discussion-item${silent ? ' dp-panel-discussion-item-silent' : ''}`}>
       <div className="dp-panel-discussion-role">{output.role}</div>
-      {output.visionNotes.trim() && (
-        <p className="dp-panel-discussion-note">{output.visionNotes.trim()}</p>
+      {silent ? (
+        <div className="dp-panel-role-tagline dp-panel-role-silent">No notes.</div>
+      ) : (
+        <PanelThoughtBody
+          visionNotes={output.visionNotes.trim()}
+          researchRequests={output.needsResearch}
+        />
       )}
-      {output.needsResearch.length > 0 && (
-        <ul className="dp-panel-discussion-research">
-          {output.needsResearch.map((req, i) => (
-            <li key={i}>
-              <span className="dp-panel-discussion-research-query">“{req.query}”</span>
+    </li>
+  );
+}
+
+/**
+ * Shared render for a panelist's thought: the vision note + any research
+ * requests with their rationale. Used both by the live PanelProgressPanel
+ * (while the round is running) and the post-round PanelDiscussion
+ * accordion (on completed chair-turn messages), so both paths share the
+ * same type scale + bullet style.
+ */
+function PanelThoughtBody({
+  visionNotes,
+  researchRequests,
+}: {
+  visionNotes: string;
+  researchRequests: PanelOutput['needsResearch'];
+}): JSX.Element {
+  return (
+    <div className="dp-panel-role-thought">
+      {visionNotes && <p className="dp-panel-role-thought-note">{visionNotes}</p>}
+      {researchRequests.length > 0 && (
+        <ul className="dp-panel-role-thought-searches">
+          {researchRequests.map((req, i) => (
+            <li key={i} className="dp-panel-role-thought-search">
+              <p className="dp-panel-role-thought-search-line">
+                <span className="dp-panel-role-thought-search-label">Search:</span>{' '}
+                {req.query}
+              </p>
               {req.rationale && (
-                <span className="dp-panel-discussion-research-why"> — {req.rationale}</span>
+                <p className="dp-panel-role-thought-search-why">{req.rationale}</p>
               )}
             </li>
           ))}
         </ul>
       )}
-      {silent && <p className="dp-panel-discussion-note dp-muted">(no notes this round)</p>}
-    </li>
+    </div>
   );
 }
 
@@ -467,7 +495,15 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
   const status: string = (() => {
     if (chair === 'running') return 'Chair is synthesising the panel’s findings…';
     if (chair === 'done') return 'Chair is finalising your questions…';
-    if (doneCount === roles.length && roles.length > 0) return 'Panel is done deliberating.';
+    const panelDone = doneCount === roles.length && roles.length > 0;
+    // Once the panel is done and they've asked for research, the
+    // orchestrator is fetching pages before the Chair fires. Surface
+    // that explicitly so the user isn't staring at "Panel is done
+    // deliberating" while web fetches are in flight.
+    if (panelDone && researchDispatched > 0) {
+      return `Searching the web — ${researchDispatched} ${researchDispatched === 1 ? 'query' : 'queries'} in flight…`;
+    }
+    if (panelDone) return 'Panel is done deliberating.';
     if (runningCount > 0) return `${runningCount} panelist${runningCount === 1 ? '' : 's'} still thinking…`;
     return 'Panel is assembling…';
   })();
@@ -533,27 +569,12 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
                  *  users read the panel's thinking while the Chair is
                  *  still synthesising. */}
                 {state === 'done' && (visionNotes || researchRequests.length > 0) ? (
-                  <div className="dp-panel-role-thought">
-                    {visionNotes && (
-                      <p className="dp-panel-role-thought-note">{visionNotes}</p>
-                    )}
-                    {researchRequests.length > 0 && (
-                      <ul className="dp-panel-role-thought-research">
-                        {researchRequests.map((req, i) => (
-                          <li key={i}>
-                            <span className="dp-panel-role-thought-query">“{req.query}”</span>
-                            {req.rationale && (
-                              <span className="dp-panel-role-thought-why"> — {req.rationale}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <PanelThoughtBody
+                    visionNotes={visionNotes}
+                    researchRequests={researchRequests}
+                  />
                 ) : state === 'done' ? (
-                  <div className="dp-panel-role-tagline dp-panel-role-silent">
-                    No new notes from this lens.
-                  </div>
+                  <div className="dp-panel-role-tagline dp-panel-role-silent">No notes.</div>
                 ) : (
                   <div className="dp-panel-role-tagline">
                     {state === 'failed' && errorMsg ? errorMsg : meta.tagline}
