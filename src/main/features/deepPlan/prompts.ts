@@ -699,19 +699,20 @@ References section (required, end of draft) — HARVARD STYLE:
 - \`## References\` heading (sentence case, no variations).
 - List every unique slug actually cited in the body, once each. ONE bullet per source.
 - Harvard format, per entry:
-  \`- Author (Year) *Title*. Publisher or outlet. Available at: URL. [[source](slug.md)]\`
+  \`- Author (Year) *Title*. Publisher or outlet. [[web](https://…)] [[source](slug.md)]\`
   - **Author**: surname(s), full initial(s). "Sen, A." / "Smith, J. and Jones, K." Institutional source: full name — "Stanford Encyclopedia of Philosophy", "Federal Reserve Bank of Richmond".
   - **(Year)**: in parentheses immediately after the author. If truly unknown, use \`(n.d.)\`.
   - **Title** in italics. Preserve the original capitalisation from the source.
   - **Publisher / outlet** if identifiable (journal name, news outlet, publisher, institution).
-  - **Available at: URL.** — include the URL if the anchor entry shows a source URL. Drop the "Available at" clause when no URL.
-  - **Trailing \`[[source](slug.md)]\`** — this is the Myst-internal link to the source wiki page; ALWAYS include it as the last element of each bullet so the reference remains clickable inside the app.
+  - **\`[[web](URL)]\`** — clickable link to the original website the source lives on. Take the URL from the anchor entry (the anchor list's "source URL" or, failing that, the URL visible in the anchor text / summary). Include this ONLY when you have a real URL; do not invent one.
+  - **\`[[source](slug.md)]\`** — ALWAYS the final element: the Myst-internal link to the source's wiki page, so the reference stays clickable inside the app even when the original URL is paywalled / dead / missing.
+- Both links go inside double square brackets so they render as distinct link-chip tails rather than dissolving into the prose. \`[web]\` first, \`[source]\` last.
 - Examples:
-  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. Available at: https://www.jstor.org/stable/1829989. [[source](sen-1970.md)]\`
-  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. Available at: https://plato.stanford.edu/entries/pareto/. [[source](pareto-efficiency.md)]\`
-  - \`- Richmond Fed (2011) *Efficient Rent Seeking*. Federal Reserve Bank of Richmond. [[source](richmond-feldstein.md)]\`
+  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. [[web](https://www.jstor.org/stable/1829989)] [[source](sen-1970.md)]\`
+  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. [[web](https://plato.stanford.edu/entries/pareto/)] [[source](pareto-efficiency.md)]\`
+  - \`- Richmond Fed (2011) *Efficient Rent Seeking*. Federal Reserve Bank of Richmond. [[source](richmond-feldstein.md)]\` *(no URL available; web chip omitted)*
 - Alphabetise by author surname (or institution name when author-less). One bullet per source. Do NOT list sources you didn't cite in the body. Do NOT duplicate.
-- Infer metadata from the anchor log entries — each anchor shows its source name, and many anchor texts or URLs reveal year / publisher. If a field is genuinely unrecoverable, omit it rather than invent. The ONE required element you must never skip is the trailing \`[[source](slug.md)]\`.
+- Infer metadata from the anchor log entries — each anchor shows its source name + URL, and many anchor texts reveal year / publisher. If a field is genuinely unrecoverable, omit it rather than invent. The ONE required element you must never skip is the trailing \`[[source](slug.md)]\` chip.
 
 Structure + headings (mandatory — draft gets rejected without them):
 - **Open with a \`# Title\` H1.** Never ship a draft with no title line. Pick a title that names the piece's actual angle, not a generic restatement of the task.
