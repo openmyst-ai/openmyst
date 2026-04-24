@@ -72,26 +72,26 @@ function estimateTokensK(chars: number): number {
   return chars / 4000;
 }
 
-function countWords(text: string): number {
-  const match = text.trim().match(/\S+/g);
-  return match ? match.length : 0;
-}
+/**
+ * Max follow-up stream requests when the upstream connection drops
+ * mid-generation (managed-backend proxies typically enforce ~300s per
+ * request). Three continuations = up to ~4 total windows of streaming,
+ * which is plenty for even a maximalist one-shot draft.
+ */
+const MAX_CONTINUATIONS = 3;
 
 /**
- * Prefix a partial draft with a visible cut-off banner. Fires when the
- * drafter's stream ends without `[DONE]` — almost always a proxy timeout
- * on the managed backend. Saving the partial (rather than throwing) means
- * the user keeps every token that did stream through, and the banner makes
- * it obvious the draft needs a re-run to finish.
+ * Prompt appended after the partial content to get the model to resume
+ * transparently. Wording matters: some models treat "continue" as a
+ * signal to summarise what they've said; we're explicit that they should
+ * pick up at the exact character and emit zero preamble.
  */
-function prependCutOffBanner(partial: string): string {
-  const words = countWords(partial);
-  const banner =
-    `> ⚠️ **Draft was cut off mid-generation** — ${words} word${words === 1 ? '' : 's'} below. ` +
-    `The upstream stream timed out before the drafter could finish. ` +
-    `Re-run the one-shot to regenerate, or keep editing from here.\n\n---\n\n`;
-  return banner + partial;
-}
+const CONTINUE_INSTRUCTION =
+  'Your previous response was cut off mid-sentence by an upstream timeout — it was NOT finished. ' +
+  'Continue writing from EXACTLY where you stopped: resume the incomplete word or sentence if there is one, ' +
+  'then keep going until the draft is fully complete. ' +
+  'Do NOT repeat any prior content. Do NOT add any preamble, intro, summary, meta-commentary, apology, or acknowledgement. ' +
+  'Do NOT wrap your output in a code block. Emit only the raw markdown that should follow — as if the stream had never paused.';
 
 function appendMessage(
   session: DeepPlanSession,
@@ -503,12 +503,42 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     promptChars: prompt.length,
   });
 
-  let fullContent = '';
+  // Auto-continue loop. If the upstream stream drops before `[DONE]` (almost
+  // always the managed backend's ~300s proxy timeout biting a long draft),
+  // we replay the original request with the partial content as the prior
+  // assistant turn and ask the model to resume from where it stopped. Chunks
+  // keep broadcasting to the same channel, so from the UI it looks like one
+  // continuous stream — just with a brief pause while we re-establish.
+  let accumulated = '';
   let complete = false;
   try {
-    const result = await streamWithLookupResolution({ model, messages });
-    fullContent = result.content;
-    complete = result.complete;
+    for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
+      const turnMessages: LlmMessage[] =
+        attempt === 0
+          ? messages
+          : [
+              ...messages,
+              { role: 'assistant', content: accumulated },
+              { role: 'user', content: CONTINUE_INSTRUCTION },
+            ];
+      const result = await streamWithLookupResolution({ model, messages: turnMessages });
+      accumulated += result.content;
+      complete = result.complete;
+      if (complete) {
+        if (attempt > 0) {
+          log('deep-plan', 'oneshot.continued', {
+            attempts: attempt,
+            finalChars: accumulated.length,
+          });
+        }
+        break;
+      }
+      log('deep-plan', 'oneshot.autoContinue', {
+        attempt: attempt + 1,
+        max: MAX_CONTINUATIONS,
+        chars: accumulated.length,
+      });
+    }
   } catch (err) {
     logError('deep-plan', 'oneshot.failed', err);
     broadcast(IpcChannels.DeepPlan.ChunkDone);
@@ -517,30 +547,25 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
 
   broadcast(IpcChannels.DeepPlan.ChunkDone);
 
-  const draft = fullContent.trim();
+  if (!complete) {
+    log('deep-plan', 'oneshot.exhaustedContinuations', {
+      chars: accumulated.length,
+      max: MAX_CONTINUATIONS,
+    });
+  }
+
+  const draft = accumulated.trim();
   if (draft.length === 0) {
     throw new Error('The generator returned an empty draft. Try again.');
   }
 
-  // Partial-draft rescue: if the stream ended without `[DONE]` (usually a
-  // hosting-platform proxy timeout ~300s), prepend a visible banner so the
-  // user knows the draft was cut off but still gets every token that made
-  // it across — far better than losing 5 minutes of generation entirely.
-  const finalDraft = complete ? draft : prependCutOffBanner(draft);
-  if (!complete) {
-    log('deep-plan', 'oneshot.rescuedPartial', {
-      chars: draft.length,
-      words: countWords(draft),
-    });
-  }
-
-  await writeDocument(target.filename, finalDraft);
+  await writeDocument(target.filename, draft);
 
   await updateSession((s) => ({
     ...s,
     phase: 'done',
     completed: true,
-    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + fullContent.length),
+    tokensUsedK: s.tokensUsedK + estimateTokensK(prompt.length + accumulated.length),
   }));
   await clearAutoStart();
   broadcast(IpcChannels.Document.Changed);
