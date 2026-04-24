@@ -431,15 +431,18 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
 }
 
 VISION.md rules:
-- Vision is SMALL. Target 200–800 words. Dot-points, not prose. The upper cap is 1500 words — past that you're drifting into plan-rewrite territory.
+- **Vision is the most important artefact in the session.** It carries the NOVEL IDEAS, the thesis, the POV, the angle the writer + you have landed on. Everything else (panel, anchors, drafter) serves it. Not a structure planner, not an outline — an idea document.
+- Vision is SMALL. Target 200–800 words. Dot-points, not prose. Hard cap at 1500 words — past that you're drifting into plan-rewrite territory.
 - Vision carries IDEAS, not citations. No \`([Name](slug.md#...))\` references inside vision. No blockquotes. No long paragraphs. Citations live in the anchor log; vision tells the drafter WHAT to do with them.
-- Good vision sections: "Thesis", "POV / angle", "Structure" (see below — always present), "Section intents" (bullet per section with a one-line intent + short labels for the 1–3 key anchors it leans on — e.g. "the Sen's theorem claim", not by \`#id\`), "Novel insights surfaced in conversation", "Counter-argument to engage", "What this piece is NOT".
-- **Structure is mandatory in the vision.** The drafter otherwise ships unstructured walls of prose. Your vision MUST include a "Structure" section with:
-  - The opening move (how the piece starts — a hook, a scene, a claim)
-  - An ordered list of 3–6 H2 section titles the drafter will use (for a standard essay). Blog posts may have 2–4; reports may have 5–8. The form in the rubric drives the count.
-  - A one-line intent per section title.
-  - The closing move (how the piece lands — synthesis, call-forward, specific claim).
-  - Example shape for a 2000-word essay: \`## The decomposition that gets cited\` / \`## Where the math stops being enough\` / \`## AI alignment as the modern test case\` / \`## What Pareto can and cannot do\`.
+- **Keep the formatting LIGHT.** One H1 for the piece's working title. Flat bold labels (e.g. \`**Thesis:**\`) and bullets underneath them, NOT a cascade of H2s/H3s turning vision into a mini-plan.md. Markdown heading hierarchy should feel invisible; the ideas should be the star.
+- What belongs in vision, roughly in priority order:
+  1. **Thesis** — the single claim the piece makes, one or two sentences.
+  2. **POV / angle** — the lens. Why THIS take, not a textbook summary?
+  3. **Novel insights** — the ideas the writer + Chair surfaced in conversation that don't live in any one source. The core of the piece.
+  4. **Counter-argument to engage** — the strongest opposing position, stated in one line.
+  5. **What this piece is NOT** — scope-setting; what you deliberately chose to leave out.
+  6. **Section arc** *(light touch, not a heading outline)* — a single line or brief bullet list naming 3–6 beats in reading order, phrased as intents ("open with the decomposition", "pivot to the distributional critique", "land on what the concept can and cannot do"). This seeds the drafter's H2s; the drafter writes the actual section titles at draft time.
+- The section arc is one line in the vision, not its own major section with sub-bullets. If you find yourself writing more than a line per beat, you're drifting into plan-rewrite territory.
 - \`visionUpdate: null\` is the right call on rounds where nothing substantive shifted. Don't rewrite vision just to rewrite it — small churn is noise.
 - When you DO rewrite vision, you're rewriting the WHOLE thing in full (no patches). Preserve what still holds; sharpen what just moved.
 
@@ -712,8 +715,7 @@ References section (required, end of draft) — HARVARD STYLE:
 
 Structure + headings (mandatory — draft gets rejected without them):
 - **Open with a \`# Title\` H1.** Never ship a draft with no title line. Pick a title that names the piece's actual angle, not a generic restatement of the task.
-- **Use H2 section headings (\`## Section title\`) to break the body into its thread arc.** The vision's "Structure" section names the exact H2s you should use; follow them. If the vision lists four H2 titles, your draft uses four H2 sections.
-- When the vision is missing an explicit structure list, derive H2s yourself from the form + content:
+- **Use H2 section headings (\`## Section title\`) to break the body into its thread arc.** Derive the H2s from the vision's section-arc line (the brief intents it lists: "open with X", "pivot to Y", "land on Z") + the form — you pick the actual H2 titles, not the vision.
   - **Essay (1500–2500 words)**: 3–6 H2 sections. Never one continuous flow.
   - **Blog post (800–1500 words)**: 2–4 H2 sections.
   - **Op-ed (800–1500 words)**: usually 2–4 H2s, sometimes 1 if the argument is tightly linear.
