@@ -26,6 +26,16 @@ export function SourcesPanel(): JSX.Element {
     await bridge.sources.delete(slug);
   }, []);
 
+  const getOriginLabel = (s: SourceMeta): string | null => {
+    if (s.type !== 'link' || !s.sourcePath) return null;
+    try {
+      const host = new URL(s.sourcePath).hostname;
+      return host.replace(/^www\./, '');
+    } catch {
+      return null;
+    }
+  };
+
   return (
     <div className="sources-panel">
       <div className="sources-panel-header">
@@ -34,25 +44,31 @@ export function SourcesPanel(): JSX.Element {
 
       {sources.length > 0 && (
         <div className="source-list-scroll">
-          {sources.map((s) => (
-            <button
-              key={s.slug}
-              type="button"
-              className="source-name-btn"
-              onClick={() => openPreview(s)}
-            >
-              <span className="source-name-label">{s.name}</span>
-              <span
-                className="source-name-delete"
-                role="button"
-                tabIndex={0}
-                onClick={(e) => void handleDelete(e, s.slug)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void handleDelete(e as unknown as React.MouseEvent, s.slug); }}
+          {sources.map((s) => {
+            const origin = getOriginLabel(s);
+            return (
+              <button
+                key={s.slug}
+                type="button"
+                className="source-name-btn"
+                onClick={() => openPreview(s)}
               >
-                &#x2715;
-              </span>
-            </button>
-          ))}
+                <span className="source-name-label">
+                  <span className="source-name-title">{s.name}</span>
+                  {origin && <span className="source-name-origin">{origin}</span>}
+                </span>
+                <span
+                  className="source-name-delete"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => void handleDelete(e, s.slug)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleDelete(e as unknown as React.MouseEvent, s.slug); }}
+                >
+                  &#x2715;
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
