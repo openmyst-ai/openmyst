@@ -156,21 +156,6 @@ function HomeView({ onOpenProjects }: { onOpenProjects: () => void }): JSX.Eleme
         evidence honest.
       </p>
 
-      <ul className="welcome-home-pillars" aria-label="What Myst does">
-        <li>
-          <strong>Anchored</strong>
-          <span>Inline citations hover to the exact source passage they quote.</span>
-        </li>
-        <li>
-          <strong>Conversational</strong>
-          <span>Chat with the Chair between rounds to shape your vision.</span>
-        </li>
-        <li>
-          <strong>End-to-end</strong>
-          <span>Vision → evidence → draft, all in one workspace.</span>
-        </li>
-      </ul>
-
       <div className="welcome-home-actions">
         <button
           type="button"

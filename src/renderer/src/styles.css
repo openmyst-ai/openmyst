@@ -463,13 +463,17 @@ h3 {
   padding: 22px 24px;
   border-bottom: 1px solid var(--border);
 }
-/* Home landing — post-login default. Vertical stack with copy that
- * fills the space: title, tagline, lede paragraph, three-pillar grid,
- * primary CTA, secondary action row, version/update footnote. */
+/* Home landing — post-login default. Vertical stack with title,
+ * tagline, lede paragraph, primary CTA, secondary action row,
+ * version/update footnote. Narrower than the stage on purpose —
+ * `align-self: center` keeps it horizontally centred inside the
+ * 720px stage rather than pinning to the left edge. */
 .welcome-home {
   padding-top: 48px;
   padding-bottom: 44px;
   max-width: 640px;
+  align-self: center;
+  width: 100%;
 }
 .welcome-tagline {
   font-size: 17px;
@@ -484,36 +488,6 @@ h3 {
   line-height: 1.55;
   margin: 14px 0 0;
   max-width: 480px;
-}
-.welcome-home-pillars {
-  list-style: none;
-  padding: 0;
-  margin: 28px 0 8px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  width: 100%;
-}
-.welcome-home-pillars li {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 14px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-panel) 60%, transparent);
-  text-align: left;
-}
-.welcome-home-pillars strong {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--fg);
-}
-.welcome-home-pillars span {
-  font-size: 12px;
-  color: var(--fg-muted);
-  line-height: 1.45;
 }
 .welcome-home-actions {
   display: flex;
@@ -536,12 +510,6 @@ h3 {
 .welcome-home-status {
   margin: 4px 0 0;
   font-size: 12px;
-}
-
-@media (max-width: 560px) {
-  .welcome-home-pillars {
-    grid-template-columns: 1fr;
-  }
 }
 .welcome-gallery-hero-text {
   flex: 1;
