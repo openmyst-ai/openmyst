@@ -21,6 +21,21 @@ export interface StreamChatOptions {
   logScope?: string;
 }
 
+/**
+ * Structured result from a streaming completion. `content` is the full
+ * concatenated body of the assistant reply. `complete` is `true` only
+ * when the server's SSE stream reached its natural `[DONE]` terminator —
+ * `false` when the connection dropped mid-stream (usually a proxy or
+ * hosting-platform timeout around 300s). Callers that care about
+ * completeness (the one-shot drafter especially) use it to surface a
+ * "draft was cut off" banner instead of silently shipping a truncated
+ * artefact.
+ */
+export interface StreamChatResult {
+  content: string;
+  complete: boolean;
+}
+
 export interface CompleteTextOptions {
   messages: LlmMessage[];
   model?: string;

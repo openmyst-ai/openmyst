@@ -4,7 +4,7 @@ import { OPENMYST_API_BASE_URL } from '@shared/flags';
 import { log, logError } from '../platform';
 import { invalidateToken } from '../features/auth';
 import { refreshAfterRequest } from '../features/me';
-import type { LlmMessage } from './types';
+import type { LlmMessage, StreamChatResult } from './types';
 
 /**
  * Managed-mode LLM client. Talks to `POST /api/v1/chat` on openmyst.ai using
@@ -189,7 +189,7 @@ export async function openmystStreamChat(options: {
   logScope?: string;
   temperature?: number;
   maxTokens?: number;
-}): Promise<string> {
+}): Promise<StreamChatResult> {
   const { token, messages, model, onChunk, logScope = 'llm' } = options;
 
   const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
@@ -290,13 +290,15 @@ export async function openmystStreamChat(options: {
     preview: fullContent.slice(0, 400),
   });
 
-  // Per contract §5, a dropped stream ends without `[DONE]`. Let the caller
-  // decide whether to display whatever arrived with an "interrupted" marker.
+  // Per contract §5, a dropped stream ends without `[DONE]`. We return
+  // the partial content + `complete: false` so callers (the drafter
+  // especially) can surface a "cut off" marker and save what got
+  // generated rather than losing 5 minutes of tokens to a proxy timeout.
   if (!sawDone && fullContent.length > 0) {
     log(logScope, 'openmyst.llm.streamIncomplete', { chars: fullContent.length });
   }
   refreshAfterRequest();
-  return fullContent;
+  return { content: fullContent, complete: sawDone };
 }
 
 /**

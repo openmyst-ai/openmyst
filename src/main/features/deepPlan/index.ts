@@ -72,6 +72,27 @@ function estimateTokensK(chars: number): number {
   return chars / 4000;
 }
 
+function countWords(text: string): number {
+  const match = text.trim().match(/\S+/g);
+  return match ? match.length : 0;
+}
+
+/**
+ * Prefix a partial draft with a visible cut-off banner. Fires when the
+ * drafter's stream ends without `[DONE]` — almost always a proxy timeout
+ * on the managed backend. Saving the partial (rather than throwing) means
+ * the user keeps every token that did stream through, and the banner makes
+ * it obvious the draft needs a re-run to finish.
+ */
+function prependCutOffBanner(partial: string): string {
+  const words = countWords(partial);
+  const banner =
+    `> ⚠️ **Draft was cut off mid-generation** — ${words} word${words === 1 ? '' : 's'} below. ` +
+    `The upstream stream timed out before the drafter could finish. ` +
+    `Re-run the one-shot to regenerate, or keep editing from here.\n\n---\n\n`;
+  return banner + partial;
+}
+
 function appendMessage(
   session: DeepPlanSession,
   role: DeepPlanMessage['role'],
@@ -414,8 +435,8 @@ async function runPanelAndChair(): Promise<void> {
 async function streamWithLookupResolution(args: {
   model: string;
   messages: LlmMessage[];
-}): Promise<string> {
-  let content = await streamChat({
+}): Promise<{ content: string; complete: boolean }> {
+  let result = await streamChat({
     model: args.model,
     messages: args.messages,
     logScope: 'deep-plan',
@@ -423,17 +444,20 @@ async function streamWithLookupResolution(args: {
   });
 
   for (let round = 0; round < MAX_LOOKUP_ROUNDS; round++) {
-    const { requests } = parseSourceLookups(content);
+    const { requests } = parseSourceLookups(result.content);
     if (requests.length === 0) break;
+    // If the current round was cut off, don't chase lookups — resolve with
+    // what we have so the caller can rescue the partial.
+    if (!result.complete) break;
     log('deep-plan', 'sourceLookup.round', { round, count: requests.length });
     const resolved = await resolveSourceLookups(requests);
     const followUp = formatLookupReply(resolved);
     const replayMessages: LlmMessage[] = [
       ...args.messages,
-      { role: 'assistant', content },
+      { role: 'assistant', content: result.content },
       { role: 'user', content: followUp },
     ];
-    content = await streamChat({
+    result = await streamChat({
       model: args.model,
       messages: replayMessages,
       logScope: 'deep-plan',
@@ -441,7 +465,8 @@ async function streamWithLookupResolution(args: {
     });
   }
 
-  return parseSourceLookups(content).stripped || content;
+  const stripped = parseSourceLookups(result.content).stripped || result.content;
+  return { content: stripped, complete: result.complete };
 }
 
 export async function runOneShot(): Promise<DeepPlanStatus> {
@@ -479,8 +504,11 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
   });
 
   let fullContent = '';
+  let complete = false;
   try {
-    fullContent = await streamWithLookupResolution({ model, messages });
+    const result = await streamWithLookupResolution({ model, messages });
+    fullContent = result.content;
+    complete = result.complete;
   } catch (err) {
     logError('deep-plan', 'oneshot.failed', err);
     broadcast(IpcChannels.DeepPlan.ChunkDone);
@@ -494,7 +522,19 @@ export async function runOneShot(): Promise<DeepPlanStatus> {
     throw new Error('The generator returned an empty draft. Try again.');
   }
 
-  await writeDocument(target.filename, draft);
+  // Partial-draft rescue: if the stream ended without `[DONE]` (usually a
+  // hosting-platform proxy timeout ~300s), prepend a visible banner so the
+  // user knows the draft was cut off but still gets every token that made
+  // it across — far better than losing 5 minutes of generation entirely.
+  const finalDraft = complete ? draft : prependCutOffBanner(draft);
+  if (!complete) {
+    log('deep-plan', 'oneshot.rescuedPartial', {
+      chars: draft.length,
+      words: countWords(draft),
+    });
+  }
+
+  await writeDocument(target.filename, finalDraft);
 
   await updateSession((s) => ({
     ...s,

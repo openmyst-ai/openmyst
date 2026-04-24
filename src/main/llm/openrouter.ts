@@ -1,5 +1,5 @@
 import { log, logError } from '../platform';
-import type { LlmMessage, StreamChatOptions } from './types';
+import type { LlmMessage, StreamChatOptions, StreamChatResult } from './types';
 
 /**
  * Single source of truth for talking to OpenRouter. Every feature that calls
@@ -51,7 +51,7 @@ export async function openrouterStreamChat(options: {
   messages: StreamChatOptions['messages'];
   onChunk?: StreamChatOptions['onChunk'];
   logScope?: StreamChatOptions['logScope'];
-}): Promise<string> {
+}): Promise<StreamChatResult> {
   const { apiKey, model, messages, onChunk, logScope = 'llm' } = options;
 
   const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0);
@@ -83,6 +83,7 @@ export async function openrouterStreamChat(options: {
   let fullContent = '';
   let buffer = '';
   let reading = true;
+  let sawDone = false;
 
   while (reading) {
     const { done, value } = await reader.read();
@@ -99,7 +100,10 @@ export async function openrouterStreamChat(options: {
       const trimmed = line.trim();
       if (!trimmed || !trimmed.startsWith('data: ')) continue;
       const data = trimmed.slice(6);
-      if (data === '[DONE]') continue;
+      if (data === '[DONE]') {
+        sawDone = true;
+        continue;
+      }
 
       try {
         const parsed = JSON.parse(data) as {
@@ -119,9 +123,13 @@ export async function openrouterStreamChat(options: {
   log(logScope, 'llm.response', {
     chars: fullContent.length,
     elapsedMs: Date.now() - t0,
+    sawDone,
     preview: fullContent.slice(0, 400),
   });
-  return fullContent;
+  if (!sawDone && fullContent.length > 0) {
+    log(logScope, 'llm.streamIncomplete', { chars: fullContent.length });
+  }
+  return { content: fullContent, complete: sawDone };
 }
 
 /**
