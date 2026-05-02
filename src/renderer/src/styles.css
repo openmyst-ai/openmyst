@@ -3173,6 +3173,34 @@ img.login-logo {
   color: var(--muted);
   line-height: 1.5;
 }
+.dp-following-up {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-alt);
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+.dp-following-up-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: dp-following-up-spin 0.9s linear infinite;
+}
+.dp-following-up-text {
+  flex: 1;
+}
+@keyframes dp-following-up-spin {
+  to { transform: rotate(360deg); }
+}
 
 /* Sources column */
 .dp-sources {
@@ -5003,6 +5031,14 @@ img.login-logo {
 .dp-qcard-type {
   color: var(--accent);
 }
+.dp-qcard-attribution {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: -4px;
+}
 .dp-qcard-prompt {
   font-size: 18px;
   line-height: 1.4;
@@ -5148,6 +5184,28 @@ img.login-logo {
 }
 .dp-qcard-skip:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
+}
+.dp-qcard-delegate {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--fg);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.dp-qcard-delegate:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.dp-qcard-delegate:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 .dp-qcard-next {

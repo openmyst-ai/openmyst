@@ -6,6 +6,8 @@ import type {
   PanelOutput,
   PanelResearchRequest,
   PanelRole,
+  PanelUserPrompt,
+  PanelUserPromptKind,
   PlanRequirements,
 } from '@shared/types';
 
@@ -117,6 +119,27 @@ function strOr(v: unknown, fallback = ''): string {
   return typeof v === 'string' ? v.trim() : fallback;
 }
 
+const VALID_PROMPT_KINDS: readonly PanelUserPromptKind[] = [
+  'concern',
+  'question',
+  'clarification',
+  'idea',
+];
+
+function sanitizeUserPrompt(item: unknown): PanelUserPrompt | null {
+  if (!item || typeof item !== 'object') return null;
+  const rec = item as Record<string, unknown>;
+  const prompt = strOr(rec.prompt);
+  if (!prompt) return null;
+  const kindRaw = strOr(rec.kind).toLowerCase() as PanelUserPromptKind;
+  const kind: PanelUserPromptKind = VALID_PROMPT_KINDS.includes(kindRaw) ? kindRaw : 'question';
+  const rationale = strOr(rec.rationale);
+  const out: PanelUserPrompt = { kind, prompt, rationale };
+  const delegableQuery = strOr(rec.delegableQuery ?? rec.delegable_query ?? rec.query);
+  if (delegableQuery) out.delegableQuery = delegableQuery;
+  return out;
+}
+
 function sanitizePanelResearch(item: unknown): PanelResearchRequest | null {
   if (!item || typeof item !== 'object') return null;
   const rec = item as Record<string, unknown>;
@@ -127,12 +150,23 @@ function sanitizePanelResearch(item: unknown): PanelResearchRequest | null {
 
 export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
   const parsed = extractJsonBlob(raw);
+  const userPrompts: PanelUserPrompt[] = [];
   const needsResearch: PanelResearchRequest[] = [];
   let visionNotes = '';
 
   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const rec = parsed as Record<string, unknown>;
     visionNotes = strOr(rec.visionNotes ?? rec.vision_notes);
+    const promptSource =
+      (Array.isArray(rec.userPrompts) && rec.userPrompts) ||
+      (Array.isArray(rec.user_prompts) && rec.user_prompts) ||
+      null;
+    if (promptSource) {
+      for (const item of promptSource) {
+        const p = sanitizeUserPrompt(item);
+        if (p) userPrompts.push(p);
+      }
+    }
     const researchSource =
       (Array.isArray(rec.needsResearch) && rec.needsResearch) ||
       (Array.isArray(rec.needs_research) && rec.needs_research) ||
@@ -145,10 +179,17 @@ export function parsePanelOutput(raw: string, role: PanelRole): PanelOutput {
     }
   }
 
+  // Sanity backstops — the panelist prompt sets the real targets and
+  // teaches the model when to push higher / lower. Cap auto-search HARD
+  // at 1 per panelist: the panel runs in parallel, so a 1-each cap keeps
+  // total round volume to ~one-per-panelist worst case (most should
+  // emit 0 anyway). User-prompts get more headroom since they cost
+  // nothing — Chair curates them down to 2–3 surfaced.
   return {
     role,
     visionNotes: visionNotes.slice(0, 500),
-    needsResearch: needsResearch.slice(0, 2),
+    userPrompts: userPrompts.slice(0, 3),
+    needsResearch: needsResearch.slice(0, 1),
   };
 }
 
@@ -206,6 +247,19 @@ function sanitizeChairQuestion(item: unknown, index: number): ChairQuestion | nu
 
   const out: ChairQuestion = { id, type, prompt, choices, rationale };
   if (allowCustom && type === 'choice') out.allowCustom = true;
+  const delegableQuery = strOr(rec.delegableQuery ?? rec.delegable_query);
+  if (delegableQuery) out.delegableQuery = delegableQuery;
+  const proposedByRaw = strOr(rec.proposedBy ?? rec.proposed_by).toLowerCase();
+  if (proposedByRaw) {
+    const validRoles: readonly string[] = [
+      'explorer', 'scoper', 'stakes', 'architect', 'evidence',
+      'steelman', 'skeptic', 'adversary', 'editor', 'audience', 'finaliser',
+      'chair',
+    ];
+    if (validRoles.includes(proposedByRaw)) {
+      out.proposedBy = proposedByRaw as ChairQuestion['proposedBy'];
+    }
+  }
   return out;
 }
 
@@ -275,7 +329,7 @@ export function parseChairOutput(raw: string): ChairOutput | null {
   return {
     summary,
     visionUpdate,
-    questions: questions.slice(0, 3),
+    questions: questions.slice(0, 6),
     phaseAdvance,
     requirementsPatch,
   };

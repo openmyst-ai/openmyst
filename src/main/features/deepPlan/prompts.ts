@@ -11,10 +11,10 @@ import type {
   SourceMeta,
 } from '@shared/types';
 import {
-  DEEP_PLAN_MAX_QUESTIONS_PER_ROUND,
-  DEEP_PLAN_MAX_SEARCHES_PER_ROUND,
   DEEP_PLAN_MAX_TOTAL_SEARCHES,
   DEEP_PLAN_SOFT_ROUND_LIMIT_PER_PHASE,
+  DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND,
+  DEEP_PLAN_TARGET_SEARCHES_PER_ROUND,
 } from '@shared/types';
 import { PROSE_STYLE } from '../../writing';
 import { PREFERRED_SOURCE_HINT } from '../research/credibility';
@@ -265,7 +265,7 @@ function sourcesBlock(sources: SourceMeta[]): string {
 
 function searchBudgetBlock(session: DeepPlanSession): string {
   const remaining = Math.max(0, DEEP_PLAN_MAX_TOTAL_SEARCHES - session.searchesUsed);
-  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. Per-round panel cap: ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND}. Searches are welcome — especially early, when the plan is sparse and one grounding source can sharpen a whole section. Don't burn every round on searches, but don't go silent either: when a specific plan claim would land harder with a primary source the wiki doesn't have yet, propose the query.
+  return `Search budget: ${session.searchesUsed}/${DEEP_PLAN_MAX_TOTAL_SEARCHES} used, ${remaining} remaining. Search is USER-GATED — when you want a specific source the wiki lacks, attach a \`delegableQuery\` to a user-prompt phrased as a question ("Want me to look up X?"). The query fires only if the writer delegates. Never auto-search; never propose a search without a user-prompt to host it.
 
 ${PREFERRED_SOURCE_HINT}`;
 }
@@ -381,19 +381,60 @@ function panelContextBlock(ctx: PanelContext): string {
     chatNotesBlock(chatNotes),
     '',
     priorFindingsDigest
-      ? `Prior-round panel output digest (do NOT repeat these — raise NEW proposals):\n${priorFindingsDigest}`
+      ? `Prior-round Chair summaries (don't re-raise concerns the Chair already addressed; DO raise new ones, including new searches when this round's specific sub-claims need grounding):\n${priorFindingsDigest}`
       : '(no prior rounds)',
   ].join('\n');
+}
+
+/**
+ * How loud to be with user-prompts per mode. Probe modes (idea-exploration,
+ * argumentative-essay) actively want the panel surfacing concerns to the
+ * user — the user's hand on the wheel is the whole point. Quiet modes
+ * (literature-review, analytical-report, comparative-analysis) lean on
+ * the sources; panelists only ask when something genuinely forks.
+ */
+function panelVerbosityForMode(mode: DeepPlanMode): { cadence: string } {
+  switch (mode) {
+    case 'idea-exploration':
+    case 'argumentative-essay':
+      return {
+        cadence:
+          'PROBE. The writer is the centre of gravity — your role is to surface the things they should weigh in on. Typical: 1 user-prompt per panelist when you have a real concern, question, or idea worth their attention. Scale up to 2 for genuinely deep / ambiguous topics where the writer would benefit from layered probing. Stay at 0 only when your lens is already addressed by the existing vision + answers. A vague "have you considered…" is worse than going silent — but a SHARP question with a clear fork is the whole point of your role.',
+      };
+    case 'literature-review':
+    case 'analytical-report':
+    case 'comparative-analysis':
+    default:
+      return {
+        cadence:
+          'BE QUIET. The deliverable leans on sources, not the writer\'s preferences. Emit a user-prompt only when something genuinely forks (ambiguous criterion, missing source the writer should choose). Most rounds, emit []. Going silent is the right move.',
+      };
+  }
 }
 
 export function panelistPrompt(role: PanelRole, ctx: PanelContext): string {
   const persona = ROLE_PERSONAS[role];
   const canSearch = ctx.remainingSearchBudget > 0;
+  const verbosity = panelVerbosityForMode(ctx.session.mode);
   const searchClause = canSearch
-    ? `- \`needsResearch\`: up to ${DEEP_PLAN_MAX_SEARCHES_PER_ROUND} queries when a specific plan claim would land harder with a source the wiki lacks. Any role may request — not just Evidence. Early ideation rounds benefit most: one or two seed queries on the core concept can reshape the whole plan.`
-    : `- \`needsResearch\`: emit []. The session search budget is exhausted — work with the plan and wiki you already have.`;
+    ? `Two search lanes — pick by ASKING WHO BENEFITS:
+- \`needsResearch\` (AUTO-FIRES, default lane): when the LITERATURE EXISTS and would help, the writer's answer doesn't change whether we should fetch it. Examples: "constrained decoding vs reward shaping in RLHF", "case studies of Pareto efficiency in welfare policy", "primary source for the Sen 1970 theorem". The writer can't add what's missing — search will.
+- \`userPrompts[].delegableQuery\` (USER-GATED, narrower): when the search depends on the WRITER'S CHOICE — mutually exclusive directions where they need to pick first. If the writer's answer doesn't change which search you'd run, it's auto-fire (\`needsResearch\`), not delegable.
 
-  return `You are ONE voice on a vision-steering panel. You do NOT talk to the writer. You do NOT curate anchors — anchor extraction happens deterministically at source-ingest time, and every extracted anchor flows to the drafter automatically. Your job is narrow: read the vision, flag what it's missing, and propose research queries when the wiki's coverage is thin.
+**YOUR per-panelist quota is small.** YOU panelists run in parallel; the round-level target is ~${DEEP_PLAN_TARGET_SEARCHES_PER_ROUND} search per round across the WHOLE panel (scaling to 2–3 for novel / unfamiliar topics). So your individual contribution is:
+- USUALLY 0. Most panelists emit \`needsResearch: []\` each round. Going silent here is correct, not lazy.
+- ONLY 1 if YOUR specific lens spots a CLEARLY UNCOVERED, LOAD-BEARING gap that no other lens is more entitled to flag. Pick the SHARPEST gap from your role's POV; don't fire on a "nice to have".
+- Two only if the topic is genuinely novel AND you're the most-relevant lens for both gaps. Rare.
+
+**Search is per-claim, not per-session** — do NOT suppress because the wiki has sources from earlier rounds. Coverage is judged PER SUB-CLAIM. A wiki of 8 sources isn't "enough" if this round's specific concern isn't covered. Re-evaluate from scratch each round. But: also don't fire just because we haven't searched yet this round — fire only when YOUR lens has a real, sharp gap.
+
+Default to \`needsResearch\` when the literature is the bottleneck. Default to \`userPrompts.delegableQuery\` only when the writer's preference picks the search direction. Session budget: ${DEEP_PLAN_MAX_TOTAL_SEARCHES} total.`
+    : `The session search budget is exhausted — emit \`needsResearch: []\` and do NOT attach \`delegableQuery\` to any user-prompt. Work with the wiki and vision you already have.`;
+
+  return `You are ONE voice on a vision-steering panel. You do NOT write the draft. You do NOT curate anchors — extraction is deterministic at ingest time. Your three outputs each round:
+1. **visionNotes** — private synthesis input the Chair reads. What's missing or off about the vision through your lens.
+2. **needsResearch** — auto-firing searches when the wiki has obvious coverage gaps on critical material. Use sparingly.
+3. **userPrompts** — concerns / questions / clarifications / ideas you want PUT IN FRONT OF THE WRITER. The Chair selects the sharpest few and surfaces them. Optionally carry a \`delegableQuery\` (user-gated search).
 
 Your role:
 ${persona}
@@ -402,26 +443,45 @@ Context:
 ${panelContextBlock(ctx)}
 
 How to think about your job:
-The vision above is what the writer + Chair have decided this piece is ABOUT — the thesis, POV, section intents, novel angles. Through your persona's lens, look for:
-1. Gaps in the vision itself — thesis weaknesses, missing counter-arguments, section intents that don't yet have a clear POV.
-2. Coverage gaps in the wiki — claims the piece will need to make that the current sources can't ground. These become \`needsResearch\` queries.
+Through your persona's lens, look for:
+1. Gaps in the vision the writer should know about and weigh in on.
+2. Choices only the writer can make (framing forks, scope decisions, taste calls).
+3. Wiki anchors that CREATE TENSION with the writer's vision — "X (already in your wiki) says Y, does that change your stance?" is a strong source-driven user-prompt. Use existing anchors as conversation hooks, not just vision sources.
+4. Coverage gaps in the wiki — pick the lane:
+   - Confident "we need this regardless" → \`needsResearch\` (auto-fires).
+   - "Want me to look this up?" / depends on user input → \`userPrompts[]\` with \`delegableQuery\`.
 
-You are NOT trying to cover the topic comprehensively. One crisp vision observation + one or two research queries (when needed) is a strong round from one role. Small and sharp beats broad and shallow.
+Mode cadence — ${ctx.session.mode}:
+${verbosity.cadence}
+
+User-prompts beat going silent only when you have a SPECIFIC concern, question, clarification request, or idea that the writer's answer would meaningfully change. Vague "have you thought about this?" filler is worse than emitting [].
 
 Output ONLY a JSON object of this exact shape — no prose, no markdown fences, no commentary:
 
 {
-  "visionNotes": "≤ 2 sentences. What's missing or off about the vision, through your role's lens. Empty string when you have nothing to add.",
+  "visionNotes": "≤ 2 sentences. Private input for the Chair. What's missing or off about the vision, through your role's lens. Empty string when you have nothing to add.",
   "needsResearch": [
-    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "what anchor type (statistic/definition/claim/finding/quote) this query should yield, and what claim in the vision it unblocks"}
+    {"query": "3–5 plain lowercase terms, no site: filters", "rationale": "what the search should yield + which vision claim it grounds"}
+  ],
+  "userPrompts": [
+    {
+      "kind": "concern" | "question" | "clarification" | "idea",
+      "prompt": "the prompt as the WRITER will read it — one clear sentence ideally",
+      "rationale": "one line — why your role is raising this",
+      "delegableQuery": "OPTIONAL. A search query (3–5 plain terms, no site: filters) that fires iff the writer delegates. Omit when no search is involved."
+    }
   ]
 }
 
 Rules:
-- \`visionNotes\`: one crisp observation through your role's lens. Not a list of five vague suggestions. If the vision is solid from your lens, emit "".
-- \`needsResearch\`: queries must target NEW ground. If the wiki already has 2+ sources on the same concept at similar depth, do NOT request a third — pivot to a primary-source author, a landmark paper, or an adjacent angle instead.
+- All three lanes are independent — silent on any combination is fine.
+- Volume scales with topic depth + ambiguity (see your mode cadence above). \`needsResearch\` is your default grounding lane; \`userPrompts\` are the rarer probing lane.
+- \`needsResearch\` queries must target NEW ground. If the wiki has 2+ sources on the same concept, do NOT request a third — pivot or drop.
+- \`kind\` (userPrompts): "concern" = something off; "question" = writer's input needed; "clarification" = something ambiguous; "idea" = a direction worth exploring.
+- \`prompt\`: write it as if the writer reads it directly. First-person. No "the panel thinks…" wrapper.
+- \`rationale\`: one line of context for the Chair, NOT shown to the user verbatim.
 ${searchClause}
-- If you have nothing useful this round, output {"visionNotes": "", "needsResearch": []}. Going silent is the right move when your lens is already addressed.`;
+- Empty is a strong round when there's nothing to add — output {"visionNotes": "", "needsResearch": [], "userPrompts": []}.`;
 }
 
 /* ────────────────────────── Chair (strong-model) ────────────────────────── */
@@ -438,16 +498,28 @@ function findingsBlock(panelOutputs: PanelOutput[]): string {
   return panelOutputs
     .map((p) => {
       const header = `### ${p.role.toUpperCase()}`;
-      const silent = !p.visionNotes.trim() && p.needsResearch.length === 0;
+      const silent =
+        !p.visionNotes.trim() && p.userPrompts.length === 0 && p.needsResearch.length === 0;
       if (silent) return `${header}\n(no notes this round)`;
       const vision = p.visionNotes.trim() ? `Vision note: ${p.visionNotes.trim()}` : '';
-      const research =
+      const autoSearch =
         p.needsResearch.length > 0
-          ? `${vision ? '\n' : ''}Research requested:\n${p.needsResearch
+          ? `${vision ? '\n' : ''}Auto-search dispatched:\n${p.needsResearch
               .map((r) => `  - "${r.query}" — ${r.rationale}`)
               .join('\n')}`
           : '';
-      return `${header}\n${vision}${research}`.trim();
+      const prompts =
+        p.userPrompts.length > 0
+          ? `${vision || autoSearch ? '\n' : ''}User-prompts proposed:\n${p.userPrompts
+              .map((u) => {
+                const search = u.delegableQuery
+                  ? ` [search-if-delegated: "${u.delegableQuery}"]`
+                  : '';
+                return `  - [${u.kind}] "${u.prompt}" — ${u.rationale}${search}`;
+              })
+              .join('\n')}`
+          : '';
+      return `${header}\n${vision}${autoSearch}${prompts}`.trim();
     })
     .join('\n\n');
 }
@@ -579,7 +651,7 @@ export function chairPrompt(args: ChairPromptArgs): string {
 Your job each round is narrow:
 1. **Steer** — reply to the user in a short \`summary\`. Conversational, first-person, specific to what actually moved.
 2. **Sharpen the VISION** — only when this round's panel vision-notes + chat-notes + new sources genuinely move the thesis, POV, or section intents. Most rounds, emit \`visionUpdate: null\`.
-3. **Probe the user** — ask 0–${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} targeted questions only when a genuine judgment call needs them.
+3. **Probe the user** — ask targeted questions only when a genuine judgment call needs them. Aim for ~${DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND} per round on average; push higher when the topic is ambiguous or the writer is exploring, lower (often 0) when the topic is well-defined.
 4. **Update the rubric** — \`requirementsPatch\` when the user just answered a hard-requirement question.
 
 Phase intent:
@@ -615,10 +687,12 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
     {
       "id": "q1",
       "type": "choice" | "multi" | "open" | "confirm",
-      "prompt": "the question as a single clear sentence",
+      "prompt": "the question as a single clear sentence — the user reads this verbatim",
       "choices": [{"id": "short-id", "label": "the option as the user sees it", "recommended": true}],
       "allowCustom": false,
-      "rationale": "optional one-line why this matters"
+      "rationale": "optional one-line why this matters",
+      "proposedBy": "explorer | scoper | stakes | architect | evidence | steelman | skeptic | adversary | editor | audience | finaliser | chair",
+      "delegableQuery": "OPTIONAL search query to fire iff the user picks the 'research this' answer. Carry forward when surfacing a panelist's user-prompt that had one; omit otherwise."
     }
   ],
   "phaseAdvance": true | false,
@@ -652,9 +726,13 @@ Pre-emit micro-check (run BEFORE finalising visionUpdate):
 - For each LOAD-BEARING term in the vision (proper noun, coined phrase, named framework), is it defined inline OR grounded in a specific anchor? If neither, drop the term or replace with the concrete description it stands for. A thesis that hinges on an undefined coined term is a vibes thesis.
 - For each "Novel insight", could the drafter unpack it into 200 words of specific prose without making things up? If not, the insight is a wishbone — sharpen or drop.
 
-Question rules:
-- **FIRST PRIORITY — missing hard requirements.** If the rubric above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Use \`choice\` with 3–4 reasonable defaults and mark one \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom with \`allowCustom: true\`}.
-- At most ${DEEP_PLAN_MAX_QUESTIONS_PER_ROUND} questions. Once requirements are complete, the user has delegated — ASK ONLY when a judgment call genuinely needs them (a thesis fork, a scope trade-off, a framing they haven't signalled). Empty array is often the right answer.
+Question rules — SCALE BY TOPIC AMBIGUITY:
+- **Aim for ~${DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND} questions per round.** Push UP to 3–4 for genuinely deep / abstract / underspecified topics where the writer is still discovering what they mean. Drop to 0–1 only when the topic is well-defined and the writer's hand is firm.
+- **Surfacing IS the value.** If the panel raised 4–6 substantive concerns / questions / ideas, surfacing only 1 is a failure mode — you're hiding the panel's work. Most rounds, surface 2–3 of the strongest panel prompts. Cut only the ones that are genuinely weak (vague filler, duplicates, anything trivially answerable from the vision).
+- **FIRST PRIORITY — missing hard requirements.** If the rubric lists a field as "(not specified)" (especially word count), ask THIS ROUND. Use \`choice\` with 3–4 reasonable defaults, mark one \`recommended\`. Set \`proposedBy: "chair"\`.
+- **SECOND PRIORITY — surface panelist user-prompts.** Sort the panel's prompts by how much the writer's answer would move the next round, take the top 2–3. Good prompts: thesis branches, scope decisions, framing calls, sharp "have you considered…" with a real concern. Weak prompts to cut: vague clarifications, broad "what do you think?", duplicates.
+- When surfacing a panelist prompt: set \`proposedBy\` to that panelist's role (e.g. \`"skeptic"\`). You may rephrase \`prompt\` for clarity, preserve intent. Carry forward \`delegableQuery\` when present — that's the "research this" option.
+- Don't surface the same concern twice — merge duplicates, pick the strongest framing.
 - Prefer \`choice\` > \`confirm\` > \`multi\` > \`open\`. Mark ONE choice \`recommended\` when there's a defensible default. Set \`allowCustom: true\` when the options don't exhaust the space.
 - **NEVER ask a "ready to advance to the next phase?" or "shall we move on?" question via the question card.** The UI has its own phase-advance CTA the user can hit whenever they want. If you think the phase is ready to close, set \`phaseAdvance: true\` AND mention it conversationally in your \`summary\` (e.g. "I think we're ready for planning — hit Continue when you are, or keep chatting if there's more to work through."). Never split that decision across a question card — you end up with a phantom answer recorded in the transcript while the phase doesn't actually advance.
 

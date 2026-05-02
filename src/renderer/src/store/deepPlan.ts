@@ -7,6 +7,7 @@ import type {
   PanelProgressEvent,
   PanelResearchRequest,
   PanelRole,
+  PanelUserPrompt,
 } from '@shared/types';
 import { bridge } from '../api/bridge';
 
@@ -30,6 +31,7 @@ export type PanelRoleStatus =
       /** Streamed through from the main process when the role finishes. */
       visionNotes: string;
       needsResearch: PanelResearchRequest[];
+      userPrompts: PanelUserPrompt[];
     }
   | { state: 'failed'; error: string };
 
@@ -249,6 +251,7 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
             searchQueries: event.searchQueries,
             visionNotes: event.visionNotes,
             needsResearch: event.needsResearch,
+            userPrompts: event.userPrompts,
           };
           return { panelProgress: progress };
         case 'role-failed':

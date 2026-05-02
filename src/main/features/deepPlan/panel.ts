@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { IpcChannels } from '@shared/ipc-channels';
 import {
-  DEEP_PLAN_MAX_SEARCHES_PER_ROUND,
   DEEP_PLAN_MAX_TOTAL_SEARCHES,
   PANEL_ROLES_BY_PHASE,
   type ChairAnswerMap,
@@ -21,14 +20,22 @@ import { ensureSearchReady } from '../research/search';
 import { panelistPrompt } from './prompts';
 import { parsePanelOutput } from './parse';
 
+export interface DelegatedSearch {
+  query: string;
+  rationale: string;
+}
+
 /**
  * Panel runner. One call per phase round:
  *   1. For each role in `PANEL_ROLES_BY_PHASE[phase]`, fan out a cheap-model
  *      JSON call in parallel.
- *   2. Merge + dedupe every role's `needsResearch[]`, cap at MAX_QUERIES,
- *      dispatch through the shared research engine.
- *   3. Return structured panel outputs + list of newly-ingested source
- *      slugs to hand to the Chair.
+ *   2. Return each panelist's vision notes + user-prompts (concerns /
+ *      questions / clarifications / ideas) for the Chair to synthesise.
+ *
+ * Search is no longer dispatched here — it's user-gated. Panelists propose
+ * research as `delegableQuery` riding on their user-prompts; the
+ * orchestrator dispatches when the user picks the "research this" answer
+ * option in `submitAnswers`.
  *
  * All progress events broadcast on `DeepPlan.PanelProgress` so the UI can
  * animate per-role status dots.
@@ -54,46 +61,6 @@ function digestPriorFindings(session: DeepPlanSession, limit = 12): string {
     .join('\n');
 }
 
-function normalizeQuery(q: string): string {
-  return q.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function mergeResearchRequests(
-  outputs: PanelOutput[],
-  cap: number,
-): PanelResearchRequest[] {
-  const merged: PanelResearchRequest[] = [];
-  if (cap <= 0) return merged;
-  const seen = new Set<string>();
-  for (const out of outputs) {
-    for (const req of out.needsResearch) {
-      const key = normalizeQuery(req.query);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      merged.push(req);
-      if (merged.length >= cap) return merged;
-    }
-  }
-  return merged;
-}
-
-function seedSeenUrls(sources: SourceMeta[]): Set<string> {
-  const seen = new Set<string>();
-  for (const src of sources) {
-    if (!src.sourcePath) continue;
-    try {
-      const u = new URL(src.sourcePath);
-      u.hash = '';
-      let path = u.pathname.replace(/\/+$/, '');
-      if (path === '') path = '/';
-      seen.add(`${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`);
-    } catch {
-      seen.add(src.sourcePath.trim().toLowerCase());
-    }
-  }
-  return seen;
-}
-
 export interface PanelRoundArgs {
   session: DeepPlanSession;
   sources: SourceMeta[];
@@ -109,9 +76,10 @@ export interface PanelRoundArgs {
 
 export interface PanelRoundResult {
   panelOutputs: PanelOutput[];
+  /** Slugs of sources auto-dispatched + ingested by this round's `needsResearch`. */
   newlyIngestedSourceSlugs: string[];
-  /** Count of research queries actually dispatched this round (0 when budget is exhausted or panel didn't ask). */
-  searchesDispatched: number;
+  /** Count of auto-dispatched searches (excludes user-gated `delegableQuery` ones). */
+  autoSearchesDispatched: number;
 }
 
 async function runOnePanelist(
@@ -147,7 +115,7 @@ async function runOnePanelist(
   } catch (err) {
     logError('deep-plan', 'panel.role.failed', err, { role });
     emitProgress({ kind: 'role-failed', role, error: (err as Error).message });
-    return { role, visionNotes: '', needsResearch: [] };
+    return { role, visionNotes: '', userPrompts: [], needsResearch: [] };
   }
 
   if (!reply || reply.trim().length === 0) {
@@ -159,99 +127,58 @@ async function runOnePanelist(
       searchQueries: 0,
       visionNotes: '',
       needsResearch: [],
+      userPrompts: [],
     });
-    return { role, visionNotes: '', needsResearch: [] };
+    return { role, visionNotes: '', userPrompts: [], needsResearch: [] };
   }
 
   const output = parsePanelOutput(reply, role);
+  // searchQueries surfaced live = auto-fires + delegable proposals. The UI
+  // shows it as "N searches lined up" so the user sees activity ahead of
+  // time. The `needsResearch` payload mirrors auto-fire queries (they're
+  // about to run); delegable queries appear separately on userPrompts.
+  const delegableCount = output.userPrompts.filter((p) => p.delegableQuery).length;
+  const searchQueries = output.needsResearch.length + delegableCount;
   emitProgress({
     kind: 'role-done',
     role,
-    // `findings` stays as "did this role contribute anything" for the
-    // existing header stats. The actual content streams via
-    // `visionNotes` + `needsResearch` so the renderer can show the
-    // role's thought inline the moment it finishes — users see the
-    // panel's thinking live instead of waiting for the Chair to close
-    // the round.
     findings: output.visionNotes.trim().length > 0 ? 1 : 0,
-    searchQueries: output.needsResearch.length,
+    searchQueries,
     visionNotes: output.visionNotes,
     needsResearch: output.needsResearch,
+    userPrompts: output.userPrompts,
   });
   return output;
 }
 
-/**
- * Dispatch the merged research requests through the shared engine. Returns
- * the slugs that landed in the wiki during this dispatch (used by the
- * Chair to acknowledge newly-available evidence).
- */
-async function dispatchPanelResearch(
-  requests: PanelResearchRequest[],
-): Promise<string[]> {
-  if (requests.length === 0) return [];
+function normalizeQueryKey(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
-  try {
-    await ensureSearchReady();
-  } catch (err) {
-    logError('deep-plan', 'panel.research.searchNotReady', err);
-    return [];
+function mergeAutoResearch(
+  outputs: PanelOutput[],
+  cap: number,
+): PanelResearchRequest[] {
+  if (cap <= 0) return [];
+  const merged: PanelResearchRequest[] = [];
+  const seen = new Set<string>();
+  for (const out of outputs) {
+    for (const req of out.needsResearch) {
+      const key = normalizeQueryKey(req.query);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(req);
+      if (merged.length >= cap) return merged;
+    }
   }
-
-  emitProgress({ kind: 'research-dispatched', queries: requests.length });
-
-  const newlyIngested: string[] = [];
-  const existingSources = await listSources();
-  const seen = seedSeenUrls(existingSources);
-
-  // The engine expects a `getNextPlan` that returns one batch of
-  // proposals. We already have a fixed, pre-curated list from the panel,
-  // so we return it once and then return an empty array to converge.
-  let served = false;
-  try {
-    await runResearchEngine(
-      {
-        runId: randomUUID(),
-        source: 'deepPlan',
-        getNextPlan: async () => {
-          if (served) return [];
-          served = true;
-          return requests.map((r) => ({ query: r.query, rationale: r.rationale }));
-        },
-        getHints: () => [],
-        isCancelled: () => false,
-        onQueryComplete: async (_proposal, _queryId, ingested) => {
-          for (const r of ingested) {
-            // `r.url` is the original URL; the engine persists digests
-            // using whatever slug the digest step produces. We can't
-            // easily recover that slug here without re-reading sources,
-            // so we take a snapshot after the engine finishes instead.
-            void r;
-          }
-        },
-      },
-      seen,
-    );
-  } catch (err) {
-    logError('deep-plan', 'panel.research.failed', err);
-    return [];
-  }
-
-  // Diff sources list: anything present now that wasn't before is a
-  // newly-ingested slug for this round.
-  const afterSources = await listSources();
-  const existingSlugs = new Set(existingSources.map((s) => s.slug));
-  for (const s of afterSources) {
-    if (!existingSlugs.has(s.slug)) newlyIngested.push(s.slug);
-  }
-  return newlyIngested;
+  return merged;
 }
 
 export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundResult> {
   const phase = args.session.phase;
   const roles = PANEL_ROLES_BY_PHASE[phase];
   if (roles.length === 0) {
-    return { panelOutputs: [], newlyIngestedSourceSlugs: [], searchesDispatched: 0 };
+    return { panelOutputs: [], newlyIngestedSourceSlugs: [], autoSearchesDispatched: 0 };
   }
 
   emitProgress({ kind: 'round-start', phase, roles });
@@ -262,15 +189,14 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
     0,
     DEEP_PLAN_MAX_TOTAL_SEARCHES - args.session.searchesUsed,
   );
-  const perRoundCap = Math.min(DEEP_PLAN_MAX_SEARCHES_PER_ROUND, remainingBudget);
+  // No per-round artificial cap — panelists self-regulate via the
+  // soft-target prompt. Only the session-wide budget gates dispatch.
+  const perRoundCap = remainingBudget;
 
   // Run panelists with a concurrency cap. Each phase has at most 4 roles
   // (ideation 3, planning 4, reviewing 4), so a cap of 5 effectively runs
   // the whole phase in parallel — fastest path when backend rate limits
-  // have headroom. If a 429 does slip through under load, the
-  // `fetchWithRetryOn429` wrapper on every LLM call absorbs it, so we
-  // keep full parallelism here. Drop this back to 2–3 if backend limits
-  // start biting again.
+  // have headroom.
   const PANEL_CONCURRENCY = 5;
   const panelOutputs: PanelOutput[] = [];
   for (let i = 0; i < roles.length; i += PANEL_CONCURRENCY) {
@@ -283,14 +209,27 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
     panelOutputs.push(...batchResults);
   }
 
-  const researchRequests = mergeResearchRequests(panelOutputs, perRoundCap);
-  const newlyIngestedSourceSlugs = await dispatchPanelResearch(researchRequests);
+  // Auto-dispatch the panel's `needsResearch` lane. These are queries the
+  // panel decided fire regardless of user input — bounded by the per-round
+  // cap so we don't blow the search budget when multiple panelists pile on.
+  // The user-gated `delegableQuery` lane runs separately, in `submitAnswers`.
+  const autoSearches = mergeAutoResearch(panelOutputs, perRoundCap);
+  let newlyIngestedSourceSlugs: string[] = [];
+  if (autoSearches.length > 0) {
+    const { newlyIngestedSlugs } = await dispatchDelegatedSearches(autoSearches);
+    newlyIngestedSourceSlugs = newlyIngestedSlugs;
+  }
 
   log('deep-plan', 'panel.round.done', {
     phase,
     roles: roles.length,
     totalVisionNotes: panelOutputs.filter((p) => p.visionNotes.trim().length > 0).length,
-    researchDispatched: researchRequests.length,
+    totalUserPrompts: panelOutputs.reduce((sum, p) => sum + p.userPrompts.length, 0),
+    autoSearches: autoSearches.length,
+    delegableQueries: panelOutputs.reduce(
+      (sum, p) => sum + p.userPrompts.filter((u) => u.delegableQuery).length,
+      0,
+    ),
     newlyIngested: newlyIngestedSourceSlugs.length,
     remainingBudget,
   });
@@ -298,6 +237,94 @@ export async function runPanelRound(args: PanelRoundArgs): Promise<PanelRoundRes
   return {
     panelOutputs,
     newlyIngestedSourceSlugs,
-    searchesDispatched: researchRequests.length,
+    autoSearchesDispatched: autoSearches.length,
   };
+}
+
+function seedSeenUrls(sources: SourceMeta[]): Set<string> {
+  const seen = new Set<string>();
+  for (const src of sources) {
+    if (!src.sourcePath) continue;
+    try {
+      const u = new URL(src.sourcePath);
+      u.hash = '';
+      let path = u.pathname.replace(/\/+$/, '');
+      if (path === '') path = '/';
+      seen.add(`${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`);
+    } catch {
+      seen.add(src.sourcePath.trim().toLowerCase());
+    }
+  }
+  return seen;
+}
+
+function normalizeQuery(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Dispatch a list of user-delegated research queries through the shared
+ * engine. Called from the orchestrator after `submitAnswers` detects the
+ * `DELEGATE_TO_RESEARCH` sentinel on questions with `delegableQuery` —
+ * not from the panel itself, since search is no longer autonomous.
+ *
+ * Returns `{ slugs, dispatched }` so the caller can credit
+ * `searchesUsed` and pass new sources to the Chair.
+ */
+export async function dispatchDelegatedSearches(
+  queries: DelegatedSearch[],
+): Promise<{ newlyIngestedSlugs: string[]; dispatched: number }> {
+  const dedup: DelegatedSearch[] = [];
+  const seen = new Set<string>();
+  for (const q of queries) {
+    const key = normalizeQuery(q.query);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    dedup.push(q);
+  }
+  if (dedup.length === 0) return { newlyIngestedSlugs: [], dispatched: 0 };
+
+  try {
+    await ensureSearchReady();
+  } catch (err) {
+    logError('deep-plan', 'delegated.search.notReady', err);
+    return { newlyIngestedSlugs: [], dispatched: 0 };
+  }
+
+  emitProgress({ kind: 'research-dispatched', queries: dedup.length });
+
+  const existingSources = await listSources();
+  const seenUrls = seedSeenUrls(existingSources);
+  let served = false;
+  try {
+    await runResearchEngine(
+      {
+        runId: randomUUID(),
+        source: 'deepPlan',
+        getNextPlan: async () => {
+          if (served) return [];
+          served = true;
+          return dedup.map((r) => ({ query: r.query, rationale: r.rationale }));
+        },
+        getHints: () => [],
+        isCancelled: () => false,
+        onQueryComplete: async () => {
+          /* no-op — we diff sources after the engine returns */
+        },
+      },
+      seenUrls,
+    );
+  } catch (err) {
+    logError('deep-plan', 'delegated.search.failed', err);
+    return { newlyIngestedSlugs: [], dispatched: dedup.length };
+  }
+
+  const after = await listSources();
+  const existingSlugs = new Set(existingSources.map((s) => s.slug));
+  const newlyIngestedSlugs = after.filter((s) => !existingSlugs.has(s.slug)).map((s) => s.slug);
+  log('deep-plan', 'delegated.search.done', {
+    dispatched: dedup.length,
+    newlyIngested: newlyIngestedSlugs.length,
+  });
+  return { newlyIngestedSlugs, dispatched: dedup.length };
 }

@@ -399,16 +399,63 @@ export interface PanelResearchRequest {
 }
 
 /**
- * Panel output in the simplified architecture: the panel is a vision-
- * steering + research-proposing layer, nothing more. Anchor curation is
- * GONE — every anchor extracted during source digest flows directly to
- * the drafter and the Anchors UI tab, deterministically, no middleman.
+ * Categorisation of the things a panelist wants to put in front of the user.
+ * Drives the small UI tag rendered above each prompt so the user sees at a
+ * glance what kind of input is being asked for.
+ */
+export type PanelUserPromptKind = 'concern' | 'question' | 'clarification' | 'idea';
+
+/**
+ * Something the panelist wants the user to weigh in on — concern, question,
+ * clarification, or idea. Replaces the old "panel autonomously fires search"
+ * loop: when a panelist would have searched, it now ASKS first, attaching
+ * the proposed query as a `delegableQuery`. The Chair selects the strongest
+ * prompts to surface, and the user either steers (vision sharpened) or
+ * delegates (search dispatches before next round).
+ */
+export interface PanelUserPrompt {
+  kind: PanelUserPromptKind;
+  /** The prompt as the user will see it — one clear sentence ideally. */
+  prompt: string;
+  /** One-line context — why the panelist is raising this. */
+  rationale: string;
+  /**
+   * Optional research query to fire iff the user delegates. Phrased as a
+   * standalone search query, not a sentence. e.g. "RLVT verifiable reasoning
+   * judge LLM prior art".
+   */
+  delegableQuery?: string;
+}
+
+/**
+ * Panel output. Each panelist contributes three lanes:
+ *
+ * - `visionNotes` — private synthesis input for the Chair.
+ * - `needsResearch[]` — searches the panelist is CONFIDENT need to fire
+ *   regardless of user input (clear wiki coverage gap). Auto-dispatched
+ *   by `runPanelRound` against the session's search budget. Use sparingly
+ *   — every fired search costs latency and pollutes the wiki if the
+ *   results are weak.
+ * - `userPrompts[]` — concerns / questions / clarifications / ideas to
+ *   put in front of the writer. Optionally carry a `delegableQuery`
+ *   that fires ONLY if the user picks "research this". This is the
+ *   probing lane: "have you considered X?", "want me to look this up?".
  */
 export interface PanelOutput {
   role: PanelRole;
   /** Short free-text: what's missing or off about the vision. ≤ 2 sentences. */
   visionNotes: string;
+  /**
+   * Auto-dispatched search queries. Capped per panelist + per round in
+   * the prompt; merged + deduped across panelists at dispatch time.
+   */
   needsResearch: PanelResearchRequest[];
+  /**
+   * Concerns / questions / clarifications / ideas this panelist wants in
+   * front of the user. Capped per panelist in the prompt; Chair selects
+   * the strongest few to surface as ChairQuestions.
+   */
+  userPrompts: PanelUserPrompt[];
 }
 
 export type ChairQuestionType = 'choice' | 'multi' | 'open' | 'confirm';
@@ -438,6 +485,20 @@ export interface ChairQuestion {
    * or type a freeform answer. Defaults off.
    */
   allowCustom?: boolean;
+  /**
+   * Who proposed this question. `'chair'` for Chair-originated questions
+   * (rubric gaps, judgment forks). A `PanelRole` when the Chair surfaced
+   * a panelist's prompt. UI uses this to show "Skeptic asks…" attribution
+   * — concrete provenance instead of a faceless committee.
+   */
+  proposedBy?: PanelRole | 'chair';
+  /**
+   * Optional research query attached to this question. When the user picks
+   * the "research this" option, the orchestrator dispatches the query
+   * before the next panel round. Lets a panelist propose a search without
+   * firing it autonomously — search is always user-blessed.
+   */
+  delegableQuery?: string;
 }
 
 /**
@@ -520,6 +581,8 @@ export type PanelProgressEvent =
       visionNotes: string;
       /** Any research queries the role asked for this round — same order the parser produced. */
       needsResearch: PanelResearchRequest[];
+      /** User-prompts the panelist proposed (concerns/questions/clarifications/ideas). Streamed live so the user sees what was raised before the Chair selects. */
+      userPrompts: PanelUserPrompt[];
     }
   | { kind: 'role-failed'; role: PanelRole; error: string }
   | { kind: 'research-dispatched'; queries: number }
@@ -562,14 +625,37 @@ export interface PlanRequirements {
   deliverableFormat: string | null;
 }
 
+/**
+ * Magic answer value used by `ChairAnswerMap` when the user picks the
+ * "research this" option on a question with a `delegableQuery`. The
+ * orchestrator scans answers for this sentinel after `submitAnswers` and
+ * dispatches the matching queries through the research engine before the
+ * next panel round runs.
+ */
+export const DELEGATE_TO_RESEARCH = '__research__';
+
 /** Session-wide research query budget, across all phases combined. */
 export const DEEP_PLAN_MAX_TOTAL_SEARCHES = 20;
 
-/** Per-round cap on panel-dispatched research queries. */
-export const DEEP_PLAN_MAX_SEARCHES_PER_ROUND = 2;
+/**
+ * Soft target for auto-dispatched panel searches per round. ~1 across
+ * the whole panel on typical depth, scaling up to 2–3 for genuinely
+ * novel / under-grounded topics. Each round should fire SOMETHING when
+ * the topic warrants — see the panelist prompt for the rule against
+ * suppressing later rounds because "the wiki already has sources".
+ * Search is per-claim, not per-session.
+ */
+export const DEEP_PLAN_TARGET_SEARCHES_PER_ROUND = 1;
 
-/** Hard ceiling on Chair questions per round. */
-export const DEEP_PLAN_MAX_QUESTIONS_PER_ROUND = 3;
+/**
+ * Soft target for Chair questions per round. The Chair scales UP when
+ * the topic is ambiguous (multiple interpretations, scope under-defined,
+ * the writer is still discovering what they mean) and DOWN when the
+ * topic is clear and the writer's hand is firm. Used as a target —
+ * not a hard cap. Empty rounds (0 questions) are fine once requirements
+ * are pinned and nothing genuinely forks.
+ */
+export const DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND = 2;
 
 /**
  * Soft round limit per phase — once reached, the Chair is strongly

@@ -26,11 +26,13 @@ import { oneShotPrompt } from './prompts';
 import { runPanelRound } from './panel';
 import { applyFallbackRequirementsPatch, runChair } from './chair';
 import { runChairChat } from './chat';
+import { DELEGATE_TO_RESEARCH } from '@shared/types';
 import {
   formatLookupReply,
   parseSourceLookups,
   resolveSourceLookups,
 } from '../sources/sourceLookup';
+import { dispatchDelegatedSearches } from './panel';
 
 /**
  * Deep Plan orchestrator. The flow is now:
@@ -256,6 +258,16 @@ export async function submitAnswers(answers: ChairAnswerMap): Promise<DeepPlanSt
   // moving instead of re-asking the same questions every round.
   const fallbackPatch = applyFallbackRequirementsPatch(answers);
 
+  // Detect delegated research: any pendingQuestion that carried a
+  // `delegableQuery` AND whose answer is the DELEGATE_TO_RESEARCH
+  // sentinel becomes a search to dispatch BEFORE the next panel round.
+  // We snapshot from the pre-clear session — pendingQuestions gets wiped
+  // in the updateSession call below.
+  const delegatedSearches = session.pendingQuestions
+    .filter((q) => typeof q.delegableQuery === 'string' && q.delegableQuery.length > 0)
+    .filter((q) => answers[q.id] === DELEGATE_TO_RESEARCH)
+    .map((q) => ({ query: q.delegableQuery!, rationale: q.prompt }));
+
   await updateSession((s) => {
     const withAnswers = appendMessage(
       s,
@@ -277,6 +289,28 @@ export async function submitAnswers(answers: ChairAnswerMap): Promise<DeepPlanSt
     log('deep-plan', 'submitAnswers.fallbackPatchApplied', { fields: Object.keys(fallbackPatch) });
   }
   notifyChanged();
+
+  // Dispatch delegated searches BEFORE firing the next panel round so the
+  // panel + Chair see any new sources in their context. Fire-and-forget
+  // would race the panel start; we await dispatch first, then kick the
+  // round.
+  if (delegatedSearches.length > 0) {
+    log('deep-plan', 'submitAnswers.delegated', {
+      queries: delegatedSearches.length,
+    });
+    try {
+      const { dispatched } = await dispatchDelegatedSearches(delegatedSearches);
+      if (dispatched > 0) {
+        await updateSession((s) => ({
+          ...s,
+          searchesUsed: s.searchesUsed + dispatched,
+        }));
+      }
+    } catch (err) {
+      logError('deep-plan', 'submitAnswers.delegated.failed', err);
+    }
+    notifyChanged();
+  }
 
   void runPanelAndChair().catch((err) => {
     logError('deep-plan', 'panel.submitAnswers.failed', err);
@@ -363,16 +397,15 @@ async function runPanelAndChair(): Promise<void> {
     // the round so they don't bleed into the next one.
     const chatNotes = [...session.pendingChatNotes];
 
-    const { panelOutputs, newlyIngestedSourceSlugs, searchesDispatched } = await runPanelRound({
-      session,
-      sources,
-      lastChairSummary: lastSummary,
-      lastAnswers,
-      chatNotes,
-    });
+    const { panelOutputs, newlyIngestedSourceSlugs, autoSearchesDispatched } =
+      await runPanelRound({
+        session,
+        sources,
+        lastChairSummary: lastSummary,
+        lastAnswers,
+        chatNotes,
+      });
 
-    // If the panel pulled in new sources, re-read the wiki so downstream
-    // resolvers + the Chair see them.
     const sourcesForChair =
       newlyIngestedSourceSlugs.length > 0 ? await listSources() : sources;
 
@@ -422,7 +455,7 @@ async function runPanelAndChair(): Promise<void> {
         seenAnchorIds: mergedSeenAnchorIds,
         pendingQuestions: chairOutput.questions,
         pendingChatNotes: [],
-        searchesUsed: next.searchesUsed + searchesDispatched,
+        searchesUsed: next.searchesUsed + autoSearchesDispatched,
         roundsPerPhase: {
           ...next.roundsPerPhase,
           [next.phase]: (next.roundsPerPhase[next.phase] ?? 0) + 1,

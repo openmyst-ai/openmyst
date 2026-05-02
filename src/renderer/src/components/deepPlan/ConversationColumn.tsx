@@ -142,6 +142,19 @@ export function ConversationColumn({ session }: Props): JSX.Element {
         {!roundRunning && pendingQuestions.length > 0 && (
           <QuestionCard questions={pendingQuestions} />
         )}
+        {/* Bridging indicator: after the user submits answers, there's a
+            window where dispatched searches are running and the next
+            panel round hasn't fired yet. Without this the screen looks
+            inert. Show until either the next round starts (roundRunning)
+            or new pending questions appear. */}
+        {busy && !roundRunning && pendingQuestions.length === 0 && (
+          <div className="dp-following-up">
+            <span className="dp-following-up-spinner" aria-hidden />
+            <span className="dp-following-up-text">
+              Following up on your answers — running any delegated research, then reconvening the panel…
+            </span>
+          </div>
+        )}
         {shouldShowAdvanceCta && (
           <PhaseAdvanceCta
             phase={session.phase}
@@ -303,7 +316,7 @@ function MessageBubble({
  */
 function PanelDiscussion({ outputs }: { outputs: PanelOutput[] }): JSX.Element {
   const contributingRoles = outputs.filter(
-    (p) => p.visionNotes.trim().length > 0 || p.needsResearch.length > 0,
+    (p) => p.visionNotes.trim().length > 0 || p.userPrompts.length > 0,
   );
   return (
     <details className="dp-panel-discussion">
@@ -324,7 +337,7 @@ function PanelDiscussion({ outputs }: { outputs: PanelOutput[] }): JSX.Element {
 
 function PanelDiscussionItem({ output }: { output: PanelOutput }): JSX.Element {
   const silent =
-    !output.visionNotes.trim() && output.needsResearch.length === 0;
+    !output.visionNotes.trim() && output.userPrompts.length === 0;
   return (
     <li className={`dp-panel-discussion-item${silent ? ' dp-panel-discussion-item-silent' : ''}`}>
       <div className="dp-panel-discussion-role">{output.role}</div>
@@ -333,7 +346,7 @@ function PanelDiscussionItem({ output }: { output: PanelOutput }): JSX.Element {
       ) : (
         <PanelThoughtBody
           visionNotes={output.visionNotes.trim()}
-          researchRequests={output.needsResearch}
+          userPrompts={output.userPrompts}
         />
       )}
     </li>
@@ -341,27 +354,30 @@ function PanelDiscussionItem({ output }: { output: PanelOutput }): JSX.Element {
 }
 
 /**
- * Shared render for a panelist's thought: the vision note + any research
- * requests with their rationale. Used both by the live PanelProgressPanel
- * (while the round is running) and the post-round PanelDiscussion
- * accordion (on completed chair-turn messages), so both paths share the
- * same type scale + bullet style.
+ * Shared render for a panelist's thought: the vision note + any prompts
+ * the panelist proposed for the user. Used both by the live
+ * PanelProgressPanel (while the round is running) and the post-round
+ * PanelDiscussion accordion, so both paths share the same type scale +
+ * bullet style.
  */
 function PanelThoughtBody({
   visionNotes,
-  researchRequests,
+  userPrompts,
 }: {
   visionNotes: string;
-  researchRequests: PanelOutput['needsResearch'];
+  userPrompts: PanelOutput['userPrompts'];
 }): JSX.Element {
   return (
     <div className="dp-panel-role-thought">
       {visionNotes && <p className="dp-panel-role-thought-note">{visionNotes}</p>}
-      {researchRequests.map((req, i) => (
+      {userPrompts.map((u, i) => (
         <p key={i} className="dp-panel-role-thought-search-line">
-          <span className="dp-panel-role-thought-search-label">Search:</span>{' '}
-          <span className="dp-panel-role-thought-search-query">{req.query}</span>
-          {req.rationale && <> - {req.rationale}</>}
+          <span className="dp-panel-role-thought-search-label">{u.kind}:</span>{' '}
+          <span className="dp-panel-role-thought-search-query">{u.prompt}</span>
+          {u.rationale && <> — {u.rationale}</>}
+          {u.delegableQuery && (
+            <> · <em>can search "{u.delegableQuery}"</em></>
+          )}
         </p>
       ))}
     </div>
@@ -552,8 +568,8 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
               : undefined;
           const visionNotes =
             entry?.state === 'done' ? entry.visionNotes.trim() : '';
-          const researchRequests =
-            entry?.state === 'done' ? entry.needsResearch : [];
+          const userPrompts =
+            entry?.state === 'done' ? entry.userPrompts : [];
           const errorMsg = entry?.state === 'failed' ? entry.error : undefined;
 
           return (
@@ -574,14 +590,14 @@ function PanelProgressPanel({ progress }: PanelProgressPanelProps): JSX.Element 
                   />
                 </div>
                 {/* Live panel thought. While running we show the persona's
-                 *  tagline; when the role finishes, its actual vision note
-                 *  + research requests replace the tagline immediately so
-                 *  users read the panel's thinking while the Chair is
+                 *  tagline; when the role finishes, its vision note + any
+                 *  user-prompts it raised replace the tagline immediately
+                 *  so users read the panel's thinking while the Chair is
                  *  still synthesising. */}
-                {state === 'done' && (visionNotes || researchRequests.length > 0) ? (
+                {state === 'done' && (visionNotes || userPrompts.length > 0) ? (
                   <PanelThoughtBody
                     visionNotes={visionNotes}
-                    researchRequests={researchRequests}
+                    userPrompts={userPrompts}
                   />
                 ) : state === 'done' ? (
                   <div className="dp-panel-role-tagline dp-panel-role-silent">No notes.</div>
