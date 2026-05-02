@@ -269,6 +269,96 @@ export interface WikiGraph {
  * same inner loop (panel → research-if-needed → chair → user answers)
  * until the Chair signals `phaseAdvance` or the user forces it.
  */
+/**
+ * The kind of research deliverable the user is making. Picked upfront on
+ * Deep Plan start; drives the Chair's vision template, the drafter's
+ * output structure, and (eventually) the panel's role mix. The point of
+ * an explicit mode is that "I have a half-baked idea" should NOT produce
+ * an essay defending the idea as if established — different deliverables
+ * want different shapes from the panel and the drafter.
+ *
+ * Modes:
+ * - `argumentative-essay` — Defend a thesis with cited evidence. The
+ *   default, the legacy behaviour. Best when the user knows what they
+ *   want to argue and needs help arguing it.
+ * - `idea-exploration` — Pressure-test a half-baked concept. Drafter
+ *   does NOT manufacture a thesis; instead surveys prior art, evaluates
+ *   strengths/weaknesses, and proposes concrete directions. Output reads
+ *   as a conceptual workshop, not an essay.
+ * - `literature-review` — Survey + synthesis across sources. Per-source
+ *   sections (Article 1, Article 2, …) each with intro/summary/analysis,
+ *   followed by a final synthesis comparing them.
+ * - `analytical-report` — User has data/observations + sources, wants a
+ *   structured findings document. Methods → Findings → Discussion.
+ *   Reads raw-source files (CSV/JSON/code) when available.
+ * - `comparative-analysis` — Compare 2+ things across criteria. Drafter
+ *   structures by criterion or by subject.
+ */
+export type DeepPlanMode =
+  | 'argumentative-essay'
+  | 'idea-exploration'
+  | 'literature-review'
+  | 'analytical-report'
+  | 'comparative-analysis';
+
+export const DEEP_PLAN_MODES: DeepPlanMode[] = [
+  'argumentative-essay',
+  'idea-exploration',
+  'literature-review',
+  'analytical-report',
+  'comparative-analysis',
+];
+
+export interface DeepPlanModeConfig {
+  id: DeepPlanMode;
+  /** Short label for the mode picker card. */
+  label: string;
+  /** One-line description shown under the label. */
+  blurb: string;
+  /** Placeholder text for the brief textarea, tailored to the mode. */
+  briefPlaceholder: string;
+}
+
+export const DEEP_PLAN_MODE_CONFIGS: Record<DeepPlanMode, DeepPlanModeConfig> = {
+  'argumentative-essay': {
+    id: 'argumentative-essay',
+    label: 'Argumentative essay',
+    blurb: 'Defend a thesis with cited evidence. The classic essay shape.',
+    briefPlaceholder:
+      'e.g. A 2000-word essay arguing that minimum wages distort labour markets less than common claims suggest, for an econ-curious general audience…',
+  },
+  'idea-exploration': {
+    id: 'idea-exploration',
+    label: 'Idea exploration',
+    blurb:
+      'Pressure-test a half-baked concept. Find prior art, weigh strengths/weaknesses, surface concrete directions.',
+    briefPlaceholder:
+      'e.g. I have a concept I call RLVT — using a judge LLM to audit reasoning chains rather than just score them. Find prior art, stress-test the idea, and tell me where it could go.',
+  },
+  'literature-review': {
+    id: 'literature-review',
+    label: 'Literature review',
+    blurb: 'Survey + synthesise existing work across multiple sources.',
+    briefPlaceholder:
+      'e.g. A 1200-word literature review of fish welfare assessment methods in aquaculture, evaluating two articles for a vet-science assignment…',
+  },
+  'analytical-report': {
+    id: 'analytical-report',
+    label: 'Analytical report',
+    blurb:
+      'Data/observations + sources → structured findings. Methods → Findings → Discussion.',
+    briefPlaceholder:
+      'e.g. An analytical report on the survey data I uploaded, situating the findings in the literature on remote-work productivity…',
+  },
+  'comparative-analysis': {
+    id: 'comparative-analysis',
+    label: 'Comparative analysis',
+    blurb: 'Compare 2+ things across explicit criteria, evidence-grounded.',
+    briefPlaceholder:
+      'e.g. A comparative analysis of three constitutional approaches to free-speech regulation, judged on consistency, scope, and enforcement…',
+  },
+};
+
 export type DeepPlanPhase = 'ideation' | 'planning' | 'reviewing' | 'done';
 
 export const DEEP_PLAN_PHASE_ORDER: DeepPlanPhase[] = [
@@ -524,6 +614,12 @@ export interface DeepPlanSession {
   phase: DeepPlanPhase;
   /** The user's original task string, preserved verbatim. */
   task: string;
+  /**
+   * Deliverable kind, picked upfront. Controls the Chair's vision
+   * template + drafter's output structure. Existing sessions backfill to
+   * `'argumentative-essay'` (the legacy behaviour).
+   */
+  mode: DeepPlanMode;
   /** Hard constraints parsed from `task` on session creation. */
   requirements: PlanRequirements;
   /**
@@ -545,6 +641,14 @@ export interface DeepPlanSession {
    * happens. Keeps the panel's expensive fanout out of casual conversation.
    */
   pendingChatNotes: string[];
+  /**
+   * Anchor ids the Chair has already been shown in prior rounds. Used to
+   * dedupe what we send to the Chair each round — only NEW anchors get
+   * rendered in the prompt. Keeps the Chair's context tight as the wiki
+   * grows AND forces it to ground each vision update in evidence it
+   * hasn't already had a chance to use.
+   */
+  seenAnchorIds: string[];
   /** Running count of panel rounds per phase (convergence heuristic). */
   roundsPerPhase: Record<DeepPlanPhase, number>;
   /** Running total of web-search queries dispatched by the panel. Capped at DEEP_PLAN_MAX_TOTAL_SEARCHES. */

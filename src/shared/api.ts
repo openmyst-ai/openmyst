@@ -13,6 +13,7 @@ import type {
   ProjectMeta,
   Result,
   AnchorLogEntry,
+  DeepPlanMode,
   SourceAnchor,
   SourceMeta,
   SourceRole,
@@ -145,7 +146,7 @@ export interface MystApi {
   };
   deepPlan: {
     status: () => Promise<DeepPlanStatus>;
-    start: (task: string) => Promise<DeepPlanStatus>;
+    start: (task: string, mode?: DeepPlanMode) => Promise<DeepPlanStatus>;
     sendMessage: (message: string) => Promise<DeepPlanStatus>;
     /** Cheap free-chat with the Chair — single LLM call, no panel, no plan rewrite. */
     chat: (message: string) => Promise<DeepPlanStatus>;

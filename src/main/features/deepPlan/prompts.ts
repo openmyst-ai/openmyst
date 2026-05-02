@@ -2,6 +2,7 @@ import type {
   AnchorLogEntry,
   ChairAnswerMap,
   ChairQuestion,
+  DeepPlanMode,
   DeepPlanPhase,
   DeepPlanSession,
   PanelOutput,
@@ -54,6 +55,95 @@ function missingRequirements(req: PlanRequirements): string[] {
   if (!req.form) missing.push('form');
   if (!req.audience) missing.push('audience');
   return missing;
+}
+
+/**
+ * Mode-specific guidance the Chair uses to shape vision.md. Different
+ * deliverables want different vision shapes — an idea-exploration vision
+ * is "the concept + open questions + directions", not "thesis + sub-claims".
+ * Returned blocks are appended to the Chair's vision rules.
+ */
+function chairModeBlock(mode: DeepPlanMode): string {
+  switch (mode) {
+    case 'idea-exploration':
+      return `\n\nMODE — IDEA EXPLORATION:
+The writer has a half-baked CONCEPT (not a thesis). Vision's spine is the IDEA itself, not an argument. The vision should carry:
+- **The concept** — one or two sentences naming what the idea actually is.
+- **Prior art** — what's already been tried or proposed in this space (anchors here are gold).
+- **Strengths** — what the concept does that prior art doesn't.
+- **Weaknesses / open questions** — where the idea is fragile or under-specified.
+- **Directions** — concrete forms the concept could take (a paper, a prototype, an experiment).
+Do NOT manufacture a thesis. The drafter is going to PRESSURE-TEST and DEVELOP the idea, not defend it as established.`;
+    case 'literature-review':
+      return `\n\nMODE — LITERATURE REVIEW:
+Vision's spine is the SET OF SOURCES being reviewed and the SYNTHESIS lens. Carry:
+- **Scope** — what counts as in/out of the review.
+- **Per-source intent** — for each major source, one line on what the review will say about it (relevance, strength, weakness).
+- **Cross-cutting themes** — what synthesis emerges across sources.
+- **Evaluation criteria** — what dimensions the review judges sources on (audience fit, methodology, evidence quality).
+A review's "thesis" is the synthesis verdict, not a single argumentative claim.`;
+    case 'analytical-report':
+      return `\n\nMODE — ANALYTICAL REPORT:
+Vision's spine is the OBSERVATIONAL/ANALYTICAL FINDING. Carry:
+- **Question** — what the report is trying to answer.
+- **Method** — how the analysis was/is conducted (data sources, framework, tooling).
+- **Headline findings** — the 2–4 specific claims the analysis supports.
+- **Caveats** — limits of the data and the inference.
+The "thesis" is the headline finding; the body is the evidence trail that supports it.`;
+    case 'comparative-analysis':
+      return `\n\nMODE — COMPARATIVE ANALYSIS:
+Vision's spine is the COMPARISON ITSELF. Carry:
+- **Subjects** — what's being compared (2+ specific things).
+- **Criteria** — the explicit dimensions of comparison (3–6 criteria).
+- **Verdict per criterion** — one line on which subject wins / fails on each.
+- **Overall judgment** — the synthesis claim the piece lands on.
+The "thesis" is the verdict — defensible across the criteria.`;
+    case 'argumentative-essay':
+    default:
+      return '';
+  }
+}
+
+/**
+ * Mode-specific structural template the drafter uses. Returns the H2
+ * skeleton + per-section guidance. Empty when mode is the default essay.
+ */
+function drafterModeBlock(mode: DeepPlanMode): string {
+  switch (mode) {
+    case 'idea-exploration':
+      return `\n\nDELIVERABLE MODE — IDEA EXPLORATION:
+This is NOT an essay defending the idea as established. The user has a CONCEPT and wants you to pressure-test and develop it. Treat the idea as the SUBJECT.
+Output structure (H1 = the concept's name; H2s in this order):
+- \`## The concept\` — one or two paragraphs naming what the idea actually is. Cite reference anchors when defining adjacent prior concepts.
+- \`## Prior art\` — what's been tried, proposed, or written on this space. This is where most reference citations land. Be specific — name the precedent, what it did, where it stops short of the user's idea.
+- \`## Strengths\` — what the concept does that prior art doesn't. Make the case CONCRETELY, with mechanisms not vibes.
+- \`## Weaknesses and open questions\` — where the idea is fragile. SHARP objections, not obvious ones. Cite anchors that surface concerns.
+- \`## Directions\` — 3–5 concrete forms the concept could take next: a paper, an experiment, a tool, a refinement. Each direction names what would be needed to develop it.
+- \`## References\` — Harvard-style, only sources cited inline.
+Do NOT manufacture a thesis statement. Do NOT write "this paper argues that…" — you're not arguing the idea is right; you're surveying its space and surfacing what's interesting.`;
+    case 'literature-review':
+      return `\n\nDELIVERABLE MODE — LITERATURE REVIEW:
+Output structure: brief Introduction → one section per major source (Article 1, Article 2, …) each with sub-headings Introduction / Summary / Analysis / Conclusion → Final Synthesis comparing the sources → References.
+Per-source Analysis sub-section is the heaviest — that's where you EVALUATE the source against the assignment's criteria (audience fit, methodology, evidence quality, alignment with established frameworks, practical utility, limitations) using SPECIFIC details from that source. Generic comments about "the literature" are a failure.
+Cross-cite to other sources only in the Final Synthesis. Each per-source section should mostly cite its own anchors.`;
+    case 'analytical-report':
+      return `\n\nDELIVERABLE MODE — ANALYTICAL REPORT:
+Output structure (H1 = the report's title; H2s in this order):
+- \`## Introduction\` — question, scope, why it matters.
+- \`## Method\` — data sources used, analytical framework, tooling. Low-citation; describes process.
+- \`## Findings\` — the headline findings, each in its own H3 sub-section if there are multiple. Specific numbers, mechanisms, examples. This is where reference anchors carry their weight.
+- \`## Discussion\` — interpretation, implications, caveats, limits. Contextualises findings against literature.
+- \`## References\` — Harvard-style, only sources cited inline.
+When raw-source files (CSV/code/JSON) are part of the wiki, the Findings section should reference them directly when interpreting numerical results.`;
+    case 'comparative-analysis':
+      return `\n\nDELIVERABLE MODE — COMPARATIVE ANALYSIS:
+Output structure: brief Introduction setting up subjects + criteria → body organised EITHER by criterion (one H2 per criterion, comparing subjects within each) OR by subject (one H2 per subject, walking criteria within each) — pick the structure that lets the verdict land harder → Overall Judgment H2 → References.
+Pick by-criterion when criteria are the more important axis (a head-to-head). Pick by-subject when each subject is best understood holistically before comparison. State your structural choice in the Introduction.
+Each criterion's discussion must REACH A VERDICT — "subject A wins on X because Y" — not just describe both sides neutrally.`;
+    case 'argumentative-essay':
+    default:
+      return '';
+  }
 }
 
 /**
@@ -379,6 +469,15 @@ export interface ChairPromptArgs {
   roundNumber: number;
   sources: SourceMeta[];
   /**
+   * Anchors the Chair hasn't been shown yet (filtered against
+   * `session.seenAnchorIds` upstream). The full anchor universe lives on
+   * disk; we only render the new ones here so context stays tight as the
+   * wiki grows AND so vision updates are forced to ground in fresh evidence.
+   */
+  newAnchors: AnchorLogEntry[];
+  /** Total anchor count across the wiki — for the "you've seen N already" line. */
+  totalAnchorCount: number;
+  /**
    * Answers the user submitted to the PREVIOUS round's Chair questions.
    * Crucial for emitting `requirementsPatch` — without this the Chair has
    * no way to know what the user picked for word count / form / audience
@@ -393,12 +492,51 @@ export interface ChairPromptArgs {
   chatNotes: string[];
 }
 
+/**
+ * Render the Chair-facing anchor block. Compact: each new anchor shows
+ * its citation tag, slug fragment, and verbatim text — same format the
+ * drafter sees, so the Chair can write vision bullets like
+ *   "- The plausibility trap (see Smith, 2022#step-3-failure)"
+ * and the drafter recognises the pointer.
+ */
+function chairAnchorsBlock(newAnchors: AnchorLogEntry[], totalCount: number): string {
+  const seen = totalCount - newAnchors.length;
+  const seenLine =
+    seen > 0
+      ? ` You've already been shown ${seen} anchor${seen === 1 ? '' : 's'} in prior rounds — they remain in scope but are omitted here to keep context tight.`
+      : '';
+  if (newAnchors.length === 0) {
+    return totalCount === 0
+      ? '_(no anchors yet — sources have not been ingested or extraction is pending)_'
+      : `_(no NEW anchors this round.${seenLine})_`;
+  }
+  const renderEntry = (e: AnchorLogEntry, i: number): string => {
+    const anchorFrag = e.id.split('#')[1] ?? '';
+    const tag = citationTag(e);
+    const roleTag = e.role === 'guidance' ? ' [guidance — apply, do not cite]' : '';
+    const head = `${i + 1}. [${e.type}]${roleTag} \`(${tag})\` → \`${e.slug}.md#${anchorFrag}\``;
+    const body = `\n   "${e.text.replace(/\n+/g, ' ').trim()}"`;
+    return `${head}${body}`;
+  };
+  return `${newAnchors.length} NEW anchor${newAnchors.length === 1 ? '' : 's'} since last round (of ${totalCount} total in the wiki).${seenLine}\n\n${newAnchors.map(renderEntry).join('\n')}`;
+}
+
 export function chairPrompt(args: ChairPromptArgs): string {
   // The Chair reads the rubric, vision, panel notes, chat notes, recent
   // history, and a simple source list. It no longer sees an anchor log
   // or curates anchors — extraction happens at ingest time and anchors
   // flow straight to the drafter.
-  const { session, panelOutputs, newlyIngestedSourceSlugs, roundNumber, sources, lastAnswers, chatNotes } = args;
+  const {
+    session,
+    panelOutputs,
+    newlyIngestedSourceSlugs,
+    roundNumber,
+    sources,
+    newAnchors,
+    totalAnchorCount,
+    lastAnswers,
+    chatNotes,
+  } = args;
   const phase = session.phase;
   const priorSummaries = priorChairDigest(session);
   const missing = missingRequirements(session.requirements);
@@ -455,10 +593,14 @@ ${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection
 
 ${searchBudgetBlock(session)}
 
-Wiki — sources ingested so far (anchors extracted from these flow to the drafter automatically — you do not need to reference specific anchors):
+Wiki — sources ingested so far (one-line summaries; the anchors below are the actual evidence pile):
 ${sourcesBlock(sources)}
 
-CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the panel notes + chat notes + new sources genuinely move thesis/POV/section intents):
+NEW ANCHORS this round — these are the verbatim source statements you have NOT yet been shown. When you update the vision, every novel insight should either point at one of these (or a previously-seen anchor by name) or name a concrete mechanism. Abstract bullets that do neither get cut.
+
+${chairAnchorsBlock(newAnchors, totalAnchorCount)}
+
+CURRENT VISION.md (your existing intellectual spine — rewrite it this round only if the panel notes + chat notes + new anchors genuinely move thesis/POV/section intents):
 ${visionBlock(session.vision)}
 
 Panel vision-notes + research this round:
@@ -498,13 +640,17 @@ VISION.md rules:
 - What belongs in vision, roughly in priority order:
   1. **Thesis** — the single claim the piece makes, one or two sentences.
   2. **POV / angle** — the lens. Why THIS take, not a textbook summary?
-  3. **Novel insights** — the ideas the writer + Chair surfaced in conversation that don't live in any one source. The core of the piece.
-  4. **Counter-argument to engage** — the strongest opposing position, stated in one line.
-  5. **What this piece is NOT** — scope-setting; what you deliberately chose to leave out.
+  3. **Novel insights** — the ideas the writer + Chair surfaced that don't live in any one source. EACH insight must either (a) point at a specific anchor by source name + id (e.g. "see Smith, 2022#step-3-failure"), or (b) name a concrete mechanism. Abstractions without either get cut. If two insights collapse to the same underlying claim, MERGE them.
+  4. **Counter-argument to engage** — the SHARP objection, the one that would change a thoughtful expert's mind. The first objection that comes to mind (cost, efficiency, performance) is rarely the right one — skip it when a more incisive objection (one that turns the thesis's own logic against itself) exists. State it in one line.
+  5. **What this piece argues AGAINST** — name the position, framing, or assumption this piece is contesting. Not "what this piece is NOT" (descriptive scope-fencing); name the belief the writer is contradicting. A vision without an antagonist drifts toward textbook summary.
   6. **Section arc** *(light touch, not a heading outline)* — a single line or brief bullet list naming 3–6 beats in reading order, phrased as intents ("open with the decomposition", "pivot to the distributional critique", "land on what the concept can and cannot do"). This seeds the drafter's H2s; the drafter writes the actual section titles at draft time.
 - The section arc is one line in the vision, not its own major section with sub-bullets. If you find yourself writing more than a line per beat, you're drifting into plan-rewrite territory.
 - \`visionUpdate: null\` is the right call on rounds where nothing substantive shifted. Don't rewrite vision just to rewrite it — small churn is noise.
-- When you DO rewrite vision, you're rewriting the WHOLE thing in full (no patches). Preserve what still holds; sharpen what just moved.
+- When you DO rewrite vision, you're rewriting the WHOLE thing in full (no patches). Preserve what still holds; sharpen what just moved.${chairModeBlock(session.mode)}
+
+Pre-emit micro-check (run BEFORE finalising visionUpdate):
+- For each LOAD-BEARING term in the vision (proper noun, coined phrase, named framework), is it defined inline OR grounded in a specific anchor? If neither, drop the term or replace with the concrete description it stands for. A thesis that hinges on an undefined coined term is a vibes thesis.
+- For each "Novel insight", could the drafter unpack it into 200 words of specific prose without making things up? If not, the insight is a wishbone — sharpen or drop.
 
 Question rules:
 - **FIRST PRIORITY — missing hard requirements.** If the rubric above lists any field as "(not specified)" (especially word count), ask about them THIS ROUND. Use \`choice\` with 3–4 reasonable defaults and mark one \`recommended\`. Example for word count: {1000–1500, 1500–2500, 2500–4000, custom with \`allowCustom: true\`}.
@@ -763,7 +909,7 @@ export function oneShotPrompt(
 
 5. **HONOUR THE WORD-COUNT RANGE.** Going over or under by more than 10% is a failure. ${wordCountLine}
 
-6. **STRUCTURE WITH HEADINGS.** Every draft opens with a \`# Title\` H1 and breaks the body into \`## Section\` H2s. Section titles tell the reader what the section ARGUES, not just what topic it covers. A wall of unbroken prose with no H2s is a shipping failure.
+6. **STRUCTURE WITH HEADINGS.** Every draft opens with a \`# Title\` H1 and breaks the body into \`## Section\` H2s. When the deliverable mode below specifies an H2 list, USE IT VERBATIM. Otherwise pick H2s that argue rather than label. A wall of unbroken prose with no H2s is a shipping failure.
 
 7. **APPLY USER-STATED CONSTRAINTS.** If the rubric names a framework or deliverable format, you MUST apply it. Writing about it instead of using it is a hard failure.
 
@@ -774,7 +920,7 @@ You are Myst, writing the first full draft of "${docLabel}" from a completed Dee
 User's task: "${session.task}"${constraintsLine}
 
 RUBRIC (HARD constraints — the draft is judged against these):
-${requirementsBlock(session.requirements)}${formatGuide}${frameworkGuide}${guidanceNote}
+${requirementsBlock(session.requirements)}${drafterModeBlock(session.mode)}${formatGuide}${frameworkGuide}${guidanceNote}
 
 VISION — the intellectual spine. Follow its thesis, POV, and section intents. The vision itself has no citations; it tells you WHAT to write.
 

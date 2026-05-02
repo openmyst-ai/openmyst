@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   ChairAnswerMap,
+  DeepPlanMode,
   DeepPlanSession,
   DeepPlanStatus,
   PanelProgressEvent,
@@ -56,7 +57,7 @@ interface DeepPlanState {
   refresh: () => Promise<void>;
   show: () => void;
   hide: () => void;
-  start: (task: string) => Promise<void>;
+  start: (task: string, mode: DeepPlanMode) => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   chat: (message: string) => Promise<void>;
   runPanel: () => Promise<void>;
@@ -96,10 +97,10 @@ export const useDeepPlan = create<DeepPlanState>((set, get) => ({
   hide: () => set({ visible: false }),
   clearError: () => set({ error: null }),
 
-  start: async (task) => {
+  start: async (task, mode) => {
     set({ busy: true, error: null, panelProgress: emptyPanelProgress() });
     try {
-      const status = await bridge.deepPlan.start(task);
+      const status = await bridge.deepPlan.start(task, mode);
       set({ status, visible: true });
     } catch (err) {
       set({ error: (err as Error).message });

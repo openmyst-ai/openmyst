@@ -177,7 +177,7 @@ const api: MystApi = {
   },
   deepPlan: {
     status: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Status),
-    start: (task) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task),
+    start: (task, mode) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task, mode),
     sendMessage: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.SendMessage, message),
     chat: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.Chat, message),
     runPanel: () => ipcRenderer.invoke(IpcChannels.DeepPlan.RunPanel),

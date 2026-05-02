@@ -1,12 +1,13 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
+  DeepPlanMode,
   DeepPlanPhase,
   DeepPlanSession,
   DeepPlanStatus,
   PlanRequirements,
 } from '@shared/types';
-import { DEEP_PLAN_PHASE_ORDER } from '@shared/types';
+import { DEEP_PLAN_MODES, DEEP_PLAN_PHASE_ORDER } from '@shared/types';
 import { projectPath, projectRoot, ensureDir, log } from '../../platform';
 
 /**
@@ -215,6 +216,10 @@ function backfillLegacy(parsed: Record<string, unknown>): void {
   if (!parsed.phase) parsed.phase = 'ideation';
   if (!Array.isArray(parsed.pendingQuestions)) parsed.pendingQuestions = [];
   if (!Array.isArray(parsed.pendingChatNotes)) parsed.pendingChatNotes = [];
+  if (!Array.isArray(parsed.seenAnchorIds)) parsed.seenAnchorIds = [];
+  if (typeof parsed.mode !== 'string' || !DEEP_PLAN_MODES.includes(parsed.mode as DeepPlanMode)) {
+    parsed.mode = 'argumentative-essay';
+  }
   // Migration path: we've been through two anchor architectures. Legacy
   // sessions may have `plan` (pre-vision architecture) or `anchorLog`
   // (panel-curated era). Both are dropped silently — the new anchor
@@ -281,7 +286,10 @@ export async function deleteSession(): Promise<void> {
   }
 }
 
-export async function createSession(task: string): Promise<DeepPlanSession> {
+export async function createSession(
+  task: string,
+  mode: DeepPlanMode = 'argumentative-essay',
+): Promise<DeepPlanSession> {
   const root = projectRoot();
   const now = new Date().toISOString();
   const trimmed = task.trim();
@@ -290,11 +298,13 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
     projectPath: root,
     phase: 'ideation',
     task: trimmed,
+    mode,
     requirements: extractRequirements(trimmed),
     vision: '',
     messages: [],
     pendingQuestions: [],
     pendingChatNotes: [],
+    seenAnchorIds: [],
     roundsPerPhase: emptyRoundsPerPhase(),
     searchesUsed: 0,
     tokensUsedK: 0,
@@ -306,6 +316,7 @@ export async function createSession(task: string): Promise<DeepPlanSession> {
   await writeSession(session);
   log('deep-plan', 'session.created', {
     task: trimmed.slice(0, 120),
+    mode,
     requirements: session.requirements,
   });
   return session;

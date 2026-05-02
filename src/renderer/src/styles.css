@@ -3582,8 +3582,55 @@ img.login-logo {
   padding: 40px;
 }
 .dp-intent-card {
-  max-width: 600px;
+  max-width: 720px;
   width: 100%;
+}
+.dp-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.dp-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  cursor: pointer;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+  font-family: var(--font-ui);
+}
+.dp-mode-card:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.dp-mode-card.is-active {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.dp-mode-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.dp-mode-card-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.dp-mode-card-blurb {
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.45;
 }
 .dp-intent-card h1 {
   margin: 0 0 8px;

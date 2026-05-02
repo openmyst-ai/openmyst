@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { USE_OPENMYST } from '@shared/flags';
+import type { DeepPlanMode } from '@shared/types';
+import { DEEP_PLAN_MODE_CONFIGS, DEEP_PLAN_MODES } from '@shared/types';
 import { bridge } from '../api/bridge';
 import { useApp } from '../store/app';
 import { useDeepPlan } from '../store/deepPlan';
@@ -46,6 +48,7 @@ export function DeepPlanMode(): JSX.Element {
   } = useDeepPlan();
 
   const [intentDraft, setIntentDraft] = useState('');
+  const [intentMode, setIntentMode] = useState<DeepPlanMode>('argumentative-essay');
   const [rightTab, setRightTab] = useState<'vision' | 'anchors' | 'graph'>('vision');
 
   const pushResearchEvent = useResearchEvents((s) => s.push);
@@ -79,9 +82,9 @@ export function DeepPlanMode(): JSX.Element {
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!intentDraft.trim()) return;
-      await start(intentDraft.trim());
+      await start(intentDraft.trim(), intentMode);
     },
-    [intentDraft, start],
+    [intentDraft, intentMode, start],
   );
 
   const session = status?.session ?? null;
@@ -126,6 +129,8 @@ export function DeepPlanMode(): JSX.Element {
               project={project?.name ?? 'this project'}
               draft={intentDraft}
               onDraft={setIntentDraft}
+              mode={intentMode}
+              onMode={setIntentMode}
               onSubmit={handleStart}
               busy={busy}
               disabled={!hasOpenRouterKey}
@@ -187,9 +192,11 @@ export function DeepPlanMode(): JSX.Element {
 }
 
 function IntentForm({
-  project,
+  project: _project,
   draft,
   onDraft,
+  mode,
+  onMode,
   onSubmit,
   busy,
   disabled,
@@ -197,24 +204,45 @@ function IntentForm({
   project: string;
   draft: string;
   onDraft: (s: string) => void;
+  mode: DeepPlanMode;
+  onMode: (m: DeepPlanMode) => void;
   onSubmit: (e: React.FormEvent) => void;
   busy: boolean;
   disabled: boolean;
 }): JSX.Element {
+  const config = DEEP_PLAN_MODE_CONFIGS[mode];
   return (
     <div className="dp-intent">
       <div className="dp-intent-card">
-        <h1>What are we making?</h1>
+        <h1>What kind of work is this?</h1>
         <p className="dp-muted">
-          Describe the piece of writing you want to end up with. A few sentences is plenty —
-          the planner will ask follow-up questions.
+          Pick a deliverable — the panel and drafter shape themselves around your choice. Then describe what you're making.
         </p>
         <form onSubmit={onSubmit}>
+          <div className="dp-mode-grid" role="radiogroup" aria-label="Deliverable mode">
+            {DEEP_PLAN_MODES.map((id) => {
+              const cfg = DEEP_PLAN_MODE_CONFIGS[id];
+              const active = id === mode;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={`dp-mode-card${active ? ' is-active' : ''}`}
+                  onClick={() => onMode(id)}
+                  disabled={busy || disabled}
+                >
+                  <span className="dp-mode-card-label">{cfg.label}</span>
+                  <span className="dp-mode-card-blurb">{cfg.blurb}</span>
+                </button>
+              );
+            })}
+          </div>
           <textarea
-            autoFocus
-            rows={6}
+            rows={5}
             className="dp-intent-textarea"
-            placeholder={`e.g. An essay for ${project} exploring the future of open-source model economics…`}
+            placeholder={config.briefPlaceholder}
             value={draft}
             onChange={(e) => onDraft(e.target.value)}
             disabled={busy || disabled}

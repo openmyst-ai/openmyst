@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
-import type { ChairAnswerMap } from '@shared/types';
+import type { ChairAnswerMap, DeepPlanMode } from '@shared/types';
+import { DEEP_PLAN_MODES } from '@shared/types';
 import {
   advancePhase,
   buildStatus,
@@ -17,11 +18,15 @@ import {
 export function registerDeepPlanIpc(): void {
   ipcMain.handle(IpcChannels.DeepPlan.Status, () => buildStatus());
 
-  ipcMain.handle(IpcChannels.DeepPlan.Start, async (_event, task: unknown) => {
+  ipcMain.handle(IpcChannels.DeepPlan.Start, async (_event, task: unknown, mode: unknown) => {
     if (typeof task !== 'string' || task.trim().length === 0) {
       throw new Error('Task description is required.');
     }
-    return startSession(task);
+    const safeMode: DeepPlanMode =
+      typeof mode === 'string' && DEEP_PLAN_MODES.includes(mode as DeepPlanMode)
+        ? (mode as DeepPlanMode)
+        : 'argumentative-essay';
+    return startSession(task, safeMode);
   });
 
   ipcMain.handle(IpcChannels.DeepPlan.SendMessage, async (_event, message: unknown) => {

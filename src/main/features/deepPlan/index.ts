@@ -4,6 +4,7 @@ import type {
   ChairAnswerMap,
   ChairOutput,
   DeepPlanMessage,
+  DeepPlanMode,
   DeepPlanSession,
   DeepPlanStatus,
 } from '@shared/types';
@@ -135,10 +136,13 @@ function lastUserAnswers(session: DeepPlanSession): ChairAnswerMap | null {
 
 /* ------------------------------ Public API ------------------------------ */
 
-export async function startSession(task: string): Promise<DeepPlanStatus> {
+export async function startSession(
+  task: string,
+  mode: DeepPlanMode = 'argumentative-essay',
+): Promise<DeepPlanStatus> {
   if (!task.trim()) throw new Error('Task description cannot be empty.');
   await deleteSession();
-  await createSession(task);
+  await createSession(task, mode);
   notifyChanged();
   // Fire the first panel round immediately — no opener chat message, the
   // Chair's first summary is the opener.
@@ -372,10 +376,14 @@ async function runPanelAndChair(): Promise<void> {
     const sourcesForChair =
       newlyIngestedSourceSlugs.length > 0 ? await listSources() : sources;
 
-    // No more anchor-log resolve+append step — anchors live on disk in
-    // each source's index file, and the UI / drafter read them directly
-    // via `listAllAnchors`. The only thing the panel round owns now is
-    // vision notes + research dispatch.
+    // Anchor universe for the Chair: read every anchor across every
+    // source, then filter against `seenAnchorIds` so the Chair only sees
+    // what's NEW this round. Keeps context tight as the wiki grows AND
+    // forces vision updates to ground in fresh evidence rather than
+    // re-shuffling earlier abstractions.
+    const allAnchors = await listAllAnchors();
+    const seenSet = new Set(session.seenAnchorIds);
+    const newAnchors = allAnchors.filter((a) => !seenSet.has(a.id));
 
     const chairOutput = await runChair({
       session,
@@ -383,6 +391,8 @@ async function runPanelAndChair(): Promise<void> {
       newlyIngestedSourceSlugs,
       roundNumber,
       sources: sourcesForChair,
+      newAnchors,
+      totalAnchorCount: allAnchors.length,
       lastAnswers,
       chatNotes,
     });
@@ -398,10 +408,18 @@ async function runPanelAndChair(): Promise<void> {
         : next.requirements;
       const mergedVision =
         chairOutput.visionUpdate !== null ? chairOutput.visionUpdate : next.vision;
+      // Mark every anchor we just showed the Chair as seen — including
+      // the case where the Chair returned visionUpdate: null. The Chair
+      // had its chance; next round we want the next batch of anchors,
+      // not a re-show.
+      const mergedSeenAnchorIds = Array.from(
+        new Set([...next.seenAnchorIds, ...newAnchors.map((a) => a.id)]),
+      );
       return {
         ...next,
         requirements: mergedRequirements,
         vision: mergedVision,
+        seenAnchorIds: mergedSeenAnchorIds,
         pendingQuestions: chairOutput.questions,
         pendingChatNotes: [],
         searchesUsed: next.searchesUsed + searchesDispatched,
