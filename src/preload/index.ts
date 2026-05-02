@@ -124,6 +124,7 @@ const api: MystApi = {
     lookupAnchor: (slug, anchorId) =>
       ipcRenderer.invoke(IpcChannels.Sources.LookupAnchor, slug, anchorId),
     delete: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Delete, slug),
+    setRole: (slug, role) => ipcRenderer.invoke(IpcChannels.Sources.SetRole, slug, role),
     onChanged: (callback) => {
       const handler = (): void => {
         callback();

@@ -15,6 +15,7 @@ import type {
   AnchorLogEntry,
   SourceAnchor,
   SourceMeta,
+  SourceRole,
   UpdateStatus,
   WikiGraph,
   WorkspaceProject,
@@ -105,6 +106,7 @@ export interface MystApi {
       sourceUrl?: string;
     } | null>;
     delete: (slug: string) => Promise<void>;
+    setRole: (slug: string, role: SourceRole) => Promise<SourceMeta>;
     onChanged: (callback: () => void) => () => void;
   };
   comments: {

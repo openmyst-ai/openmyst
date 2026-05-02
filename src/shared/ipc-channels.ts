@@ -83,6 +83,7 @@ export const IpcChannels = {
     Read: 'sources:read',
     LookupAnchor: 'sources:lookup-anchor',
     Delete: 'sources:delete',
+    SetRole: 'sources:set-role',
     Changed: 'sources:changed',
   },
   Wiki: {

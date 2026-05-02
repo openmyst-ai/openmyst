@@ -123,6 +123,38 @@ export interface Heading {
  * through the normal pipeline. Behaves identically to `pasted` except the
  * origin is a live URL stored in `sourcePath`.
  */
+/**
+ * How the drafter should treat this source.
+ * - `reference` (default): evidence to cite. Inline anchor citations + entry
+ *   in the References section.
+ * - `guidance`: method/framework/style guide. The drafter INTERNALISES its
+ *   instructions but does NOT cite it inline or list it in References. Used
+ *   for things like "How to write a literature review" or "CRAAP test
+ *   handout" — process material, not content.
+ */
+export type SourceRole = 'reference' | 'guidance';
+
+/**
+ * Best-effort bibliographic metadata extracted at ingest time. Populated by
+ * the digest LLM from the source's title page / header / URL. Drafter uses
+ * `(author, year)` style citations whenever this is populated; falls back
+ * to source name when fields are missing.
+ */
+export interface SourceBibliographic {
+  /** Surname-only or institutional name. e.g. "Sen", "Stanford Encyclopedia of Philosophy". */
+  author?: string;
+  /** 4-digit publication year if recoverable. e.g. 1970. */
+  year?: number;
+  /** Source title in original capitalisation. */
+  title?: string;
+  /** Journal / outlet / publisher. e.g. "Journal of Political Economy". */
+  journal?: string;
+  /** Bare DOI without leading "https://doi.org/". */
+  doi?: string;
+  /** Canonical URL where the source lives, when known. */
+  url?: string;
+}
+
 export interface SourceMeta {
   slug: string;
   name: string;
@@ -137,6 +169,9 @@ export interface SourceMeta {
   rawFile?: string;
   /** Byte size of the underlying file — raw sources only, for UI + caps. */
   sizeBytes?: number;
+  /** Defaults to `'reference'` when omitted (older ingests, raw sources). */
+  role?: SourceRole;
+  bibliographic?: SourceBibliographic;
 }
 
 /**
@@ -371,6 +406,10 @@ export interface AnchorLogEntry {
   /** Verbatim passage from the source. 1–4 sentences. */
   text: string;
   keywords: string[];
+  /** Inherits from the source's role. `'reference'` when omitted. */
+  role?: SourceRole;
+  /** Inherits from the source's bibliographic metadata when populated. */
+  bibliographic?: SourceBibliographic;
 }
 
 /**
@@ -415,6 +454,22 @@ export interface PlanRequirements {
   audience: string | null;
   /** Any other hard constraints the user stated verbatim, for the panel to honour. */
   styleNotes: string | null;
+  /**
+   * Named framework / method / theoretical lens the user explicitly asked for
+   * — "Five Domains", "CRAAP test", "BLUF", "STAR method". When present, the
+   * drafter must APPLY the framework as the analytical lens, not write
+   * about it. Stays null when the task didn't name one.
+   */
+  framework: string | null;
+  /**
+   * Specific deliverable format when the user named one beyond the simple
+   * `form` (essay/report/blog). e.g. "literature review", "lab report",
+   * "policy memo", "case study analysis". Drafter uses this to pick
+   * structural conventions (lit review wants Article 1 / Article 2 sections
+   * with intro/summary/analysis/conclusion; lab report wants method/results
+   * /discussion; etc.). Null when the user only named the basic form.
+   */
+  deliverableFormat: string | null;
 }
 
 /** Session-wide research query budget, across all phases combined. */

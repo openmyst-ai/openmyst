@@ -231,6 +231,12 @@ function sanitizeRequirementsPatch(item: unknown): Partial<PlanRequirements> | n
     ? String(rec.styleNotes ?? rec.style_notes).trim()
     : '';
   if (notes) patch.styleNotes = notes;
+  const framework = typeof rec.framework === 'string' ? rec.framework.trim() : '';
+  if (framework) patch.framework = framework;
+  const deliverableRaw =
+    rec.deliverableFormat ?? rec.deliverable_format ?? rec.deliverable;
+  const deliverable = typeof deliverableRaw === 'string' ? deliverableRaw.trim() : '';
+  if (deliverable) patch.deliverableFormat = deliverable;
   return Object.keys(patch).length > 0 ? patch : null;
 }
 

@@ -40,6 +40,8 @@ function emptyRequirements(): PlanRequirements {
     form: null,
     audience: null,
     styleNotes: null,
+    framework: null,
+    deliverableFormat: null,
   };
 }
 
@@ -66,6 +68,35 @@ export function extractRequirements(task: string): PlanRequirements {
       const n = Number(singleMatch[1]);
       out.wordCountMin = n;
       out.wordCountMax = n;
+    }
+  }
+
+  // Deliverable format — specific format names take priority over generic
+  // forms below. These are the names that imply structural conventions
+  // (a literature review wants Article 1 / Article 2 sections, a lab
+  // report wants method/results/discussion, etc.). Match the LONGEST first
+  // so "literature review" beats the bare "review".
+  const deliverableFormats = [
+    'literature review',
+    'lab report',
+    'case study',
+    'policy memo',
+    'policy brief',
+    'systematic review',
+    'meta-analysis',
+    'annotated bibliography',
+    'thesis chapter',
+    'dissertation chapter',
+    'op-ed',
+    'whitepaper',
+    'white paper',
+    'research proposal',
+    'grant proposal',
+  ];
+  for (const f of deliverableFormats) {
+    if (lower.includes(f)) {
+      out.deliverableFormat = f;
+      break;
     }
   }
 
@@ -97,6 +128,34 @@ export function extractRequirements(task: string): PlanRequirements {
     /\bfor\s+(?:a\s+|an\s+|the\s+)?([a-zA-Z][a-zA-Z\s-]{3,40}?)\s+(?:audience|readers?|community|crowd)\b/i,
   );
   if (audienceMatch) out.audience = audienceMatch[1]!.trim();
+
+  // Framework / method / theoretical lens — patterns like:
+  //   "use the Five Domains framework"
+  //   "apply the CRAAP test"
+  //   "via the STAR method"
+  //   "through the lens of intersectionality"
+  // We capture the named thing rather than a freeform phrase, so the Chair
+  // and drafter can echo it verbatim. Phrasing patterns are deliberately
+  // narrow — false positives here would inject a fake framework into the
+  // prompt every round.
+  const frameworkPatterns: RegExp[] = [
+    /\b(?:using|use|apply(?:ing)?|via|through|with|following)\s+(?:the\s+)?([A-Z][A-Za-z0-9'’\-]+(?:\s+[A-Za-z0-9'’\-]+){0,4})\s+(?:framework|model|method|approach|theory|test|lens|paradigm|rubric|criteria)\b/,
+    /\b([A-Z][A-Za-z0-9'’\-]+(?:\s+[A-Za-z0-9'’\-]+){0,4})\s+(?:framework|model|method|approach|theory|test|lens|paradigm|rubric|criteria)\b/,
+    /\bthrough the lens of\s+([A-Za-z][A-Za-z0-9'’\-\s]{2,40})\b/i,
+  ];
+  for (const re of frameworkPatterns) {
+    const m = task.match(re);
+    if (m && m[1]) {
+      const candidate = m[1].trim();
+      // Reject candidates that are pure stopword phrases (the regex can
+      // sometimes grab "the same" or "this generic" when the user prose
+      // is loose).
+      if (!/^(the|this|that|same|generic|standard|usual|simple)\b/i.test(candidate)) {
+        out.framework = candidate;
+        break;
+      }
+    }
+  }
 
   return out;
 }

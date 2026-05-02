@@ -56,6 +56,19 @@ function missingRequirements(req: PlanRequirements): string[] {
   return missing;
 }
 
+/**
+ * Render a one-line "user-stated constraints" header for prompts that
+ * benefit from a tight reminder of the framework + deliverable format
+ * (Chair, drafter). Returns empty string when neither is present.
+ */
+function userConstraintsLine(req: PlanRequirements): string {
+  const parts: string[] = [];
+  if (req.deliverableFormat) parts.push(`format: ${req.deliverableFormat}`);
+  if (req.framework) parts.push(`framework: ${req.framework}`);
+  if (parts.length === 0) return '';
+  return `User-stated constraints (HONOUR THESE — they came directly from the writer's brief): ${parts.join(' · ')}.`;
+}
+
 function requirementsBlock(req: PlanRequirements): string {
   const lengthLine = (() => {
     if (req.wordCountMin !== null && req.wordCountMax !== null) {
@@ -71,7 +84,9 @@ function requirementsBlock(req: PlanRequirements): string {
   return [
     lengthLine,
     `- Form: ${req.form ?? '(not specified)'}`,
+    `- Deliverable format: ${req.deliverableFormat ?? "(not specified — use the form's defaults)"}`,
     `- Audience: ${req.audience ?? '(not specified)'}`,
+    `- Framework / method to apply: ${req.framework ?? "(none — write in the writer's natural register)"}`,
     `- Style notes: ${req.styleNotes ?? '(none)'}`,
   ].join('\n');
 }
@@ -90,20 +105,56 @@ function visionBlock(vision: string): string {
 }
 
 /**
+ * Format the citation tag the drafter sees next to each anchor — what the
+ * model should literally type for the inline link's visible text. When
+ * bibliographic metadata is present, prefer Author-Date; otherwise fall back
+ * to the source name (clipped) so we never invent a fake author.
+ */
+function citationTag(e: AnchorLogEntry): string {
+  const bib = e.bibliographic;
+  if (bib?.author) {
+    return bib.year ? `${bib.author}, ${bib.year}` : bib.author;
+  }
+  // Source name fallback. Trim aggressively — long titles inside parens read
+  // like the drafter forgot to cite at all.
+  return e.sourceName.length > 40 ? `${e.sourceName.slice(0, 37)}…` : e.sourceName;
+}
+
+/**
  * Render the anchor log — the full flat list of every anchor across
  * every ingested source. Consumed by the drafter at handoff so the draft
- * grounds in the evidence.
+ * grounds in the evidence. Splits role:reference (cite these) from
+ * role:guidance (apply these as method, never cite). The split is what
+ * stops the drafter ending up with a reference list full of method
+ * guides — guidance anchors live in their own block with explicit
+ * "do not cite" wording.
  */
 function anchorLogBlock(anchors: AnchorLogEntry[]): string {
-  if (anchors.length === 0) return '_(no anchors extracted yet — ingest or research some sources first)_';
-  return anchors
+  if (anchors.length === 0) {
+    return '_(no anchors extracted yet — ingest or research some sources first)_';
+  }
+  const refs = anchors.filter((a) => (a.role ?? 'reference') === 'reference');
+  const guides = anchors.filter((a) => a.role === 'guidance');
+  const renderEntry = (e: AnchorLogEntry, i: number): string => {
+    const anchorFrag = e.id.split('#')[1] ?? '';
+    const tag = citationTag(e);
+    const head = `${i + 1}. [${e.type}] cite as \`(${tag})\` → \`${e.slug}.md#${anchorFrag}\``;
+    const body = `\n   "${e.text.replace(/\n+/g, ' ').trim()}"`;
+    return `${head}${body}`;
+  };
+  const refsBlock =
+    refs.length === 0
+      ? '_(no reference-role anchors yet — every claim in the draft will currently be unsourced. Flag this in the draft.)_'
+      : refs.map(renderEntry).join('\n');
+  if (guides.length === 0) return refsBlock;
+  const guidesBlock = guides
     .map((e, i) => {
-      const anchorFrag = e.id.split('#')[1] ?? '';
-      const head = `${i + 1}. [${e.type}] ([${e.sourceName}](${e.slug}.md#${anchorFrag}))`;
+      const head = `${i + 1}. [${e.type}] from "${e.sourceName}" — METHOD GUIDANCE, do not cite`;
       const body = `\n   "${e.text.replace(/\n+/g, ' ').trim()}"`;
       return `${head}${body}`;
     })
     .join('\n');
+  return `### Reference anchors — these are EVIDENCE you cite inline + list in References:\n${refsBlock}\n\n### Guidance anchors — these are METHOD instructions. INTERNALISE them as how to write; NEVER cite them inline; NEVER list them in References:\n${guidesBlock}`;
 }
 
 /**
@@ -114,7 +165,12 @@ function anchorLogBlock(anchors: AnchorLogEntry[]): string {
  */
 function sourcesBlock(sources: SourceMeta[]): string {
   if (sources.length === 0) return '_No sources yet._';
-  return sources.map((s) => `- **${s.name}** — ${s.indexSummary}`).join('\n');
+  return sources
+    .map((s) => {
+      const tag = (s.role ?? 'reference') === 'guidance' ? ' _[guidance]_' : '';
+      return `- **${s.name}**${tag} — ${s.indexSummary}`;
+    })
+    .join('\n');
 }
 
 function searchBudgetBlock(session: DeepPlanSession): string {
@@ -377,6 +433,8 @@ export function chairPrompt(args: ChairPromptArgs): string {
   const chatNotesSection = chatNotes.length > 0
     ? `\n\nUser's free-chat notes since the last panel round (the writer typed these between rounds — factor them into your summary AND into the plan rewrite where relevant):\n${chatNotes.map((n, i) => `${i + 1}. ${n}`).join('\n')}`
     : '';
+  const constraintsLine = userConstraintsLine(session.requirements);
+  const constraintsSection = constraintsLine ? `\n\n${constraintsLine}` : '';
 
   return `You are the CHAIR of a writing panel. The session has two artefacts you touch: a tiny rubric (hard constraints) and a small vision.md (intellectual spine). You do NOT touch the anchor log — anchors are extracted deterministically from each source at ingest time and flow straight to the drafter. Your job is to steer the vision, probe the user when a judgment call needs them, and update the rubric when the user's answers change it.
 
@@ -390,7 +448,7 @@ Phase intent:
 ${PHASE_INTENT[phase]}
 
 Current round in this phase: ${roundNumber}${advanceNudge}
-User's task: "${session.task}"
+User's task: "${session.task}"${constraintsSection}
 
 RUBRIC (hard constraints — the draft must honour these):
 ${requirementsBlock(session.requirements)}${requirementsGap}${lastAnswersSection}${chatNotesSection}
@@ -425,7 +483,9 @@ ${priorSummaries ? `Prior-round Chair summaries (do NOT repeat these — move th
   "requirementsPatch": {
     "wordCountMin": 1500, "wordCountMax": 2500,
     "form": "exploratory essay",
+    "deliverableFormat": "literature review",
     "audience": "general educated reader",
+    "framework": "Five Domains",
     "styleNotes": null
   } | null
 }
@@ -460,6 +520,8 @@ requirementsPatch rule:
 - When the user's last answers answered a question about a hard requirement, populate matching fields. The system shallow-merges this into session.requirements.
 - \`wordCountMin\` / \`wordCountMax\`: integers. Match what the user picked; if they delegated, use sensible defaults (essay: 1500–2500; blog post: 800–1500; report: 2500–4000).
 - \`form\`: short lowercase ("exploratory essay", "blog post", "op-ed", "report").
+- \`deliverableFormat\`: short lowercase format name when the user named a specific deliverable beyond the form ("literature review", "lab report", "policy memo", "case study analysis", "annotated bibliography"). Distinct from \`form\` — \`form\` is the basic shape; \`deliverableFormat\` is the structural template. Set when you confirm or extract one with the user; otherwise omit.
+- \`framework\`: when the user named a specific framework / method / theoretical lens to apply ("Five Domains", "CRAAP test", "STAR method", "Porter's Five Forces"). Echo it back verbatim with sensible casing. Do not invent one — only set when the user has explicitly named it.
 - \`audience\`: short lowercase ("general educated reader", "economists and policy professionals").
 - \`styleNotes\`: free text ONLY when the user stated specific style constraints. Otherwise null.
 - Emit null/omit when this round didn't touch hard requirements. Don't echo unchanged fields.
@@ -630,32 +692,89 @@ export function oneShotPrompt(
   docLabel: string,
   anchors: AnchorLogEntry[],
 ): string {
-  const anchorCount = anchors.length;
+  const refAnchors = anchors.filter((a) => (a.role ?? 'reference') === 'reference');
+  const guideAnchors = anchors.filter((a) => a.role === 'guidance');
+  const refCount = refAnchors.length;
   const anchorCountLine =
-    anchorCount === 0
-      ? 'ANCHOR LOG IS EMPTY. This is a failure state — the panel session should have produced evidence. Do NOT fabricate sources or citations. If the log is genuinely empty, write a short essay from the vision alone and flag the lack of evidence at the top.'
-      : `ANCHOR LOG contains ${anchorCount} entries. These are the ONLY sources you may cite. Every citation in the draft MUST be drawn from this list — never invent a source, never cite something that isn't here.`;
+    refCount === 0
+      ? 'REFERENCE-ROLE ANCHOR LOG IS EMPTY. This is a failure state — the panel session should have produced evidence. Do NOT fabricate sources or citations. If the log is genuinely empty, write a short essay from the vision alone and flag the lack of evidence at the top.'
+      : `REFERENCE-ROLE ANCHOR LOG contains ${refCount} entries. These are the ONLY sources you may cite inline and list in References. Every citation in the draft MUST be drawn from this list — never invent a source, never cite something that isn't here, NEVER cite a guidance-role anchor.`;
+  const constraints = userConstraintsLine(session.requirements);
+  const constraintsLine = constraints ? `\n\n${constraints}\n` : '';
+  const req = session.requirements;
+  const targetWords = req.wordCountMin ?? req.wordCountMax;
+  const wordCountLine = (() => {
+    if (req.wordCountMin && req.wordCountMax) {
+      const mid = Math.round((req.wordCountMin + req.wordCountMax) / 2);
+      return `Target the MIDDLE of the rubric range (${req.wordCountMin}–${req.wordCountMax}); aim for roughly ${mid} words. Under-shooting by 30% is the most common failure on this prompt — DO NOT stop early. If you find yourself near a natural conclusion before the word target, expand: deepen the analysis, add a counter-argument paragraph, unpack a claim with a specific example.`;
+    }
+    if (targetWords) {
+      return `Target ~${targetWords} words. Going noticeably under is a common failure — keep writing until you hit it.`;
+    }
+    return `No explicit word target. Write to the natural length of the form.`;
+  })();
+  const formatGuide = (() => {
+    const fmt = req.deliverableFormat;
+    if (!fmt) return '';
+    const lower = fmt.toLowerCase();
+    if (lower === 'literature review' || lower === 'systematic review') {
+      return `\n\nDELIVERABLE FORMAT — ${fmt}:
+- Structural template: brief Introduction → one section per source (Article 1, Article 2, …) each with sub-headings Introduction / Summary / Analysis / Conclusion → Final Synthesis comparing the sources → References.
+- Each per-source Analysis sub-section is the heaviest: it is where you EVALUATE the source against the assignment's criteria (audience fit, methodological strength, alignment with established frameworks, practical utility, limitations) using SPECIFIC details from that source — not generic comments about literature.
+- Cite each per-source section's claims back to that source's anchors. Cross-cite to other sources only in the Final Synthesis.`;
+    }
+    if (lower === 'lab report') {
+      return `\n\nDELIVERABLE FORMAT — lab report:
+- Structural template: Title → Abstract (optional) → Introduction → Method → Results → Discussion → Conclusion → References.
+- Method and Results are descriptive, low-citation; Introduction and Discussion carry the citations.`;
+    }
+    if (lower === 'policy memo' || lower === 'policy brief') {
+      return `\n\nDELIVERABLE FORMAT — ${fmt}:
+- Structural template: Title → BLUF (Bottom Line Up Front, 1–3 sentences) → Background → Analysis → Recommendations → References.
+- Lead with the recommendation; everything else justifies it.`;
+    }
+    if (lower === 'annotated bibliography') {
+      return `\n\nDELIVERABLE FORMAT — annotated bibliography:
+- One entry per source: full citation followed by a 100–200 word annotation (summary + evaluation + relevance to the project).
+- No body essay — the annotations ARE the deliverable.`;
+    }
+    return `\n\nDELIVERABLE FORMAT — ${fmt}: follow the standard structural conventions of this format.`;
+  })();
+  const frameworkGuide = req.framework
+    ? `\n\nFRAMEWORK / METHOD TO APPLY — ${req.framework}:
+- The user explicitly asked for this. APPLY it as the analytical lens that organises the draft. Don't write ABOUT the framework — USE it.
+- Concretely: each section's analysis should USE the framework's categories / criteria / steps to structure what you say about the evidence. If the framework has named domains/criteria/components, name them as you apply them.
+- ${guideAnchors.length > 0 ? 'Method instructions for this framework are in the GUIDANCE ANCHORS below — internalise them; never cite them.' : 'You may apply the framework from your own knowledge of it. Stay faithful to its standard form.'}`
+    : '';
+  const guidanceNote =
+    guideAnchors.length > 0
+      ? `\n\nThis session has ${guideAnchors.length} GUIDANCE-role anchor${guideAnchors.length === 1 ? '' : 's'}. They are method/framework material — read them, internalise the instructions, and write accordingly. NEVER cite them inline. NEVER include them in the References list. They are HOW you write, not WHAT you cite.`
+      : '';
 
   return `[HARD RULES — non-negotiable. Violating any of these is a shipping failure.]
 
-1. **CITE YOUR SOURCES.** The anchor log below is the session's evidence base. Every factual claim, specific number, named figure, technical definition, contested position, or historical fact in your draft MUST carry an inline Harvard citation drawn from the anchor log. A draft with ZERO citations is a hard failure — the whole point of the Deep Plan session was to gather these anchors. If you find yourself writing a factual sentence without a citation, either add one or remove the sentence.
+1. **CITE YOUR SOURCES.** The reference-role anchor log below is the session's evidence base. Every factual claim, specific number, named figure, technical definition, contested position, or historical fact in your draft MUST carry an inline Harvard citation drawn from a REFERENCE-role anchor. A draft with ZERO citations is a hard failure. Guidance-role anchors are NEVER cited.
 
-2. **FORMAT — in-text citation:** \`([Author, Year](slug.md#anchor-id))\`. The whole parenthesised chunk — including "Author, Year" — is a single markdown link whose href carries the \`#anchor-id\`. Reader sees "(Author, Year)"; hover reveals the verbatim anchor passage. Examples: \`([Sen, 1970](sen-liberal-paradox.md#impossibility-theorem))\`, \`([Stanford Encyclopedia, 2018](pareto-efficiency.md#three-conditions))\`. When you genuinely can't infer a year from the source (no date in the summary or URL), use just the author/source name: \`([Sen](sen-liberal-paradox.md#x))\`. NEVER drop the \`#anchor-id\` fragment — it powers the hover preview that lets readers cross-check your paraphrase.
+2. **FORMAT — in-text citation:** \`([Author, Year](slug.md#anchor-id))\`. The whole parenthesised chunk is a single markdown link whose href carries the \`#anchor-id\`. Reader sees "(Author, Year)"; hover reveals the verbatim anchor passage. The exact "(Author, Year)" string to type is shown next to each reference anchor below — use it verbatim. NEVER drop the \`#anchor-id\` fragment.
 
-3. **CITATION DENSITY floor.** Roughly 1 citation per 150–200 words of body prose. For a 2,000-word essay that means ~10–15 inline citations minimum. Fewer than that means you're gliding past load-bearing claims without grounding them. Over-citation (every sentence cited) is also bad — consolidate when adjacent sentences lean on the same anchor — but ZERO is a failure mode we've seen and this prompt is here to stop it.
+3. **CITATION DENSITY floor.** Roughly 1 citation per 150–200 words of body prose. For a 2,000-word essay that means ~10–15 inline citations minimum. Fewer means you're gliding past load-bearing claims without grounding them.
 
-4. **ZERO em dashes (—) in the final draft.** If you feel the urge, use a period, comma, parentheses, or a colon instead. Em dashes are the strongest AI-prose tell. Do not use en dashes (–) as a substitute either.
+4. **ZERO em dashes (—) in the final draft.** Use a period, comma, parentheses, or colon instead. Em dashes are the strongest AI-prose tell. Don't substitute en dashes (–) either.
 
-5. **HONOUR THE WORD-COUNT RANGE** in the rubric. Going over or under by more than 10% is a failure.
+5. **HONOUR THE WORD-COUNT RANGE.** Going over or under by more than 10% is a failure. ${wordCountLine}
 
-6. **STRUCTURE WITH HEADINGS.** Every draft opens with a \`# Title\` H1 and breaks the body into \`## Section\` H2s that follow the vision's "Structure" section (when present) or derive from the form (3–6 H2s for a standard essay, 2–4 for a blog/op-ed, 5–8 for a report). Section titles tell the reader what the section ARGUES, not just what topic it covers. A wall of unbroken prose with no H2s is a shipping failure — full details in the "Structure + headings" block below.
+6. **STRUCTURE WITH HEADINGS.** Every draft opens with a \`# Title\` H1 and breaks the body into \`## Section\` H2s. Section titles tell the reader what the section ARGUES, not just what topic it covers. A wall of unbroken prose with no H2s is a shipping failure.
 
-You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle. The VISION is the intellectual spine (thesis, POV, section intents). The ANCHOR LOG is the evidence pile. Your job: turn the vision into finished analytical prose, grounded by the anchors, paraphrased naturally in your own voice.
+7. **APPLY USER-STATED CONSTRAINTS.** If the rubric names a framework or deliverable format, you MUST apply it. Writing about it instead of using it is a hard failure.
 
-User's task: "${session.task}"
+8. **DEPTH OVER BREADTH.** Each cited claim gets UNPACKED with the source's specifics — actual numbers, mechanisms, named techniques, concrete examples — not collapsed into a one-sentence summary. See the depth examples below.
+
+You are Myst, writing the first full draft of "${docLabel}" from a completed Deep Plan session. You are an essayist with an evidence bundle. The VISION is the intellectual spine. The ANCHOR LOG is the evidence pile. Your job: turn the vision into finished analytical prose, grounded by the anchors, in the writer's voice.
+
+User's task: "${session.task}"${constraintsLine}
 
 RUBRIC (HARD constraints — the draft is judged against these):
-${requirementsBlock(session.requirements)}
+${requirementsBlock(session.requirements)}${formatGuide}${frameworkGuide}${guidanceNote}
 
 VISION — the intellectual spine. Follow its thesis, POV, and section intents. The vision itself has no citations; it tells you WHAT to write.
 
@@ -663,72 +782,71 @@ ${visionBlock(session.vision)}
 
 ${anchorCountLine}
 
-Each anchor below shows its type, source name, and the verbatim source text. Reference anchors with their full \`([SourceName](slug.md#anchor-id))\` link — the \`slug.md#anchor-id\` is the exact form the hover feature expects. Paraphrase the text naturally; do NOT copy verbatim unless the exact wording is genuinely load-bearing.
+Each REFERENCE anchor below shows the citation tag you should type — \`(Author, Year)\` or \`(SourceName)\` — and the slug fragment that goes in the markdown link href. Paraphrase the anchor text naturally; do NOT copy verbatim unless the exact wording is genuinely load-bearing.
 
 ${anchorLogBlock(anchors)}
 
 HOW TO WRITE THE DRAFT:
 
-1. **Vision is your spine.** Its section intents are your structure. Its POV is the voice. Its novel insights are what the piece ARGUES. Execute the vision.
-2. **Anchors are evidence you USE.** Before writing each paragraph, scan the anchor log for entries relevant to that paragraph's claim — every factual sentence in the paragraph should be traceable to one of those anchors, with an inline citation attached.
-3. **Aim to use most of the log.** If the log has 20 anchors, expect 15+ to appear in the draft at least once. Anchors that genuinely don't fit the vision can be skipped — but the default is "use it". Every unused anchor is evidence you gathered and then ignored.
-4. **Paraphrase naturally, don't transcribe.** Compress three source sentences into one of yours; lift the load-bearing phrase; drop the rest. Sentence-by-sentence rewording of an anchor reads mechanical.
-5. **Lead paragraphs with YOUR claim.** A paragraph's first sentence should almost never be a cited external claim — it should be your analytical move, with the evidence brought in to support it after.
-6. **Uncited prose IS allowed** — for connective tissue, your own reasoning, textbook-level common knowledge, or transitions. Uncited prose is EARNED when the claim is uncontested background.
+1. **Vision is your spine.** Its section intents are your structure. Its POV is the voice. Its novel insights are what the piece ARGUES.
+2. **Reference anchors are evidence you USE.** For every claim, scan the reference anchors for one that grounds it. The citation tag tells you literally what to type.
+3. **Guidance anchors shape HOW you write.** They are framework / method / style instructions. Internalise them; never cite them.
+4. **Aim to use most of the reference log.** If the log has 20 reference anchors, expect 15+ to appear at least once. Unused anchors are evidence you gathered and ignored.
+5. **Lead paragraphs with YOUR claim.** A paragraph's topic sentence is your analytical move; the evidence comes in to support it.
+6. **Unpack each cited claim with SPECIFICS.** When an anchor names a method, name the method. When it gives a number, give the number. When it specifies a mechanism, describe the mechanism. Generic restatement isn't analysis.
+
+Depth — what shallow vs deep looks like:
+- Shallow: "The article highlights advances in monitoring technology." (Reader learns nothing specific.)
+- Deep: "The article divides assessment methods into two categories: non-invasive approaches such as behavioural observation and underwater imaging, and invasive physiological markers like cortisol assays — flagging that chronic stress depresses growth, immunity, and survival." (Reader learns WHAT, HOW, and SO WHAT.)
+- Shallow: "Research suggests welfare programs are increasingly important."
+- Deep: "Collins (2023) traces the absence of a national assurance scheme in Australia against the spread of comparable frameworks in the EU, where rising welfare standards now function as a market-access requirement for export dairy."
+The deep version is two-to-three times longer per claim — and that's the point. Draft length comes from depth per claim, NOT from extra claims.
 
 Citation mechanics (strict):
-- In-text format: \`([Author, Year](slug.md#anchor-id))\`. The entire \`([...](...))\` is one markdown link. Visible text is "Author, Year"; the hidden href carries \`slug.md#anchor-id\` so hover works. **Infer "Author, Year" from the anchor's source name + any year visible in the source summary / URL / text.** Authors: surname only (e.g. "Sen", "Feldstein", "Arrow"). Institutional sources: short label ("Stanford Encyclopedia", "Richmond Fed", "OECD").
+- Use the citation tag printed next to each reference anchor — that's the visible text. Don't invent a different one.
 - Examples:
   - Inline: \`...the liberal paradox ([Sen, 1970](sen-1970.md#liberal-paradox)) shows that minimal liberalism and Pareto are incompatible.\`
-  - Institution: \`...Feldstein's defence of efficiency-first policy ([Richmond Fed, 2011](richmond-feldstein.md#defense)) remains the canonical case.\`
-  - Year unknown (source carries no date): \`([Sen](sen-liberal-paradox.md#x))\` — drop the comma and year rather than inventing one.
+  - Institution: \`...as the Federal Reserve documents ([Richmond Fed, 2011](richmond-feldstein.md#defense)).\`
 - Two sources on a sentence → two adjacent citations: \`([Smith, 2022](smith.md#a)) ([Jones, 2019](jones.md#b))\`.
-- Same source, adjacent sentences → cite ONCE at the natural anchor point (end of topic sentence, or end of synthesis sentence).
-- Never wrap citations in backticks; never emit numeric footnote markers; never write "Smith et al. (2022)" as inline prose (your parenthesised markdown link IS the citation).
+- Same source, adjacent sentences → cite ONCE at the natural anchor point.
+- Never wrap citations in backticks; never emit numeric footnote markers; never write "Smith et al. (2022)" as inline prose (the parenthesised markdown link IS the citation).
 
-Blockquote discipline: default zero. One or two max if a primary-source quotation genuinely carries unique rhetorical weight.
+Blockquote discipline: default zero. One or two max if a primary-source quotation carries unique rhetorical weight.
 
 Voice:
-- Transitions should DO WORK — reframe, pivot, raise stakes. "The historical context matters" is dead weight; name what it matters FOR. "The criticism cuts deeper" is filler; name the specific cut.
-- Avoid stock LLM tells: "These are not minor caveats", "The silence is not incidental", "It's worth noting", "The conclusion is straightforward", "This is significant because".
+- Transitions should DO WORK — reframe, pivot, raise stakes. "The historical context matters" is dead weight; name what it matters FOR.
+- Avoid stock LLM tells: "These are not minor caveats", "It's worth noting", "The conclusion is straightforward", "This is significant because".
 
 Counter-argument + conclusion:
 - Address the strongest objection to the thesis before rebutting or conceding. Name it specifically.
 - The conclusion engages every major thread the body developed, named specifically. No generic "supplementing with frameworks that engage..." lists.
 
 References section (required, end of draft) — HARVARD STYLE:
-- \`## References\` heading (sentence case, no variations).
-- List every unique slug actually cited in the body, once each. ONE bullet per source.
-- Harvard format, per entry:
-  \`- Author (Year) *Title*. Publisher or outlet. [[web](https://…)] [[source](slug.md)]\`
-  - **Author**: surname(s), full initial(s). "Sen, A." / "Smith, J. and Jones, K." Institutional source: full name — "Stanford Encyclopedia of Philosophy", "Federal Reserve Bank of Richmond".
-  - **(Year)**: in parentheses immediately after the author. If truly unknown, use \`(n.d.)\`.
-  - **Title** in italics. Preserve the original capitalisation from the source.
-  - **Publisher / outlet** if identifiable (journal name, news outlet, publisher, institution).
-  - **\`[[web](URL)]\`** — clickable link to the original website the source lives on. Take the URL from the anchor entry (the anchor list's "source URL" or, failing that, the URL visible in the anchor text / summary). Include this ONLY when you have a real URL; do not invent one.
-  - **\`[[source](slug.md)]\`** — ALWAYS the final element: the Myst-internal link to the source's wiki page, so the reference stays clickable inside the app even when the original URL is paywalled / dead / missing.
-- Both links go inside double square brackets so they render as distinct link-chip tails rather than dissolving into the prose. \`[web]\` first, \`[source]\` last.
+- \`## References\` heading (sentence case).
+- ONE bullet per UNIQUE slug you actually CITED INLINE in the body. NOT one per anchor (multiple anchors share a slug). NOT one per source in the wiki (don't list uncited sources). NOT one per guidance source (NEVER list guidance sources).
+- Harvard format per entry:
+  \`- Author (Year) *Title*. Publisher or outlet. doi:10.xxxx/xxxx [[web](https://…)] [[source](slug.md)]\`
+  - **Author**: surname(s) with initial(s) when known ("Sen, A.", "Smith, J. and Jones, K."). Institutional: full name. Use the author shown in the citation tag.
+  - **(Year)**: integer year when shown in the citation tag. \`(n.d.)\` only as a last resort.
+  - **Title** in italics, original capitalisation. The reference anchors carry titles when extracted at ingest.
+  - **Publisher / outlet** when identifiable (journal name, news outlet, institution).
+  - **\`doi:...\`** when present — bare DOI prefix, no URL.
+  - **\`[[web](URL)]\`** — clickable link to the original. Use the source URL shown in anchor entries. Omit if you don't have one.
+  - **\`[[source](slug.md)]\`** — always the final element: Myst-internal link.
 - Examples:
   - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. [[web](https://www.jstor.org/stable/1829989)] [[source](sen-1970.md)]\`
+  - \`- Barreto, M. O., Planellas, S. R., Yang, Y., Phillips, C., & Descovich, K. (2021) *Emerging indicators of fish welfare in aquaculture*. Reviews in Aquaculture. doi:10.1111/raq.12601 [[source](barreto-2021.md)]\`
   - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. [[web](https://plato.stanford.edu/entries/pareto/)] [[source](pareto-efficiency.md)]\`
-  - \`- Richmond Fed (2011) *Efficient Rent Seeking*. Federal Reserve Bank of Richmond. [[source](richmond-feldstein.md)]\` *(no URL available; web chip omitted)*
-- Alphabetise by author surname (or institution name when author-less). One bullet per source. Do NOT list sources you didn't cite in the body. Do NOT duplicate.
-- Infer metadata from the anchor log entries — each anchor shows its source name + URL, and many anchor texts reveal year / publisher. If a field is genuinely unrecoverable, omit it rather than invent. The ONE required element you must never skip is the trailing \`[[source](slug.md)]\` chip.
+- Alphabetise by author surname (or institution name when author-less). Do NOT duplicate. Do NOT include any guidance-role source.
 
-Structure + headings (mandatory — draft gets rejected without them):
-- **Open with a \`# Title\` H1.** Never ship a draft with no title line. Pick a title that names the piece's actual angle, not a generic restatement of the task.
-- **Use H2 section headings (\`## Section title\`) to break the body into its thread arc.** Derive the H2s from the vision's section-arc line (the brief intents it lists: "open with X", "pivot to Y", "land on Z") + the form — you pick the actual H2 titles, not the vision.
-  - **Essay (1500–2500 words)**: 3–6 H2 sections. Never one continuous flow.
-  - **Blog post (800–1500 words)**: 2–4 H2 sections.
-  - **Op-ed (800–1500 words)**: usually 2–4 H2s, sometimes 1 if the argument is tightly linear.
-  - **Report (2500+ words)**: 5–8 H2 sections, often with H3 sub-sections.
-- Section titles do the work — they should tell a reader what the section argues, not just what topic it covers. "The decomposition that gets cited" beats "Background".
-- **References is its own \`## References\` H2 at the end.** Not in the body flow; always the final section.
-- H3+ sub-headings are allowed for long/structured pieces (reports especially) but optional for essays.
+Structure + headings (mandatory):
+- **Open with a \`# Title\` H1.** Pick a title that names the piece's actual angle, not a restatement of the task.
+- **Use H2 section headings (\`## Section title\`) to break the body.** Derive the H2s from the vision's section-arc + the deliverable format above. The deliverable-format guide names structural sections when relevant — use those H2 names; otherwise pick H2s that argue rather than label.
+- **References is its own \`## References\` H2 at the end.** Always the final section.
 
 Form + output rules:
-- Hit the rubric — length, form, audience.
-- No preamble, no "Here is your draft:", no meta-commentary. Start with the H1 title line and write straight through.
+- Hit the rubric — length, form, audience, deliverable format, framework.
+- No preamble, no "Here is your draft:", no meta-commentary. Start with the H1 title line.
 - Use proper markdown: \`#\` title, \`## Section\` H2s, \`**bold**\`, \`*italic*\`, blank lines between paragraphs.
 
 Output: the complete markdown draft, nothing else.

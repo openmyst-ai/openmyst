@@ -1230,6 +1230,52 @@ img.login-logo {
   color: var(--fg-muted);
   word-break: break-all;
 }
+.source-role-toggle {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.source-role-label {
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.source-role-buttons {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  align-self: flex-start;
+}
+.source-role-btn {
+  background: var(--bg-alt);
+  color: var(--fg-muted);
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.source-role-btn + .source-role-btn {
+  border-left: 1px solid var(--border);
+}
+.source-role-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.source-role-btn.is-active {
+  background: var(--accent);
+  color: var(--bg);
+}
+.source-role-hint {
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.45;
+}
 
 /* ---- Document Files ---- */
 .docfiles-panel {

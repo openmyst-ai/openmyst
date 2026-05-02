@@ -2,7 +2,13 @@ import { promises as fs } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { dialog } from 'electron';
 import { IpcChannels } from '@shared/ipc-channels';
-import type { AnchorLogEntry, SourceAnchorSummary, SourceIndex, SourceMeta } from '@shared/types';
+import type {
+  AnchorLogEntry,
+  SourceAnchorSummary,
+  SourceIndex,
+  SourceMeta,
+  SourceRole,
+} from '@shared/types';
 import { projectPath, pathExists, broadcast } from '../../platform';
 import { updateWikiIndex, appendWikiLog } from '../wiki';
 import { extractText } from './extract';
@@ -155,7 +161,9 @@ async function saveSource(
     indexSummary: digest.indexSummary,
     sourcePath,
     anchors: anchorSummaries,
+    role: digest.role,
   };
+  if (digest.bibliographic) meta.bibliographic = digest.bibliographic;
   await fs.writeFile(
     projectPath('sources', `${slug}.meta.json`),
     JSON.stringify(meta, null, 2),
@@ -465,13 +473,31 @@ export async function listAllAnchors(): Promise<AnchorLogEntry[]> {
           type: a.type,
           text: a.text,
           keywords: a.keywords ?? [],
+          role: s.role ?? 'reference',
         };
         if (s.sourcePath) entry.sourceUrl = s.sourcePath;
+        if (s.bibliographic) entry.bibliographic = s.bibliographic;
         out.push(entry);
       }
     }),
   );
   return out;
+}
+
+/**
+ * Flip a source between `'reference'` and `'guidance'`. Persists to the
+ * meta file and broadcasts so the renderer refreshes. Used when the digest
+ * misclassified a source (e.g. tagged a method guide as `'reference'`),
+ * letting the user fix it without re-ingesting.
+ */
+export async function setSourceRole(slug: string, role: SourceRole): Promise<SourceMeta> {
+  const path = projectPath('sources', `${slug}.meta.json`);
+  const raw = await fs.readFile(path, 'utf-8');
+  const meta = JSON.parse(raw) as SourceMeta;
+  meta.role = role;
+  await fs.writeFile(path, JSON.stringify(meta, null, 2), 'utf-8');
+  broadcast(IpcChannels.Sources.Changed);
+  return meta;
 }
 
 export async function deleteSource(slug: string): Promise<void> {

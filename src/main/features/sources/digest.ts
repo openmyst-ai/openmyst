@@ -1,4 +1,4 @@
-import type { SourceMeta } from '@shared/types';
+import type { SourceBibliographic, SourceMeta, SourceRole } from '@shared/types';
 import { completeText } from '../../llm';
 import { log, logError } from '../../platform';
 import { getSummaryModel } from '../settings';
@@ -35,6 +35,16 @@ export interface SourceDigest {
   anchors: SourceAnchor[];
   relatedSlugs: string[];
   /**
+   * Detected by the digest model from the source's content shape. `'guidance'`
+   * means the source is a method/framework/style guide that should INFORM
+   * how the drafter writes but never appear as a citation. `'reference'`
+   * (the overwhelming default) means the source is content to cite. When
+   * the digest can't tell, defaults to `'reference'`.
+   */
+  role: SourceRole;
+  /** Bibliographic metadata extracted from the source's title page / header / URL. */
+  bibliographic?: SourceBibliographic;
+  /**
    * True when the digest LLM call failed (missing key, network error,
    * invalid JSON) and we fell back to truncated raw text. Research
    * auto-ingest uses this to drop the source before persisting — a
@@ -57,6 +67,15 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
   "name": "A short, descriptive title for this source (2-6 words)",
   "summary": "A detailed wiki-style summary of the source content. 2-4 paragraphs covering the key points, arguments, data, and conclusions. Write in third person. Be thorough — this summary replaces the original for research purposes. You may use markdown links to reference other sources if relevant, using the format [Source Name](slug.md).",
   "indexSummary": "One sentence (under 20 words) describing what this source covers, for quick scanning.",
+  "role": "reference | guidance",
+  "bibliographic": {
+    "author": "Surname only ('Sen') OR institutional name ('Stanford Encyclopedia of Philosophy'). Omit when the source has no identifiable author.",
+    "year": 2023,
+    "title": "Title in original capitalisation. Omit when the source has no clear title.",
+    "journal": "Journal / publisher / outlet when stated. e.g. 'Journal of Political Economy', 'Reviews in Aquaculture', 'Nuffield Australia'. Omit when not stated.",
+    "doi": "Bare DOI without https prefix, e.g. '10.1111/raq.12601'. Omit when no DOI.",
+    "url": "Canonical URL when present in the text (often after 'Source URL:' or near the title). Omit otherwise."
+  },
   "anchors": [
     {
       "type": "definition | claim | statistic | quote | finding",
@@ -68,6 +87,12 @@ const SYSTEM_PROMPT = `You process source material into a research wiki entry. G
   "relatedSlugs": ["other_slug", "another_slug"],
   "isNonContent": false
 }
+
+role — load-bearing for downstream drafting:
+- **reference** (default — use this unless you're sure): the source is content to cite. Research papers, articles, news pieces, reports, datasets, primary documents, books, blog posts that present an argument or evidence. Anything the writer might quote or paraphrase as evidence in the final piece.
+- **guidance**: the source is a method / framework / style guide / how-to / rubric / assignment brief / scoring criteria — material that should INFORM HOW the writer writes, but never appear as a citation in the final piece. Examples: "How to write a literature review", "CRAAP test handout", "Five Domains framework explainer", "APA citation guide", "assignment instructions PDF", "course rubric". When in doubt, default to reference — guidance is the rare case.
+
+bibliographic — extract what's actually visible in the source text. Look at the title page (papers), masthead (articles), footer (web pages), or "Source URL:" prefix at the top of the raw text. Do NOT invent fields. If a field isn't visible, OMIT IT (don't emit empty strings, nulls, or "n.d."). For raw web pages with no clear author, the publisher/outlet alone is fine. For institutional pages (university, government, NGO), use the institution as author.
 
 isNonContent: set to true ONLY when the source text doesn't contain real, citable content on the topic implied by its title — examples: 404 / "page not found" error pages, login walls, cookie-consent shells, empty navigation skeletons, anti-bot / captcha pages, paywall stubs with no abstract. When true, leave summary/indexSummary/anchors/relatedSlugs as minimal placeholders (the system will drop the source entirely, so it doesn't matter). Default to false — a thin but real summary still counts as content. This flag is load-bearing: a wrong true will silently delete the source; a wrong false pollutes the wiki with junk.
 
@@ -111,8 +136,53 @@ function fallbackDigest(rawText: string, hint: string): SourceDigest {
     indexSummary: `Source: ${hint}`,
     anchors: [],
     relatedSlugs: [],
+    role: 'reference',
     isFallback: true,
   };
+}
+
+/**
+ * Coerce the LLM's bibliographic JSON blob into our typed shape, tolerating
+ * the model emitting empty strings / nulls for fields it couldn't extract.
+ * Returns `undefined` when nothing usable came back so the meta file stays
+ * tidy instead of carrying a noise bibliographic stub.
+ */
+function sanitizeBibliographic(raw: unknown): SourceBibliographic | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const out: SourceBibliographic = {};
+  const str = (v: unknown): string | undefined => {
+    if (typeof v !== 'string') return undefined;
+    const trimmed = v.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.toLowerCase() === 'n.d.' || trimmed.toLowerCase() === 'unknown') return undefined;
+    return trimmed;
+  };
+  const author = str(r.author);
+  if (author) out.author = author;
+  const yearVal = r.year;
+  if (typeof yearVal === 'number' && yearVal >= 1500 && yearVal <= 2100) {
+    out.year = Math.floor(yearVal);
+  } else if (typeof yearVal === 'string') {
+    const m = yearVal.match(/(\d{4})/);
+    if (m) {
+      const y = Number(m[1]);
+      if (y >= 1500 && y <= 2100) out.year = y;
+    }
+  }
+  const title = str(r.title);
+  if (title) out.title = title;
+  const journal = str(r.journal);
+  if (journal) out.journal = journal;
+  const doi = str(r.doi);
+  if (doi) out.doi = doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '');
+  const url = str(r.url);
+  if (url && /^https?:\/\//i.test(url)) out.url = url;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizeRole(raw: unknown): SourceRole {
+  return raw === 'guidance' ? 'guidance' : 'reference';
 }
 
 /**
@@ -201,6 +271,8 @@ export async function generateDigest(
       anchors?: unknown;
       relatedSlugs?: unknown;
       isNonContent?: unknown;
+      role?: unknown;
+      bibliographic?: unknown;
     };
     if (parsed.isNonContent === true) {
       // Summary model flagged this as a non-content page (404, login
@@ -221,14 +293,19 @@ export async function generateDigest(
       typeof parsed.summary === 'string' ? parsed.summary : rawText.slice(0, 500);
     const relatedSlugs = sanitizeRelatedSlugs(parsed.relatedSlugs, existingSources, name);
     const summary = appendRelatedSection(rawSummary, relatedSlugs, existingSources);
-    return {
+    const role = sanitizeRole(parsed.role);
+    const bibliographic = sanitizeBibliographic(parsed.bibliographic);
+    const digest: SourceDigest = {
       name,
       summary,
       indexSummary:
         typeof parsed.indexSummary === 'string' ? parsed.indexSummary : `Source: ${hint}`,
       anchors,
       relatedSlugs,
+      role,
     };
+    if (bibliographic) digest.bibliographic = bibliographic;
+    return digest;
   } catch (err) {
     // Fallback used to be silent — made user-visible "summaries" that were
     // just the first 500 chars of the raw text. Log the model id and a
