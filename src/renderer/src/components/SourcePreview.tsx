@@ -82,11 +82,22 @@ export function SourcePreviewPopup(): JSX.Element | null {
                 Guidance
               </button>
             </div>
-            <span className="source-role-hint">
-              {role === 'reference'
-                ? 'Cited inline + listed in references.'
-                : 'Method/framework — informs how the draft is written, never cited.'}
-            </span>
+            <ul className="source-role-effects">
+              <li>
+                <span className="source-role-effect-yes">✓</span> Ideas shape the draft
+              </li>
+              <li>
+                {role === 'reference' ? (
+                  <>
+                    <span className="source-role-effect-yes">✓</span> Cited inline + listed in References
+                  </>
+                ) : (
+                  <>
+                    <span className="source-role-effect-no">✗</span> Never cited — applied as method
+                  </>
+                )}
+              </li>
+            </ul>
           </div>
         )}
         {source.sourcePath && (
