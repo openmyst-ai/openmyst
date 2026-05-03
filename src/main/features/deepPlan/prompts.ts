@@ -428,7 +428,16 @@ export function panelistPrompt(role: PanelRole, ctx: PanelContext): string {
 
 **Search is per-claim, not per-session** — do NOT suppress because the wiki has sources from earlier rounds. Coverage is judged PER SUB-CLAIM. A wiki of 8 sources isn't "enough" if this round's specific concern isn't covered. Re-evaluate from scratch each round. But: also don't fire just because we haven't searched yet this round — fire only when YOUR lens has a real, sharp gap.
 
-Default to \`needsResearch\` when the literature is the bottleneck. Default to \`userPrompts.delegableQuery\` only when the writer's preference picks the search direction. Session budget: ${DEEP_PLAN_MAX_TOTAL_SEARCHES} total.`
+**DECOUPLE concerns from searches.** A concern in \`userPrompts\` and a search in \`needsResearch\` are INDEPENDENT lanes — you can fire both. If you have a concern AND a literature-side gap on the same topic:
+- Concern → \`userPrompts\` (no \`delegableQuery\`).
+- Search → \`needsResearch\` (auto-fires).
+Don't bundle them into one \`userPrompts\` with a \`delegableQuery\` just because they touch the same theme. Test: if the writer's answer to your concern wouldn't change WHICH search you'd run, the search belongs in \`needsResearch\`. Bundling forces the writer to click "research this" for a search that should have just fired.
+
+Worked example: your concern is "how do we prevent reward hacking from the heuristic bonus?" and you also want to search "reward hacking heuristic bonuses rlhf". The writer's answer doesn't change whether the literature is worth fetching — so:
+- \`userPrompts\`: \`{kind: "concern", prompt: "How do we prevent…", rationale: "…"}\` — NO delegableQuery.
+- \`needsResearch\`: \`[{query: "reward hacking heuristic bonuses rlhf", rationale: "…"}]\` — fires automatically.
+
+Default to \`needsResearch\` when the literature is the bottleneck. Default to \`userPrompts.delegableQuery\` only when the writer's preference picks the search direction (mutually exclusive search options). Session budget: ${DEEP_PLAN_MAX_TOTAL_SEARCHES} total.`
     : `The session search budget is exhausted — emit \`needsResearch: []\` and do NOT attach \`delegableQuery\` to any user-prompt. Work with the wiki and vision you already have.`;
 
   return `You are ONE voice on a vision-steering panel. You do NOT write the draft. You do NOT curate anchors — extraction is deterministic at ingest time. Your three outputs each round:
