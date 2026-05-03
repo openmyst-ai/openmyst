@@ -9,6 +9,7 @@ import {
   listSources,
   pickSourceFiles,
   readSource,
+  setSourceRole,
 } from '../features/sources';
 import { readAnchor } from '../features/sources/lookup';
 
@@ -60,5 +61,14 @@ export function registerSourcesIpc(): void {
       throw new Error('Source slug must be a non-empty string.');
     }
     await deleteSource(slug.trim());
+  });
+  ipcMain.handle(IpcChannels.Sources.SetRole, async (_event, slug: unknown, role: unknown) => {
+    if (typeof slug !== 'string' || slug.trim().length === 0) {
+      throw new Error('Source slug must be a non-empty string.');
+    }
+    if (role !== 'reference' && role !== 'guidance') {
+      throw new Error('Role must be "reference" or "guidance".');
+    }
+    return setSourceRole(slug.trim(), role);
   });
 }

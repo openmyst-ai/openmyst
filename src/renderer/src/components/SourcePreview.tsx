@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import type { SourceRole } from '@shared/types';
 import { bridge } from '../api/bridge';
 import { useSourcePreview } from '../store/sourcePreview';
 import { renderMarkdown } from '../utils/markdown';
@@ -34,7 +35,19 @@ export function SourcePreviewPopup(): JSX.Element | null {
     [open],
   );
 
+  const handleSetRole = useCallback(
+    async (role: SourceRole) => {
+      if (!source) return;
+      const updated = await bridge.sources.setRole(source.slug, role);
+      open(updated);
+    },
+    [source, open],
+  );
+
   if (!source) return null;
+
+  const role: SourceRole = source.role ?? 'reference';
+  const isRaw = source.type === 'raw';
 
   return (
     <div className="source-preview-overlay" onClick={close}>
@@ -50,6 +63,43 @@ export function SourcePreviewPopup(): JSX.Element | null {
           onClick={handleBodyClick}
           dangerouslySetInnerHTML={{ __html: html }}
         />
+        {!isRaw && (
+          <div className="source-role-toggle" role="group" aria-label="Source role">
+            <span className="source-role-label">Role</span>
+            <div className="source-role-buttons">
+              <button
+                type="button"
+                className={`source-role-btn${role === 'reference' ? ' is-active' : ''}`}
+                onClick={() => void handleSetRole('reference')}
+              >
+                Reference
+              </button>
+              <button
+                type="button"
+                className={`source-role-btn${role === 'guidance' ? ' is-active' : ''}`}
+                onClick={() => void handleSetRole('guidance')}
+              >
+                Guidance
+              </button>
+            </div>
+            <ul className="source-role-effects">
+              <li>
+                <span className="source-role-effect-yes">✓</span> Ideas shape the draft
+              </li>
+              <li>
+                {role === 'reference' ? (
+                  <>
+                    <span className="source-role-effect-yes">✓</span> Cited inline + listed in References
+                  </>
+                ) : (
+                  <>
+                    <span className="source-role-effect-no">✗</span> Never cited — applied as method
+                  </>
+                )}
+              </li>
+            </ul>
+          </div>
+        )}
         {source.sourcePath && (
           <div className="source-preview-path">{source.sourcePath}</div>
         )}

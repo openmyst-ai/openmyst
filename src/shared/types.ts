@@ -123,6 +123,38 @@ export interface Heading {
  * through the normal pipeline. Behaves identically to `pasted` except the
  * origin is a live URL stored in `sourcePath`.
  */
+/**
+ * How the drafter should treat this source.
+ * - `reference` (default): evidence to cite. Inline anchor citations + entry
+ *   in the References section.
+ * - `guidance`: method/framework/style guide. The drafter INTERNALISES its
+ *   instructions but does NOT cite it inline or list it in References. Used
+ *   for things like "How to write a literature review" or "CRAAP test
+ *   handout" — process material, not content.
+ */
+export type SourceRole = 'reference' | 'guidance';
+
+/**
+ * Best-effort bibliographic metadata extracted at ingest time. Populated by
+ * the digest LLM from the source's title page / header / URL. Drafter uses
+ * `(author, year)` style citations whenever this is populated; falls back
+ * to source name when fields are missing.
+ */
+export interface SourceBibliographic {
+  /** Surname-only or institutional name. e.g. "Sen", "Stanford Encyclopedia of Philosophy". */
+  author?: string;
+  /** 4-digit publication year if recoverable. e.g. 1970. */
+  year?: number;
+  /** Source title in original capitalisation. */
+  title?: string;
+  /** Journal / outlet / publisher. e.g. "Journal of Political Economy". */
+  journal?: string;
+  /** Bare DOI without leading "https://doi.org/". */
+  doi?: string;
+  /** Canonical URL where the source lives, when known. */
+  url?: string;
+}
+
 export interface SourceMeta {
   slug: string;
   name: string;
@@ -137,6 +169,9 @@ export interface SourceMeta {
   rawFile?: string;
   /** Byte size of the underlying file — raw sources only, for UI + caps. */
   sizeBytes?: number;
+  /** Defaults to `'reference'` when omitted (older ingests, raw sources). */
+  role?: SourceRole;
+  bibliographic?: SourceBibliographic;
 }
 
 /**
@@ -234,6 +269,96 @@ export interface WikiGraph {
  * same inner loop (panel → research-if-needed → chair → user answers)
  * until the Chair signals `phaseAdvance` or the user forces it.
  */
+/**
+ * The kind of research deliverable the user is making. Picked upfront on
+ * Deep Plan start; drives the Chair's vision template, the drafter's
+ * output structure, and (eventually) the panel's role mix. The point of
+ * an explicit mode is that "I have a half-baked idea" should NOT produce
+ * an essay defending the idea as if established — different deliverables
+ * want different shapes from the panel and the drafter.
+ *
+ * Modes:
+ * - `argumentative-essay` — Defend a thesis with cited evidence. The
+ *   default, the legacy behaviour. Best when the user knows what they
+ *   want to argue and needs help arguing it.
+ * - `idea-exploration` — Pressure-test a half-baked concept. Drafter
+ *   does NOT manufacture a thesis; instead surveys prior art, evaluates
+ *   strengths/weaknesses, and proposes concrete directions. Output reads
+ *   as a conceptual workshop, not an essay.
+ * - `literature-review` — Survey + synthesis across sources. Per-source
+ *   sections (Article 1, Article 2, …) each with intro/summary/analysis,
+ *   followed by a final synthesis comparing them.
+ * - `analytical-report` — User has data/observations + sources, wants a
+ *   structured findings document. Methods → Findings → Discussion.
+ *   Reads raw-source files (CSV/JSON/code) when available.
+ * - `comparative-analysis` — Compare 2+ things across criteria. Drafter
+ *   structures by criterion or by subject.
+ */
+export type DeepPlanMode =
+  | 'argumentative-essay'
+  | 'idea-exploration'
+  | 'literature-review'
+  | 'analytical-report'
+  | 'comparative-analysis';
+
+export const DEEP_PLAN_MODES: DeepPlanMode[] = [
+  'argumentative-essay',
+  'idea-exploration',
+  'literature-review',
+  'analytical-report',
+  'comparative-analysis',
+];
+
+export interface DeepPlanModeConfig {
+  id: DeepPlanMode;
+  /** Short label for the mode picker card. */
+  label: string;
+  /** One-line description shown under the label. */
+  blurb: string;
+  /** Placeholder text for the brief textarea, tailored to the mode. */
+  briefPlaceholder: string;
+}
+
+export const DEEP_PLAN_MODE_CONFIGS: Record<DeepPlanMode, DeepPlanModeConfig> = {
+  'argumentative-essay': {
+    id: 'argumentative-essay',
+    label: 'Argumentative essay',
+    blurb: 'Defend a thesis with cited evidence. The classic essay shape.',
+    briefPlaceholder:
+      'e.g. A 2000-word essay arguing that minimum wages distort labour markets less than common claims suggest, for an econ-curious general audience…',
+  },
+  'idea-exploration': {
+    id: 'idea-exploration',
+    label: 'Idea exploration',
+    blurb:
+      'Pressure-test a half-baked concept. Find prior art, weigh strengths/weaknesses, surface concrete directions.',
+    briefPlaceholder:
+      'e.g. I have a concept I call RLVT — using a judge LLM to audit reasoning chains rather than just score them. Find prior art, stress-test the idea, and tell me where it could go.',
+  },
+  'literature-review': {
+    id: 'literature-review',
+    label: 'Literature review',
+    blurb: 'Survey + synthesise existing work across multiple sources.',
+    briefPlaceholder:
+      'e.g. A 1200-word literature review of fish welfare assessment methods in aquaculture, evaluating two articles for a vet-science assignment…',
+  },
+  'analytical-report': {
+    id: 'analytical-report',
+    label: 'Analytical report',
+    blurb:
+      'Data/observations + sources → structured findings. Methods → Findings → Discussion.',
+    briefPlaceholder:
+      'e.g. An analytical report on the survey data I uploaded, situating the findings in the literature on remote-work productivity…',
+  },
+  'comparative-analysis': {
+    id: 'comparative-analysis',
+    label: 'Comparative analysis',
+    blurb: 'Compare 2+ things across explicit criteria, evidence-grounded.',
+    briefPlaceholder:
+      'e.g. A comparative analysis of three constitutional approaches to free-speech regulation, judged on consistency, scope, and enforcement…',
+  },
+};
+
 export type DeepPlanPhase = 'ideation' | 'planning' | 'reviewing' | 'done';
 
 export const DEEP_PLAN_PHASE_ORDER: DeepPlanPhase[] = [
@@ -274,16 +399,63 @@ export interface PanelResearchRequest {
 }
 
 /**
- * Panel output in the simplified architecture: the panel is a vision-
- * steering + research-proposing layer, nothing more. Anchor curation is
- * GONE — every anchor extracted during source digest flows directly to
- * the drafter and the Anchors UI tab, deterministically, no middleman.
+ * Categorisation of the things a panelist wants to put in front of the user.
+ * Drives the small UI tag rendered above each prompt so the user sees at a
+ * glance what kind of input is being asked for.
+ */
+export type PanelUserPromptKind = 'concern' | 'question' | 'clarification' | 'idea';
+
+/**
+ * Something the panelist wants the user to weigh in on — concern, question,
+ * clarification, or idea. Replaces the old "panel autonomously fires search"
+ * loop: when a panelist would have searched, it now ASKS first, attaching
+ * the proposed query as a `delegableQuery`. The Chair selects the strongest
+ * prompts to surface, and the user either steers (vision sharpened) or
+ * delegates (search dispatches before next round).
+ */
+export interface PanelUserPrompt {
+  kind: PanelUserPromptKind;
+  /** The prompt as the user will see it — one clear sentence ideally. */
+  prompt: string;
+  /** One-line context — why the panelist is raising this. */
+  rationale: string;
+  /**
+   * Optional research query to fire iff the user delegates. Phrased as a
+   * standalone search query, not a sentence. e.g. "RLVT verifiable reasoning
+   * judge LLM prior art".
+   */
+  delegableQuery?: string;
+}
+
+/**
+ * Panel output. Each panelist contributes three lanes:
+ *
+ * - `visionNotes` — private synthesis input for the Chair.
+ * - `needsResearch[]` — searches the panelist is CONFIDENT need to fire
+ *   regardless of user input (clear wiki coverage gap). Auto-dispatched
+ *   by `runPanelRound` against the session's search budget. Use sparingly
+ *   — every fired search costs latency and pollutes the wiki if the
+ *   results are weak.
+ * - `userPrompts[]` — concerns / questions / clarifications / ideas to
+ *   put in front of the writer. Optionally carry a `delegableQuery`
+ *   that fires ONLY if the user picks "research this". This is the
+ *   probing lane: "have you considered X?", "want me to look this up?".
  */
 export interface PanelOutput {
   role: PanelRole;
   /** Short free-text: what's missing or off about the vision. ≤ 2 sentences. */
   visionNotes: string;
+  /**
+   * Auto-dispatched search queries. Capped per panelist + per round in
+   * the prompt; merged + deduped across panelists at dispatch time.
+   */
   needsResearch: PanelResearchRequest[];
+  /**
+   * Concerns / questions / clarifications / ideas this panelist wants in
+   * front of the user. Capped per panelist in the prompt; Chair selects
+   * the strongest few to surface as ChairQuestions.
+   */
+  userPrompts: PanelUserPrompt[];
 }
 
 export type ChairQuestionType = 'choice' | 'multi' | 'open' | 'confirm';
@@ -313,6 +485,20 @@ export interface ChairQuestion {
    * or type a freeform answer. Defaults off.
    */
   allowCustom?: boolean;
+  /**
+   * Who proposed this question. `'chair'` for Chair-originated questions
+   * (rubric gaps, judgment forks). A `PanelRole` when the Chair surfaced
+   * a panelist's prompt. UI uses this to show "Skeptic asks…" attribution
+   * — concrete provenance instead of a faceless committee.
+   */
+  proposedBy?: PanelRole | 'chair';
+  /**
+   * Optional research query attached to this question. When the user picks
+   * the "research this" option, the orchestrator dispatches the query
+   * before the next panel round. Lets a panelist propose a search without
+   * firing it autonomously — search is always user-blessed.
+   */
+  delegableQuery?: string;
 }
 
 /**
@@ -371,6 +557,10 @@ export interface AnchorLogEntry {
   /** Verbatim passage from the source. 1–4 sentences. */
   text: string;
   keywords: string[];
+  /** Inherits from the source's role. `'reference'` when omitted. */
+  role?: SourceRole;
+  /** Inherits from the source's bibliographic metadata when populated. */
+  bibliographic?: SourceBibliographic;
 }
 
 /**
@@ -391,6 +581,8 @@ export type PanelProgressEvent =
       visionNotes: string;
       /** Any research queries the role asked for this round — same order the parser produced. */
       needsResearch: PanelResearchRequest[];
+      /** User-prompts the panelist proposed (concerns/questions/clarifications/ideas). Streamed live so the user sees what was raised before the Chair selects. */
+      userPrompts: PanelUserPrompt[];
     }
   | { kind: 'role-failed'; role: PanelRole; error: string }
   | { kind: 'research-dispatched'; queries: number }
@@ -415,16 +607,55 @@ export interface PlanRequirements {
   audience: string | null;
   /** Any other hard constraints the user stated verbatim, for the panel to honour. */
   styleNotes: string | null;
+  /**
+   * Named framework / method / theoretical lens the user explicitly asked for
+   * — "Five Domains", "CRAAP test", "BLUF", "STAR method". When present, the
+   * drafter must APPLY the framework as the analytical lens, not write
+   * about it. Stays null when the task didn't name one.
+   */
+  framework: string | null;
+  /**
+   * Specific deliverable format when the user named one beyond the simple
+   * `form` (essay/report/blog). e.g. "literature review", "lab report",
+   * "policy memo", "case study analysis". Drafter uses this to pick
+   * structural conventions (lit review wants Article 1 / Article 2 sections
+   * with intro/summary/analysis/conclusion; lab report wants method/results
+   * /discussion; etc.). Null when the user only named the basic form.
+   */
+  deliverableFormat: string | null;
 }
+
+/**
+ * Magic answer value used by `ChairAnswerMap` when the user picks the
+ * "research this" option on a question with a `delegableQuery`. The
+ * orchestrator scans answers for this sentinel after `submitAnswers` and
+ * dispatches the matching queries through the research engine before the
+ * next panel round runs.
+ */
+export const DELEGATE_TO_RESEARCH = '__research__';
 
 /** Session-wide research query budget, across all phases combined. */
 export const DEEP_PLAN_MAX_TOTAL_SEARCHES = 20;
 
-/** Per-round cap on panel-dispatched research queries. */
-export const DEEP_PLAN_MAX_SEARCHES_PER_ROUND = 2;
+/**
+ * Soft target for auto-dispatched panel searches per round. ~1 across
+ * the whole panel on typical depth, scaling up to 2–3 for genuinely
+ * novel / under-grounded topics. Each round should fire SOMETHING when
+ * the topic warrants — see the panelist prompt for the rule against
+ * suppressing later rounds because "the wiki already has sources".
+ * Search is per-claim, not per-session.
+ */
+export const DEEP_PLAN_TARGET_SEARCHES_PER_ROUND = 1;
 
-/** Hard ceiling on Chair questions per round. */
-export const DEEP_PLAN_MAX_QUESTIONS_PER_ROUND = 3;
+/**
+ * Soft target for Chair questions per round. The Chair scales UP when
+ * the topic is ambiguous (multiple interpretations, scope under-defined,
+ * the writer is still discovering what they mean) and DOWN when the
+ * topic is clear and the writer's hand is firm. Used as a target —
+ * not a hard cap. Empty rounds (0 questions) are fine once requirements
+ * are pinned and nothing genuinely forks.
+ */
+export const DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND = 2;
 
 /**
  * Soft round limit per phase — once reached, the Chair is strongly
@@ -469,6 +700,12 @@ export interface DeepPlanSession {
   phase: DeepPlanPhase;
   /** The user's original task string, preserved verbatim. */
   task: string;
+  /**
+   * Deliverable kind, picked upfront. Controls the Chair's vision
+   * template + drafter's output structure. Existing sessions backfill to
+   * `'argumentative-essay'` (the legacy behaviour).
+   */
+  mode: DeepPlanMode;
   /** Hard constraints parsed from `task` on session creation. */
   requirements: PlanRequirements;
   /**
@@ -490,6 +727,14 @@ export interface DeepPlanSession {
    * happens. Keeps the panel's expensive fanout out of casual conversation.
    */
   pendingChatNotes: string[];
+  /**
+   * Anchor ids the Chair has already been shown in prior rounds. Used to
+   * dedupe what we send to the Chair each round — only NEW anchors get
+   * rendered in the prompt. Keeps the Chair's context tight as the wiki
+   * grows AND forces it to ground each vision update in evidence it
+   * hasn't already had a chance to use.
+   */
+  seenAnchorIds: string[];
   /** Running count of panel rounds per phase (convergence heuristic). */
   roundsPerPhase: Record<DeepPlanPhase, number>;
   /** Running total of web-search queries dispatched by the panel. Capped at DEEP_PLAN_MAX_TOTAL_SEARCHES. */

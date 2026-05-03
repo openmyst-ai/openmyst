@@ -1,6 +1,28 @@
 import { useMemo, useState } from 'react';
 import type { ChairAnswer, ChairAnswerMap, ChairQuestion } from '@shared/types';
+import { DELEGATE_TO_RESEARCH } from '@shared/types';
 import { useDeepPlan } from '../../store/deepPlan';
+import { renderMarkdownInline } from '../../utils/markdown';
+
+/**
+ * Pretty role labels for the "X asks:" attribution shown above each
+ * question when the Chair surfaced a panelist-proposed prompt. The Chair
+ * uses Title Case here so the user sees "Skeptic asks…" not "skeptic asks…".
+ */
+const ROLE_LABELS: Record<string, string> = {
+  explorer: 'Explorer',
+  scoper: 'Scoper',
+  stakes: 'Stakes-Raiser',
+  architect: 'Architect',
+  evidence: 'Evidence Scout',
+  steelman: 'Steelman',
+  skeptic: 'Skeptic',
+  adversary: 'Adversary',
+  editor: 'Editor',
+  audience: 'Audience',
+  finaliser: 'Finaliser',
+  chair: 'Chair',
+};
 
 /**
  * Carousel of Chair-authored questions. The user steps through them one
@@ -147,9 +169,21 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
         <span className="dp-qcard-type">{typeLabel}</span>
       </div>
 
-      <div className="dp-qcard-prompt">{current.prompt}</div>
+      {current.proposedBy && current.proposedBy !== 'chair' && (
+        <div className="dp-qcard-attribution">
+          {ROLE_LABELS[current.proposedBy] ?? current.proposedBy} asks
+        </div>
+      )}
+
+      <div
+        className="dp-qcard-prompt dp-md"
+        dangerouslySetInnerHTML={{ __html: renderMarkdownInline(current.prompt) }}
+      />
       {current.rationale && (
-        <div className="dp-qcard-rationale">{current.rationale}</div>
+        <div
+          className="dp-qcard-rationale dp-md"
+          dangerouslySetInnerHTML={{ __html: renderMarkdownInline(current.rationale) }}
+        />
       )}
 
       <div className="dp-qcard-field">
@@ -171,7 +205,10 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
                   disabled={busy}
                 >
                   <span className="dp-qcard-choice-mark dp-qcard-choice-mark-radio" aria-hidden />
-                  <span className="dp-qcard-choice-label">{c.label}</span>
+                  <span
+                    className="dp-qcard-choice-label dp-md"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdownInline(c.label) }}
+                  />
                   {c.recommended && (
                     <span className="dp-qcard-choice-ribbon">Panel pick</span>
                   )}
@@ -237,7 +274,10 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
                   <span className="dp-qcard-choice-mark dp-qcard-choice-mark-check" aria-hidden>
                     {picked && '✓'}
                   </span>
-                  <span className="dp-qcard-choice-label">{c.label}</span>
+                  <span
+                    className="dp-qcard-choice-label dp-md"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdownInline(c.label) }}
+                  />
                 </button>
               );
             })}
@@ -273,6 +313,17 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
         >
           Let the panel decide
         </button>
+        {current.delegableQuery && (
+          <button
+            type="button"
+            className="dp-qcard-delegate"
+            onClick={() => void handleNext(DELEGATE_TO_RESEARCH)}
+            disabled={busy}
+            title={`Search the web: "${current.delegableQuery}"`}
+          >
+            🔍 Research this
+          </button>
+        )}
         <button
           type="button"
           className="dp-qcard-next"

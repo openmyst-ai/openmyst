@@ -1,5 +1,6 @@
 import { IpcChannels } from '@shared/ipc-channels';
 import type {
+  AnchorLogEntry,
   ChairAnswerMap,
   ChairOutput,
   ChairQuestion,
@@ -175,6 +176,10 @@ export async function runChair(args: {
   newlyIngestedSourceSlugs: string[];
   roundNumber: number;
   sources: SourceMeta[];
+  /** Anchors not yet shown to the Chair (filtered against `session.seenAnchorIds`). */
+  newAnchors: AnchorLogEntry[];
+  /** Total anchor count across the wiki, for the "you've seen N already" prompt line. */
+  totalAnchorCount: number;
   lastAnswers: ChairAnswerMap | null;
   /** User's free-chat notes since the last panel round — steering, not overriding. */
   chatNotes: string[];
@@ -188,6 +193,8 @@ export async function runChair(args: {
     newlyIngestedSourceSlugs: args.newlyIngestedSourceSlugs,
     roundNumber: args.roundNumber,
     sources: args.sources,
+    newAnchors: args.newAnchors,
+    totalAnchorCount: args.totalAnchorCount,
     lastAnswers: args.lastAnswers,
     chatNotes: args.chatNotes,
   });

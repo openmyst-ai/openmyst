@@ -1,17 +1,8 @@
-import { useState } from 'react';
 import logoUrl from '../assets/logo.svg';
 import { useAuth } from '../store/auth';
 
 export function Login(): JSX.Element {
-  const { signIn, pasteToken, loading, error, dismissError } = useAuth();
-  const [showPaste, setShowPaste] = useState(false);
-  const [token, setToken] = useState('');
-
-  const onPaste = async (): Promise<void> => {
-    if (!token.trim()) return;
-    await pasteToken(token.trim());
-    setToken('');
-  };
+  const { signIn, loading, error, dismissError } = useAuth();
 
   return (
     <div className="welcome">
@@ -31,40 +22,7 @@ export function Login(): JSX.Element {
           >
             Sign in with browser
           </button>
-          <button
-            type="button"
-            onClick={() => setShowPaste((v) => !v)}
-            disabled={loading}
-          >
-            {showPaste ? 'Hide' : 'I have a token'}
-          </button>
         </div>
-
-        {showPaste && (
-          <div className="login-paste">
-            <p className="muted">
-              Copy the token from the login page and paste it below. We'll store it
-              securely in your OS keychain.
-            </p>
-            <div className="row">
-              <input
-                type="password"
-                placeholder="omk_live_..."
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                autoFocus
-              />
-              <button
-                type="button"
-                className="primary"
-                onClick={() => void onPaste()}
-                disabled={loading || token.trim().length === 0}
-              >
-                Use token
-              </button>
-            </div>
-          </div>
-        )}
 
         {error && (
           <div className="error" role="alert">
@@ -78,7 +36,7 @@ export function Login(): JSX.Element {
         <div className="welcome-footer">
           <span className="hint">
             After signing in on the web, your browser will hand the session back to
-            this app automatically. If it doesn't, click "I have a token" above.
+            this app automatically.
           </span>
         </div>
       </div>

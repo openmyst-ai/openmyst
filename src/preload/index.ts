@@ -124,6 +124,7 @@ const api: MystApi = {
     lookupAnchor: (slug, anchorId) =>
       ipcRenderer.invoke(IpcChannels.Sources.LookupAnchor, slug, anchorId),
     delete: (slug) => ipcRenderer.invoke(IpcChannels.Sources.Delete, slug),
+    setRole: (slug, role) => ipcRenderer.invoke(IpcChannels.Sources.SetRole, slug, role),
     onChanged: (callback) => {
       const handler = (): void => {
         callback();
@@ -176,7 +177,7 @@ const api: MystApi = {
   },
   deepPlan: {
     status: () => ipcRenderer.invoke(IpcChannels.DeepPlan.Status),
-    start: (task) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task),
+    start: (task, mode) => ipcRenderer.invoke(IpcChannels.DeepPlan.Start, task, mode),
     sendMessage: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.SendMessage, message),
     chat: (message) => ipcRenderer.invoke(IpcChannels.DeepPlan.Chat, message),
     runPanel: () => ipcRenderer.invoke(IpcChannels.DeepPlan.RunPanel),
