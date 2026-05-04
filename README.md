@@ -14,7 +14,7 @@ You hand it a half-baked idea, an essay topic, a stack of papers, or a dataset. 
 
 Three convictions sit underneath every design choice:
 
-**1. Open-source models are catching up — fast.** Frontier-quality reasoning is now available in models that cost cents per million tokens (DeepSeek V4, Gemma 4, Gemini Flash). Picking a model isn't the differentiator anymore; almost any modern model can write competent prose. So OpenMyst hard-codes its model choices and stops asking you to fiddle with them.
+**1. Open-source models are catching up — fast.** Frontier-quality reasoning is now available in models that cost cents per million tokens (DeepSeek V4, Gemma 4, Gemini Flash). Picking a model isn't the differentiator anymore; almost any modern model can write competent prose.
 
 **2. The bottleneck has moved to context — which means humans matter more, not less.** When the model is no longer the limit, the limit is *what's in front of it*. The right framing, the right sub-questions, the right corner of the literature, the angle only the writer can see. So OpenMyst leans hard into multi-agent ideation: a panel of 11 role-specific agents (Explorer, Skeptic, Steelman, Architect, Adversary, Audience…) each interrogates your work through their own lens, and a strong-model Chair surfaces the questions only *you* can answer. The user isn't a passenger — the user is the most important factor for getting a novel output out of an LLM, and the panel is built to extract their judgement, not bypass it.
 
