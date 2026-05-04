@@ -38,12 +38,6 @@ Deep Plan is the heart of OpenMyst. You pick a deliverable mode, describe what y
 
 ![Ideation question — user involvement is the design](res/preview_new/ideation_question_shows_user_invovlement.png)
 
-![Adversary's question on the same round](res/preview_new/adverseary_question.png)
-
-![Steelman raising the strongest opposing position](res/preview_new/steelman_question.png)
-
-![A second probing question during ideation](res/preview_new/another_question_during_ideation.png)
-
 **Source-driven probing.** Panelists don't just propose new ideas — they cross-examine the writer against the wiki itself. When an existing anchor creates tension with the vision, the panel raises it as a prompt: *"X (already in your wiki) says Y — does that change your stance?"*
 
 ![Skeptic probing against an existing wiki anchor](res/preview_new/skeptic_asks_relates_to_a_soruce_cool.png)
@@ -89,10 +83,6 @@ Every source you add lives in `.myst/wiki/`. Deep Wiki renders the union as a fo
 ![Deep Wiki — graph of sources, click any node to open the summary](res/preview_new/deep_wiki_ex.png)
 
 The graph grows with the project — new sources slot into the existing structure as the panel and Deep Search find them.
-
-![Wiki graph mid-project](res/preview_new/graph_getting_bigger.png)
-
-![Bigger wiki graph as research compounds](res/preview_new/bigger_graph_still.png)
 
 The wiki index is the agent's default memory surface on every chat turn. When a source looks relevant, the agent emits a `source_lookup` block and gets the verbatim passage back — never paraphrasing from memory.
 
