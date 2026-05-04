@@ -1,73 +1,126 @@
 # OpenMyst
-[OpenMyst](openmyst.ai) is a research collaboration tool, built using enterprise grade open source tools and ideas.
 
-![OpenMyst — editor, sources, outline, and chat in one view](res/preview/project_select.png)
+[OpenMyst](openmyst.ai) is a research collaboration tool — a desktop companion for ideation, essay-writing, literature review, and data analysis where every claim is grounded in a source you uploaded.
 
-A desktop writing and research companion. You write in a markdown editor; an LLM agent reads alongside you, maintains a grounded research wiki on disk, and proposes edits as inline diffs you accept or reject one at a time. The wiki is plain files — drop in PDFs, code, data, or links, and the agent consults it every turn.
+![OpenMyst home](res/preview_new/home.png)
 
-> **Status: early.** The core loop (plan → research → write → cite) works end-to-end and is what we use day-to-day. Open-sourcing now to find collaborators who want to push the "agent that knows your project" idea further.
+You hand it a half-baked idea, an essay topic, a stack of papers, or a dataset. A panel of role-specific agents reads it from different angles, asks you the questions only you can answer, autonomously fetches the literature it needs, and assembles a `vision.md` — the intellectual spine of the piece. When you're ready, a stronger drafter writes the full text from the vision, citing every factual claim back to a verbatim line in your sources.
 
----
-
-## Deep Search
-
-Hand it a research task and walk away. Deep Search proposes a handful of well-shaped web queries, fetches the top results through Jina, filters out bot-blocks and paywalls, and digests each survivor into your wiki — summarised, anchor-indexed, and ready to cite. No chat, no drafts. Just sources landing one by one while you watch the graph light up.
-
-It's **steerable mid-run**: add a hint (*"focus on post-2022 papers, skip blog posts"*) and the next batch of queries bends toward it. The planner is tuned for librarian-style broad terms over quoted-phrase keyword stuffing, which means fewer zero-result failures and fewer wasted tokens. Caps at 8 ingested sources by default — coverage is usually good by then, and you can re-run anytime to go deeper.
-
-![Deep Search running autonomously, sources landing into the graph in real time](res/preview/deep_search.png)
+> **Status: early.** The end-to-end loop (panel → questions → research → vision → draft) works and is what we use day-to-day. Open-sourcing now to find collaborators who want to push the "research collaborator that grounds everything in your sources" idea further.
 
 ---
 
-## Deep Wiki
+## Philosophy
 
-The wiki is your project's long-term memory. Every source you add — PDF, markdown, pasted article, link, or a raw code/data file — gets summarised and indexed into `.myst/wiki/`. Deep Wiki renders that as a **force-directed graph** of source-to-source links inferred from the summary text (no embeddings, no vector DB, just inverted-index on terms). Click any node and the full detailed summary slides in alongside it.
+Three convictions sit underneath every design choice:
 
-What makes this load-bearing: **every chat turn loads the wiki index as the agent's default memory surface**. When a source looks relevant, the agent drills in with a deterministic `source_lookup` protocol — pulling the *verbatim* passage for a specific anchor (definition, equation, quote) straight off disk. It never paraphrases from memory. Raw files (`.py`, `.csv`, `.json`) bypass summarisation entirely and are read on demand when the task calls for them.
+**1. Open-source models are catching up — fast.** Frontier-quality reasoning is now available in models that cost cents per million tokens (DeepSeek V4, Gemma 4, Gemini Flash). Picking a model isn't the differentiator anymore; almost any modern model can write competent prose. So OpenMyst hard-codes its model choices and stops asking you to fiddle with them.
 
-![Deep Wiki — graph of sources, click any node to open the full summary](res/preview/deep_wiki.png)
+**2. The bottleneck has moved to context — which means humans matter more, not less.** When the model is no longer the limit, the limit is *what's in front of it*. The right framing, the right sub-questions, the right corner of the literature, the angle only the writer can see. So OpenMyst leans hard into multi-agent ideation: a panel of 11 role-specific agents (Explorer, Skeptic, Steelman, Architect, Adversary, Audience…) each interrogates your work through their own lens, and a strong-model Chair surfaces the questions only *you* can answer. The user isn't a passenger — the user is the most important factor for getting a novel output out of an LLM, and the panel is built to extract their judgement, not bypass it.
+
+**3. Anchored sources, no hallucination.** A research tool that fabricates citations is worse than no tool at all. So every source you ingest gets parsed at index time into *anchors* — verbatim snippets tagged as definitions, claims, statistics, quotes, or findings. The drafter can ONLY cite anchors that exist on disk. Every inline citation in a generated draft links back to the exact line of the exact source it came from. When you hover a citation, you see the source's actual words, not a paraphrase. This is the load-bearing rule: no anchor, no claim.
 
 ---
 
-## Deep Plan
+## Deep Plan — multi-agent ideation + drafting
 
-A full pre-writing phase that turns a vague intent into a cited first draft. Deep Plan runs as a staged interview: **intent → sources → scoping → gaps → research → clarify → review → draft**. Every question is opinionated — the planner states a default it thinks is right, and you confirm or push back. You're never staring at an empty form.
+Deep Plan is the heart of OpenMyst. You pick a deliverable mode, describe what you're making, and the system runs a structured pre-writing loop: **panel deliberates → questions surface → you answer → vision sharpens → repeat → drafter writes the full piece**.
 
-**Intent.** Describe what you're making in a few sentences. That's all it needs to start.
+**Modes.** Argumentative essay, idea exploration, literature review, analytical report, comparative analysis. Each mode reshapes the panel's behaviour and the drafter's output structure. Idea exploration, for example, doesn't manufacture a thesis — it surveys prior art, surfaces strengths and weaknesses, and proposes concrete directions. The drafter writes a "concept workshop" document, not an essay.
 
-![Deep Plan intent stage — "What are we making?"](res/preview/what_are_we_making.png)
+![Picking a deliverable mode + describing the project](res/preview_new/ideation_1.png)
 
-**Scoping.** The planner interviews you to fill in a rubric — form, audience, length, thesis. Every reply updates the rubric in place, and the rubric persists across app restarts, so a session you start Monday is still there Friday.
+**The panel deliberates.** Each round, role-specific cheap-model agents read the current vision and produce three outputs: a private vision-note for the Chair, autonomous searches when the literature has gaps, and user-prompts they want the writer to weigh in on.
 
-![Scoping stage — the planner proposing a form, audience, and length with defaults](res/preview/scoping.png)
+![The panel deliberating in parallel during ideation](res/preview_new/ideation_panel.png)
 
-**Gaps.** Before burning tokens on research, the planner audits what the rubric is missing — thin angles, unstated tensions, must-cover claims the draft will need evidence for. You confirm the framing; only then does research run.
+**Questions surface with attribution.** The Chair selects the sharpest 2–3 panel prompts each round and surfaces them with role attribution — "Skeptic asks…", "Adversary asks…". The user sees concrete provenance instead of a faceless committee.
 
-![Gaps stage — explicit rubric audit before research fires](res/preview/gaps.png)
+![Ideation question — user involvement is the design](res/preview_new/ideation_question_shows_user_invovlement.png)
 
-**Research.** Deep Search fires autonomously against the gaps, steered by the rubric. You watch the graph grow in real time, and you can pause, steer, or re-run.
+![Adversary's question on the same round](res/preview_new/adverseary_question.png)
 
-![Research stage — live graph of queries and ingested sources](res/preview/deep_plan_graph.png)
+![Steelman raising the strongest opposing position](res/preview_new/steelman_question.png)
 
-**Clarify → review → draft.** A final round of sharp questions, a plan summary with a built-in self-critique ("the weakest claim is…"), then a one-shot draft lands in the editor with inline citations pointing back at the exact wiki slug each claim came from.
+![A second probing question during ideation](res/preview_new/another_question_during_ideation.png)
 
-![One-shot draft with grounded inline citations](res/preview/research_guided_drafts.png)
+**Source-driven probing.** Panelists don't just propose new ideas — they cross-examine the writer against the wiki itself. When an existing anchor creates tension with the vision, the panel raises it as a prompt: *"X (already in your wiki) says Y — does that change your stance?"*
+
+![Skeptic probing against an existing wiki anchor](res/preview_new/skeptic_asks_relates_to_a_soruce_cool.png)
+
+**Vision.md grows.** After each round, the Chair sharpens the vision: thesis, POV, novel insights, the counter-argument to engage, what the piece argues against, a section arc. The vision is the writer's intellectual spine — small, dense, the source of truth the drafter consumes.
+
+![First iteration of vision.md](res/preview_new/first_iter_of_vision.png)
+
+**Phase advance.** Three phases — ideation → planning → reviewing → done. The Chair signals when each phase is ready; you hit Continue when you agree.
+
+![Entering the planning phase](res/preview_new/planning_start.png)
+
+**One-shot draft.** When the vision is ready, a stronger drafter writes the full piece from vision + anchored evidence. Auto-continue rescues partial drafts on timeout — if the upstream stream drops mid-generation, the drafter resumes from where it stopped, transparently. Citations are inline Harvard format with the underlying anchor link in the href.
+
+---
+
+## Anchored sources — the no-hallucination contract
+
+Drop a PDF, paste an article, link a URL, upload a CSV / .xlsx / code file. At ingest time:
+
+- The summary model digests the source into a wiki page.
+- It extracts **anchors** — typed, verbatim snippets (`definition`, `claim`, `statistic`, `quote`, `finding`).
+- It pulls **bibliographic metadata** (author, year, title, journal, DOI, URL) from the title page or header.
+- It tags the source as **reference** (cite it) or **guidance** (apply its method, never cite).
+
+The drafter only cites anchors that exist. Each inline citation is a markdown link `([Author, Year](slug.md#anchor-id))` whose href fragment points to the exact anchor on disk. Hover any citation in the rendered draft and you see the verbatim source text.
+
+![A great anchored citation in a generated draft](res/preview_new/great_anchor_example.png)
+
+Sources you can ingest:
+- **PDFs, markdown, plain text** — summarised + anchor-indexed.
+- **Pasted text** — same pipeline; useful for excerpts or articles you've already cleaned up.
+- **Links** — fetched via Jina Reader, converted to markdown, summarised.
+- **Spreadsheets** (`.xlsx`, `.xls`, `.ods`) — sheets flattened to markdown tables, agent reads on demand.
+- **Raw files** (`.py`, `.csv`, `.json`, `.tsv`, etc.) — kept verbatim, agent reads via `source_lookup` when the task calls for them.
+
+---
+
+## Deep Wiki — your project's long-term memory
+
+Every source you add lives in `.myst/wiki/`. Deep Wiki renders the union as a force-directed graph — sources connected by links the digest extracted between them (no embeddings, no vector DB, just inverted-index over terms). Click a node, the full summary slides in alongside.
+
+![Deep Wiki — graph of sources, click any node to open the summary](res/preview_new/deep_wiki_ex.png)
+
+The graph grows with the project — new sources slot into the existing structure as the panel and Deep Search find them.
+
+![Wiki graph mid-project](res/preview_new/graph_getting_bigger.png)
+
+![Bigger wiki graph as research compounds](res/preview_new/bigger_graph_still.png)
+
+The wiki index is the agent's default memory surface on every chat turn. When a source looks relevant, the agent emits a `source_lookup` block and gets the verbatim passage back — never paraphrasing from memory.
+
+---
+
+## Deep Search — autonomous research
+
+Hand it a research task and walk away. Deep Search proposes well-shaped web queries (broad and librarian-style, not keyword-stuffed), fetches top results through Jina, filters out bot-blocks and paywalls, and digests each survivor into your wiki — summarised, anchor-indexed, ready to cite. Steerable mid-run with hints (*"focus on post-2022 papers, skip blog posts"*).
 
 ---
 
 ## The writing surface
 
-Once the draft is in the editor, the loop is: select text → comment → ask the agent to tighten, reframe, or extend it. The agent emits `myst_edit` blocks, rendered as red strike-throughs + green replacements you accept or reject without leaving the page. Edits are staged on disk (`.myst/pending/<doc>.json`), so a crash never loses an in-flight proposal, and you can iterate on an unaccepted edit (*"make it shorter"*) until it's right.
+Once a draft is in the editor, the loop is: select text → comment → ask the agent to tighten, reframe, or extend it. The agent emits `myst_edit` blocks rendered as red strike-throughs + green replacements you accept or reject without leaving the page. Edits stage on disk (`.myst/pending/<doc>.json`), so a crash never loses an in-flight proposal. You can iterate on an unaccepted edit (*"make it shorter"*) until it's right.
 
-![Commenting on a selection and asking the agent to elaborate](res/preview/commenting_indocument_chat.png)
+---
 
 ## What else it does
 
-- **Grounded citations.** Every factual claim in a generated draft links to the exact source in your wiki. Click through and you land on the verbatim passage — not a plausible reconstruction.
-- **Source types.** PDFs, markdown, pasted text, links (fetched + converted to markdown via Jina Reader), and raw files (`.py`, `.csv`, `.json`, `.tsv`) that skip summarisation and are read on demand.
-- **Model choice.** In managed mode you pick from a curated set of strong low-cost models (DeepSeek V3.2, Gemini 2.5 Flash Lite, GPT-OSS 120B, GLM 4.5 Air). In BYOK mode, any OpenRouter model. Keys are encrypted at rest via the OS keychain.
-- **Plain files on disk.** Every project is a folder of markdown and JSON — version it with git, sync it with Dropbox, grep it with ripgrep. Nothing is locked away in a database.
+- **Hard-coded model assignments.** Source digest runs on Gemini 2.5 Flash Lite (cheap + reliable for structured JSON). Chat / Chair / panel run on DeepSeek V4 Flash. The drafter steps up to DeepSeek V4 Pro for the long output it needs. No model picker — picking a model isn't the value.
+- **Five deliverable modes.** Argumentative essay, idea exploration, literature review, analytical report, comparative analysis. Each reshapes the Chair's vision template and the drafter's output structure.
+- **Source roles.** Mark a source as `reference` (cite it inline + list in references) or `guidance` (apply its method, never cite — for framework guides, rubrics, style manuals).
+- **User constraints carried through.** Word count, framework, deliverable format, audience — extracted from your brief, surfaced to every panel and Chair round, applied as hard constraints by the drafter.
+- **Auto-continue on timeouts.** If the drafter's stream drops mid-generation (proxy timeout), the system replays with the partial draft and resumes — no lost tokens.
+- **Plain files on disk.** Every project is a folder of markdown and JSON — version it with git, sync it with Dropbox, grep it with ripgrep. Nothing locked in a database.
 - **Multi-project workspace.** One workspace root, many projects, recent-project picker on launch.
+
+---
 
 ## Quick start
 
@@ -78,7 +131,7 @@ npm install
 npm run dev
 ```
 
-The Electron window opens. Choose **Create new project** to scaffold a fresh folder, add your OpenRouter key in Settings (top-right), pick a model, and you're live. The project folder is plain markdown + JSON.
+The Electron window opens. Choose **Create new project** to scaffold a fresh folder, add your OpenRouter key in Settings (top-right), and you're live. The project folder is plain markdown + JSON.
 
 Prefer a managed build (no BYOK, model + search routed through openmyst.ai)? Run `npm run dev:prod`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full BYOK vs. managed split.
 
@@ -101,9 +154,11 @@ Each feature in `src/main/features/` is self-contained: pure logic, IO helpers f
 
 ## Documentation
 
+- [docs/philosophy.md](docs/philosophy.md) — the longer version of the philosophy above
 - [docs/architecture.md](docs/architecture.md) — process model, feature-folder layout, how the layers fit together
 - [docs/data-model.md](docs/data-model.md) — what lives in a project folder on disk
 - [docs/llm-layer.md](docs/llm-layer.md) — the BYOK / managed facade and how to call it
+- [docs/panel-roles.md](docs/panel-roles.md) — the 11 cheap-model panelist personas + when each runs
 - [docs/chat-turn.md](docs/chat-turn.md) — what happens between "user hits send" and "assistant message appears"
 - [docs/editing-pipeline.md](docs/editing-pipeline.md) — `myst_edit` blocks, pending queue, accept/reject, fuzzy matching
 - [docs/wiki-system.md](docs/wiki-system.md) — sources, wiki index, graph, `source_lookup`
@@ -116,4 +171,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: open an issue first if it
 
 ## License
 
-See [LICENSE](LICENSE)
+See [LICENSE](LICENSE).
