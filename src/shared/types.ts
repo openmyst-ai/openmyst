@@ -648,14 +648,14 @@ export const DEEP_PLAN_MAX_TOTAL_SEARCHES = 20;
 export const DEEP_PLAN_TARGET_SEARCHES_PER_ROUND = 1;
 
 /**
- * Soft target for Chair questions per round. The Chair scales UP when
- * the topic is ambiguous (multiple interpretations, scope under-defined,
- * the writer is still discovering what they mean) and DOWN when the
- * topic is clear and the writer's hand is firm. Used as a target —
- * not a hard cap. Empty rounds (0 questions) are fine once requirements
- * are pinned and nothing genuinely forks.
+ * Soft target for Chair questions per round. We bundle MORE questions
+ * per round (3) so the writer answers once and the Chair has enough to
+ * advance — the user prefers fewer rounds with denser question batches
+ * over many rounds with thin batches. Scales UP to 4 for ambiguous /
+ * exploratory topics, DOWN to 0–1 only when the topic is clear and
+ * nothing genuinely forks.
  */
-export const DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND = 2;
+export const DEEP_PLAN_TARGET_QUESTIONS_PER_ROUND = 3;
 
 /**
  * Soft round limit per phase — once reached, the Chair is strongly

@@ -319,8 +319,32 @@ export function parseChairOutput(raw: string): ChairOutput | null {
     if (q) questions.push(q);
   }
 
-  const phaseAdvance =
+  let phaseAdvance =
     rec.phaseAdvance === true || rec.phase_advance === true;
+
+  // Defence against the Chair smuggling phase-advance questions through
+  // the question card despite being explicitly told not to. If we see a
+  // "ready to advance / move on / continue to <phase>?" question, drop
+  // it AND force phaseAdvance=true — that's clearly the intent. The user
+  // hits the inline phase-advance CTA, not a yes/no popup mid-round.
+  const PHASE_ADVANCE_PATTERNS = [
+    /\bready (?:to )?(?:advance|move on|continue|proceed)\b/i,
+    /\b(?:advance|move on|proceed) to (?:the )?(?:planning|reviewing|next) (?:phase|stage)\b/i,
+    /\bshall we (?:advance|move on|continue|proceed)\b/i,
+    /\bare we ready (?:to|for)\b/i,
+    /\b(?:continue|advance) (?:to|with) (?:the )?(?:planning|reviewing|next)\b/i,
+  ];
+  const isPhaseAdvanceQuestion = (q: ChairQuestion): boolean => {
+    return PHASE_ADVANCE_PATTERNS.some((re) => re.test(q.prompt));
+  };
+  let droppedPhaseAdvance = false;
+  for (let i = questions.length - 1; i >= 0; i--) {
+    if (isPhaseAdvanceQuestion(questions[i]!)) {
+      questions.splice(i, 1);
+      droppedPhaseAdvance = true;
+    }
+  }
+  if (droppedPhaseAdvance) phaseAdvance = true;
 
   const requirementsPatch = sanitizeRequirementsPatch(
     rec.requirementsPatch ?? rec.requirements_patch,

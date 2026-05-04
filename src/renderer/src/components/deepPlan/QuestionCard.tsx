@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import type { ChairAnswer, ChairAnswerMap, ChairQuestion } from '@shared/types';
-import { DELEGATE_TO_RESEARCH } from '@shared/types';
 import { useDeepPlan } from '../../store/deepPlan';
 import { renderMarkdownInline } from '../../utils/markdown';
 
@@ -313,17 +312,6 @@ export function QuestionCard({ questions }: Props): JSX.Element | null {
         >
           Let the panel decide
         </button>
-        {current.delegableQuery && (
-          <button
-            type="button"
-            className="dp-qcard-delegate"
-            onClick={() => void handleNext(DELEGATE_TO_RESEARCH)}
-            disabled={busy}
-            title={`Search the web: "${current.delegableQuery}"`}
-          >
-            🔍 Research this
-          </button>
-        )}
         <button
           type="button"
           className="dp-qcard-next"
