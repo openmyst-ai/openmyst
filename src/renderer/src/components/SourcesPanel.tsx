@@ -55,8 +55,12 @@ export function SourcesPanel(): JSX.Element {
         return 'text';
       case 'pasted':
         return 'pasted';
-      case 'raw':
+      case 'raw': {
+        // Spreadsheets land in the raw bucket but get a friendlier label.
+        const ext = (s.originalName.match(/\.([^.]+)$/)?.[1] ?? '').toLowerCase();
+        if (ext === 'xlsx' || ext === 'xls' || ext === 'ods') return 'spreadsheet';
         return 'file';
+      }
       default:
         return null;
     }

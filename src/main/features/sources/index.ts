@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { dialog } from 'electron';
+import * as XLSX from 'xlsx';
 import { IpcChannels } from '@shared/ipc-channels';
 import type {
   AnchorLogEntry,
@@ -74,6 +75,29 @@ const RAW_LANG_LABELS: Record<string, string> = {
 
 function rawLangLabel(ext: string): string {
   return RAW_LANG_LABELS[ext.toLowerCase()] ?? 'file';
+}
+
+const SPREADSHEET_EXTS: ReadonlySet<string> = new Set(['.xlsx', '.xls', '.ods']);
+
+/**
+ * Convert a spreadsheet file (.xlsx / .xls / .ods) into a plain-text
+ * markdown rendering — one heading per sheet, CSV-style rows underneath.
+ * The result replaces the raw bytes on disk so `source_lookup` returns
+ * something the agent can actually parse instead of zipped XML gibberish.
+ *
+ * Lossy on formulas (you get cached values), images, and styling —
+ * acceptable for research data; the agent only ever reads tabular content.
+ */
+function spreadsheetToText(filePath: string, displayName: string): string {
+  const wb = XLSX.readFile(filePath, { cellDates: true });
+  const blocks: string[] = [`# ${displayName}`];
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) continue;
+    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+    blocks.push(`\n## Sheet: ${sheetName}\n\n${csv.trim()}`);
+  }
+  return blocks.join('\n');
 }
 
 function formatBytes(n: number): string {
@@ -176,17 +200,29 @@ async function saveRawSource(filePath: string): Promise<SourceMeta> {
   const originalName = basename(filePath);
   const ext = extname(originalName);
   const stat = await fs.stat(filePath);
-  const lang = rawLangLabel(ext);
+  const isSpreadsheet = SPREADSHEET_EXTS.has(ext.toLowerCase());
+  const lang = isSpreadsheet ? 'spreadsheet' : rawLangLabel(ext);
 
   // slug from the bare filename — keeps it predictable when the agent
   // references it (`train_py` for `train.py`). ext is preserved in the
   // stored filename so IDE previews / `file` command still work.
   const baseSlug = slugify(originalName);
   const slug = await uniqueSlugFor(baseSlug);
-  const rawFile = `${slug}${ext}`;
-  await fs.copyFile(filePath, projectPath('sources', rawFile));
+  // For spreadsheets we write a plain-text markdown rendering instead of
+  // copying the raw bytes — `source_lookup` reads UTF-8, so the original
+  // .xlsx zipped XML would come back as gibberish. The display name is
+  // preserved on `meta.originalName` + `meta.name`.
+  const rawFile = isSpreadsheet ? `${slug}.txt` : `${slug}${ext}`;
+  if (isSpreadsheet) {
+    const text = spreadsheetToText(filePath, originalName);
+    await fs.writeFile(projectPath('sources', rawFile), text, 'utf-8');
+  } else {
+    await fs.copyFile(filePath, projectPath('sources', rawFile));
+  }
 
-  const indexSummary = `Raw ${lang} file (${originalName}, ${formatBytes(stat.size)}) — not summarized. Pull contents via \`source_lookup\` with \`"raw": true\`.`;
+  const indexSummary = isSpreadsheet
+    ? `Spreadsheet (${originalName}, ${formatBytes(stat.size)}) — flattened to markdown tables, not summarized. Pull contents via \`source_lookup\` with \`"raw": true\`.`
+    : `Raw ${lang} file (${originalName}, ${formatBytes(stat.size)}) — not summarized. Pull contents via \`source_lookup\` with \`"raw": true\`.`;
   // User-facing body shown in the sources pane. Short and reassuring — the
   // file is still usable, just not auto-summarised. No protocol details here;
   // those belong in the stub .md below, which the agent reads, not the human.
@@ -333,6 +369,7 @@ export async function pickSourceFiles(): Promise<string[]> {
         extensions: [
           'py', 'ipynb', 'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
           'csv', 'tsv', 'json', 'jsonl', 'yaml', 'yml', 'toml', 'ini',
+          'xlsx', 'xls', 'ods',
           'sh', 'bash', 'zsh', 'sql',
           'go', 'rs', 'rb', 'java', 'kt', 'swift',
           'c', 'h', 'cpp', 'cxx', 'hpp', 'cs',
@@ -355,8 +392,12 @@ export async function pickSourceFiles(): Promise<string[]> {
 const LEGACY_RAW_SUMMARY_MARKER = 'This source is not summarised. To read the full contents';
 
 function buildRawSourceSummary(meta: SourceMeta): string {
-  const ext = meta.rawFile ? extname(meta.rawFile) : extname(meta.originalName);
-  const lang = rawLangLabel(ext);
+  // Use the original file's extension when available — `meta.rawFile`
+  // for spreadsheets points at the converted .txt, which would mislabel
+  // them as "text".
+  const ext = extname(meta.originalName) || (meta.rawFile ? extname(meta.rawFile) : '');
+  const isSpreadsheet = SPREADSHEET_EXTS.has(ext.toLowerCase());
+  const lang = isSpreadsheet ? 'spreadsheet' : rawLangLabel(ext);
   const size = typeof meta.sizeBytes === 'number' ? formatBytes(meta.sizeBytes) : 'unknown size';
   return `No summary — raw ${lang} file (${size}). Full contents stay indexed and the agent reads them on demand.`;
 }
