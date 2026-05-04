@@ -30,6 +30,9 @@ function createMainWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#0f1115',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // Vertically centre macOS traffic-light buttons in the 48px titlebar.
+    // Default y=8 floats them at the top; (48 - ~14) / 2 ≈ 17 centres them.
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 17 } } : {}),
     // macOS ignores BrowserWindow.icon (it uses the bundle). Windows + Linux
     // pick it up here; both cases are only relevant in dev — in prod the
     // icon is baked into the installer by electron-builder.

@@ -27,18 +27,38 @@ export function SourcesPanel(): JSX.Element {
   }, []);
 
   const getOriginLabel = (s: SourceMeta): string | null => {
-    if (s.type !== 'link' || !s.sourcePath) return null;
-    try {
-      const host = new URL(s.sourcePath).hostname.replace(/^www\./, '');
-      // Strip the TLD + any preceding subdomain so e.g. "journals.nature.com"
-      // shows as "nature" and "medium.com/x/y" shows as "medium". Take the
-      // second-to-last segment when present (the registrable name minus
-      // TLD); for short hostnames like "github.com" use the first segment.
-      const parts = host.split('.');
-      if (parts.length >= 2) return parts[parts.length - 2]!;
-      return parts[0]!;
-    } catch {
-      return null;
+    // Show origin for ANY source whose `sourcePath` parses as a URL —
+    // this covers `link` ingests AND pasted text where the user included
+    // a URL (the ingest pipeline extracts those into `sourcePath`).
+    // Non-URL paths (raw files, local PDFs) get a type-based label
+    // instead so the bubble always shows something under the title.
+    if (s.sourcePath) {
+      try {
+        const host = new URL(s.sourcePath).hostname.replace(/^www\./, '');
+        // Strip the TLD + any preceding subdomain so e.g. "journals.nature.com"
+        // shows as "nature" and "medium.com/x/y" shows as "medium". Take the
+        // second-to-last segment when present (the registrable name minus
+        // TLD); for short hostnames like "github.com" use the first segment.
+        const parts = host.split('.');
+        if (parts.length >= 2) return parts[parts.length - 2]!;
+        return parts[0]!;
+      } catch {
+        // Fall through to type-based label below.
+      }
+    }
+    switch (s.type) {
+      case 'pdf':
+        return 'pdf';
+      case 'markdown':
+        return 'markdown';
+      case 'text':
+        return 'text';
+      case 'pasted':
+        return 'pasted';
+      case 'raw':
+        return 'file';
+      default:
+        return null;
     }
   };
 
@@ -61,7 +81,9 @@ export function SourcesPanel(): JSX.Element {
               >
                 <span className="source-name-label">
                   <span className="source-name-title">{s.name}</span>
-                  {origin && <span className="source-name-origin">{origin}</span>}
+                  {origin && (
+                    <span className="source-name-origin">Source: {origin}</span>
+                  )}
                 </span>
                 <span
                   className="source-name-delete"

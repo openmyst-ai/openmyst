@@ -271,3 +271,4 @@ const api: MystApi = {
 };
 
 contextBridge.exposeInMainWorld('myst', api);
+contextBridge.exposeInMainWorld('mystPlatform', process.platform);

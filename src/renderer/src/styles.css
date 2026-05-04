@@ -742,9 +742,16 @@ img.login-logo {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px 0 84px;
+  padding: 0 14px;
   -webkit-app-region: drag;
   flex-shrink: 0;
+}
+/* macOS draws traffic-light buttons over the top-left of the window when
+   `titleBarStyle: 'hiddenInset'` is set. Without this padding they sit
+   on top of our logo. ~84px clears the three buttons at x=12 + ~70px
+   width; everywhere else we keep the symmetric 14px padding. */
+[data-platform='darwin'] .titlebar {
+  padding-left: 84px;
 }
 .titlebar-left,
 .titlebar-right {
@@ -855,7 +862,7 @@ img.login-logo {
 /* ---- Panels ---- */
 .sources-panel {
   flex: 0 0 auto;
-  max-height: 33vh;
+  max-height: 40vh;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -894,7 +901,7 @@ img.login-logo {
   color: var(--fg);
   font-size: 12px;
   text-align: left;
-  padding: 11px 13px;
+  padding: 7px 11px;
   cursor: pointer;
   border-radius: 10px;
   gap: 8px;
