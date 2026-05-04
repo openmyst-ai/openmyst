@@ -29,8 +29,14 @@ export function SourcesPanel(): JSX.Element {
   const getOriginLabel = (s: SourceMeta): string | null => {
     if (s.type !== 'link' || !s.sourcePath) return null;
     try {
-      const host = new URL(s.sourcePath).hostname;
-      return host.replace(/^www\./, '');
+      const host = new URL(s.sourcePath).hostname.replace(/^www\./, '');
+      // Strip the TLD + any preceding subdomain so e.g. "journals.nature.com"
+      // shows as "nature" and "medium.com/x/y" shows as "medium". Take the
+      // second-to-last segment when present (the registrable name minus
+      // TLD); for short hostnames like "github.com" use the first segment.
+      const parts = host.split('.');
+      if (parts.length >= 2) return parts[parts.length - 2]!;
+      return parts[0]!;
     } catch {
       return null;
     }

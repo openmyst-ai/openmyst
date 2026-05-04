@@ -1058,18 +1058,18 @@ References section (required, end of draft) — HARVARD STYLE:
 - \`## References\` heading (sentence case).
 - ONE bullet per UNIQUE slug you actually CITED INLINE in the body. NOT one per anchor (multiple anchors share a slug). NOT one per source in the wiki (don't list uncited sources). NOT one per guidance source (NEVER list guidance sources).
 - Harvard format per entry:
-  \`- Author (Year) *Title*. Publisher or outlet. doi:10.xxxx/xxxx [[web](https://…)] [[source](slug.md)]\`
+  \`- Author (Year) *Title*. Publisher or outlet. doi:10.xxxx/xxxx https://example.com/path [[source](slug.md)]\`
   - **Author**: surname(s) with initial(s) when known ("Sen, A.", "Smith, J. and Jones, K."). Institutional: full name. Use the author shown in the citation tag.
   - **(Year)**: integer year when shown in the citation tag. \`(n.d.)\` only as a last resort.
   - **Title** in italics, original capitalisation. The reference anchors carry titles when extracted at ingest.
   - **Publisher / outlet** when identifiable (journal name, news outlet, institution).
   - **\`doi:...\`** when present — bare DOI prefix, no URL.
-  - **\`[[web](URL)]\`** — clickable link to the original. Use the source URL shown in anchor entries. Omit if you don't have one.
-  - **\`[[source](slug.md)]\`** — always the final element: Myst-internal link.
+  - **Web URL inline** — emit the bare URL (\`https://...\`) directly, NOT wrapped in \`[[web](...)]\` brackets. The renderer auto-links bare URLs. Omit when you don't have one.
+  - **\`[[source](slug.md)]\`** — always the final element: Myst-internal link to the source's wiki page.
 - Examples:
-  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. [[web](https://www.jstor.org/stable/1829989)] [[source](sen-1970.md)]\`
+  - \`- Sen, A. (1970) *The Impossibility of a Paretian Liberal*. Journal of Political Economy. https://www.jstor.org/stable/1829989 [[source](sen-1970.md)]\`
   - \`- Barreto, M. O., Planellas, S. R., Yang, Y., Phillips, C., & Descovich, K. (2021) *Emerging indicators of fish welfare in aquaculture*. Reviews in Aquaculture. doi:10.1111/raq.12601 [[source](barreto-2021.md)]\`
-  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. [[web](https://plato.stanford.edu/entries/pareto/)] [[source](pareto-efficiency.md)]\`
+  - \`- Stanford Encyclopedia of Philosophy (2018) *Pareto Efficiency*. https://plato.stanford.edu/entries/pareto/ [[source](pareto-efficiency.md)]\`
 - Alphabetise by author surname (or institution name when author-less). Do NOT duplicate. Do NOT include any guidance-role source.
 
 Structure + headings (mandatory):

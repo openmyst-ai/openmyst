@@ -854,7 +854,8 @@ img.login-logo {
 
 /* ---- Panels ---- */
 .sources-panel {
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  max-height: 33vh;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -876,7 +877,8 @@ img.login-logo {
  * scroll via max-height, so it never pushes docfiles/toc off-screen. */
 .source-list-scroll {
   overflow-y: auto;
-  max-height: 42vh;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
@@ -2404,6 +2406,18 @@ img.login-logo {
 .status-ok {
   color: var(--ok);
   flex: 1;
+}
+.issue-link {
+  color: #b9a3d6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--dur) var(--ease);
+}
+.issue-link:hover {
+  color: #d3c2eb;
+}
+.issue-link:visited {
+  color: #b9a3d6;
 }
 
 /* ---- Errors ---- */

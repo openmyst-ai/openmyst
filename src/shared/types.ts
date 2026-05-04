@@ -72,17 +72,17 @@ export const SUMMARY_MODEL_OPTIONS: Array<{ id: string; label: string }> = [
 ];
 
 /**
- * Default model across chat, Chair, drafter, panel. Gemma-4-31b-it is
- * punchy: strong structured-output compliance, good general-purpose
- * reasoning, cheap enough to fan out the panel on. Only the source-digest
- * slot diverges (see DEFAULT_SUMMARY_MODEL) because that's a one-shot
- * per-source task where the cheapest reliable model wins.
+ * Hard-coded model assignments. Users no longer pick — every slot but
+ * one runs DeepSeek V4 Flash (chat, Chair, panel), the drafter steps up
+ * to DeepSeek V4 Pro for the long output it needs, and source digest /
+ * anchor extraction stays on Gemini 2.5 Flash Lite (cheap + reliable
+ * for structured JSON output, runs once per source).
  */
-export const DEFAULT_DEEP_PLAN_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_DEEP_PLAN_MODEL = 'deepseek/deepseek-v4-flash';
 export const DEFAULT_SUMMARY_MODEL = 'google/gemini-2.5-flash-lite';
-export const DEFAULT_CHAIR_MODEL = 'google/gemma-4-31b-it';
-export const DEFAULT_DRAFT_MODEL = 'google/gemma-4-31b-it';
-export const DEFAULT_PANEL_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_CHAIR_MODEL = 'deepseek/deepseek-v4-flash';
+export const DEFAULT_DRAFT_MODEL = 'deepseek/deepseek-v4-pro';
+export const DEFAULT_PANEL_MODEL = 'deepseek/deepseek-v4-flash';
 
 export interface ProjectMeta {
   name: string;

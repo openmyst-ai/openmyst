@@ -30,8 +30,13 @@ import {
  *
  *   v1 — 2026-04: reset to gemma-4-31b-it + gemini-2.5-flash-lite defaults
  *        after the panel/summary/chair/draft slot split landed.
+ *   v2 — 2026-05: model choice removed from user UI. Slots are now
+ *        hard-coded via the DEFAULT_* constants (deepseek-v4-flash for
+ *        chat/Chair/panel, deepseek-v4-pro for drafter, gemini-2.5-flash-lite
+ *        for source digest). Stored values still exist for legacy compat
+ *        but are ignored — every getter returns the constant directly.
  */
-const CURRENT_MODEL_DEFAULTS_VERSION = 1;
+const CURRENT_MODEL_DEFAULTS_VERSION = 2;
 
 interface StoredSettings {
   defaultModel: string;
@@ -152,12 +157,14 @@ async function writeStored(stored: StoredSettings): Promise<void> {
 export async function getSettings(): Promise<AppSettings> {
   const stored = await readStored();
   return {
-    defaultModel: stored.defaultModel,
-    deepPlanModel: stored.deepPlanModel,
-    chairModel: stored.chairModel,
-    draftModel: stored.draftModel,
-    panelModel: stored.panelModel,
-    summaryModel: stored.summaryModel,
+    // Model fields surface the hard-coded DEFAULT_* constants — stored
+    // values are kept on disk for legacy compat but ignored here.
+    defaultModel: DEFAULT_MODEL,
+    deepPlanModel: DEFAULT_DEEP_PLAN_MODEL,
+    chairModel: DEFAULT_CHAIR_MODEL,
+    draftModel: DEFAULT_DRAFT_MODEL,
+    panelModel: DEFAULT_PANEL_MODEL,
+    summaryModel: DEFAULT_SUMMARY_MODEL,
     hasOpenRouterKey: stored.openRouterKeyCipher !== null,
     hasJinaKey: stored.jinaKeyCipher !== null,
     recentProjects: stored.recentProjects,
@@ -198,9 +205,8 @@ export async function clearOpenRouterKey(): Promise<void> {
   await writeStored({ ...stored, openRouterKeyCipher: null });
 }
 
-export async function setDefaultModel(model: string): Promise<void> {
-  const stored = await readStored();
-  await writeStored({ ...stored, defaultModel: model });
+export async function setDefaultModel(_model: string): Promise<void> {
+  // No-op. Model choice is hard-coded — see DEFAULT_* constants.
 }
 
 export async function setJinaKey(key: string): Promise<void> {
@@ -225,65 +231,35 @@ export async function clearJinaKey(): Promise<void> {
   await writeStored({ ...stored, jinaKeyCipher: null });
 }
 
-export async function setDeepPlanModel(model: string): Promise<void> {
-  // Legacy setter — kept for backward compat with any caller that still
-  // speaks the pre-split API. Writes BOTH new slots so the user's intent
-  // (one Deep Plan model) is reflected post-split.
-  const stored = await readStored();
-  await writeStored({
-    ...stored,
-    deepPlanModel: model,
-    chairModel: model,
-    draftModel: model,
-  });
-}
+// Model getters are now hard-coded — users don't pick. The DEFAULT_*
+// constants live in `@shared/types`. All setters are no-ops kept for IPC
+// backward compatibility; they accept any model string and silently drop
+// it. Future re-exposure of user choice is just removing the no-ops and
+// restoring the stored-value reads.
 
+export async function setDeepPlanModel(_model: string): Promise<void> {}
 export async function getDeepPlanModel(): Promise<string> {
-  // Legacy getter — returns chairModel for the deepSearch planner path
-  // that still consumes the old API. Safe because Chair is the "planner"
-  // role in spirit.
-  const stored = await readStored();
-  return stored.chairModel;
+  return DEFAULT_DEEP_PLAN_MODEL;
 }
 
-export async function setChairModel(model: string): Promise<void> {
-  const stored = await readStored();
-  await writeStored({ ...stored, chairModel: model });
-}
-
+export async function setChairModel(_model: string): Promise<void> {}
 export async function getChairModel(): Promise<string> {
-  const stored = await readStored();
-  return stored.chairModel;
+  return DEFAULT_CHAIR_MODEL;
 }
 
-export async function setDraftModel(model: string): Promise<void> {
-  const stored = await readStored();
-  await writeStored({ ...stored, draftModel: model });
-}
-
+export async function setDraftModel(_model: string): Promise<void> {}
 export async function getDraftModel(): Promise<string> {
-  const stored = await readStored();
-  return stored.draftModel;
+  return DEFAULT_DRAFT_MODEL;
 }
 
-export async function setSummaryModel(model: string): Promise<void> {
-  const stored = await readStored();
-  await writeStored({ ...stored, summaryModel: model });
-}
-
+export async function setSummaryModel(_model: string): Promise<void> {}
 export async function getSummaryModel(): Promise<string> {
-  const stored = await readStored();
-  return stored.summaryModel;
+  return DEFAULT_SUMMARY_MODEL;
 }
 
-export async function setPanelModel(model: string): Promise<void> {
-  const stored = await readStored();
-  await writeStored({ ...stored, panelModel: model });
-}
-
+export async function setPanelModel(_model: string): Promise<void> {}
 export async function getPanelModel(): Promise<string> {
-  const stored = await readStored();
-  return stored.panelModel;
+  return DEFAULT_PANEL_MODEL;
 }
 
 export async function pushRecentProject(path: string): Promise<void> {

@@ -187,7 +187,12 @@ export function BugReportModal({ onClose }: Props): JSX.Element {
               <>
                 <p>
                   Thanks! Your report was posted as{' '}
-                  <a href={result.issueUrl} target="_blank" rel="noreferrer">
+                  <a
+                    href={result.issueUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="issue-link"
+                  >
                     {result.issueNumber !== null
                       ? `issue #${result.issueNumber}`
                       : 'a new GitHub issue'}
